@@ -1,62 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
-import { Inventory, InventoryState } from "@/types";
+import React, { useState, useMemo } from "react";
+import { Inventory, InventoryState, Warehouse } from "@/types";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
-import { PlusIcon, PencilIcon, EyeIcon } from "@/icons";
+import { PlusIcon, BoxIcon } from "@/icons";
 import Link from "next/link";
-
-// Mock data
-const mockInventory: Inventory[] = [
-  {
-    id: "1",
-    productId: "1",
-    product: {
-      id: "1",
-      name: "Paracetamol 500mg",
-      price: 5.99,
-      active: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-    batchNumber: "BATCH-2024-001",
-    expiryDate: new Date("2025-12-31"),
-    quantity: 1000,
-    availableQuantity: 850,
-    reservedQuantity: 150,
-    state: InventoryState.AVAILABLE,
-    warehouseLocation: "WAREHOUSE-1",
-    warehouseName: "თბილისი - ცენტრალური",
-    receivedDate: new Date("2024-01-15"),
-    supplier: "Supplier ABC",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: "2",
-    productId: "1",
-    product: {
-      id: "1",
-      name: "Paracetamol 500mg",
-      price: 5.99,
-      active: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-    batchNumber: "BATCH-2024-002",
-    expiryDate: new Date("2025-06-30"),
-    quantity: 500,
-    availableQuantity: 500,
-    reservedQuantity: 0,
-    state: InventoryState.AVAILABLE,
-    warehouseLocation: "WAREHOUSE-1",
-    warehouseName: "თბილისი - ცენტრალური",
-    receivedDate: new Date("2024-02-01"),
-    supplier: "Supplier ABC",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-];
+import { mockInventory, mockWarehouses } from "@/lib/api/mockData";
 
 const stateLabels: Record<InventoryState, string> = {
   [InventoryState.RECEIVED_BLOCKED]: "მიღებული (დაბლოკილი)",
@@ -69,35 +18,52 @@ const stateLabels: Record<InventoryState, string> = {
   [InventoryState.REJECTED]: "უარყოფილი",
 };
 
+
 export default function InventoryPage() {
-  const [inventory, setInventory] = useState<Inventory[]>(mockInventory);
+  const [inventory] = useState<Inventory[]>(mockInventory);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterWarehouse, setFilterWarehouse] = useState<string>("all");
   const [filterState, setFilterState] = useState<string>("all");
 
-  const filteredInventory = inventory.filter((item) => {
-    const matchesSearch =
-      item.product?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.batchNumber.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesWarehouse =
-      filterWarehouse === "all" || item.warehouseLocation === filterWarehouse;
-    const matchesState = filterState === "all" || item.state === filterState;
-    return matchesSearch && matchesWarehouse && matchesState;
-  });
+  // საწყობების მონაცემების დაჯგუფება
+  const warehouseData = useMemo(() => {
+    // დაჯგუფება საწყობების მიხედვით
+    const warehouses = filterWarehouse === "all" 
+      ? mockWarehouses 
+      : mockWarehouses.filter(w => w.id === filterWarehouse);
 
-  const getDaysUntilExpiry = (expiryDate: Date) => {
-    const today = new Date();
-    const diffTime = expiryDate.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
-  };
+    const result: { warehouse: Warehouse; itemCount: number }[] = [];
 
-  const getExpiryStatus = (expiryDate: Date) => {
-    const days = getDaysUntilExpiry(expiryDate);
-    if (days < 0) return { label: "ვადა გაუვიდა", color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" };
-    if (days < 60) return { label: `ვადა გადის ${days} დღეში`, color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" };
-    return { label: `ვადა: ${expiryDate.toLocaleDateString("ka-GE")}`, color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" };
-  };
+    warehouses.forEach(warehouse => {
+      const warehouseInventory = inventory.filter(item => {
+        if (item.warehouseLocation !== warehouse.id) return false;
+        if (filterState !== "all" && item.state !== filterState) return false;
+        
+        const searchLower = searchTerm.toLowerCase();
+        const matchesSearch = 
+          !searchTerm ||
+          item.product?.name.toLowerCase().includes(searchLower) ||
+          item.batchNumber.toLowerCase().includes(searchLower) ||
+          item.product?.genericName?.toLowerCase().includes(searchLower) ||
+          item.product?.manufacturer?.toLowerCase().includes(searchLower) ||
+          item.product?.strength?.toLowerCase().includes(searchLower);
+
+        return matchesSearch;
+      });
+      
+      if (warehouseInventory.length === 0 && searchTerm) return; // თუ ძიებაა და არაფერი მოიძებნა, არ ჩანდეს
+      if (filterWarehouse !== "all" && warehouseInventory.length === 0) return;
+
+      result.push({
+        warehouse,
+        itemCount: warehouseInventory.length,
+      });
+    });
+
+    return result;
+  }, [inventory, searchTerm, filterWarehouse, filterState]);
+
+
 
   return (
     <div className="space-y-6">
@@ -119,7 +85,11 @@ export default function InventoryPage() {
             className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white"
           >
             <option value="all">ყველა საწყობი</option>
-            <option value="WAREHOUSE-1">თბილისი - ცენტრალური</option>
+            {mockWarehouses.map(warehouse => (
+              <option key={warehouse.id} value={warehouse.id}>
+                {warehouse.name}
+              </option>
+            ))}
           </select>
           <select
             value={filterState}
@@ -143,107 +113,51 @@ export default function InventoryPage() {
         </Link>
       </div>
 
-      {/* Inventory Table */}
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-900">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
-                  პროდუქტი
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
-                  Batch #
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
-                  რაოდენობა
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
-                  ვადა
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
-                  საწყობი
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
-                  სტატუსი
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
-                  მოქმედებები
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {filteredInventory.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
-                    ინვენტარი არ მოიძებნა
-                  </td>
-                </tr>
-              ) : (
-                filteredInventory.map((item) => {
-                  const expiryStatus = getExpiryStatus(item.expiryDate);
-                  return (
-                    <tr
-                      key={item.id}
-                      className="hover:bg-gray-50 dark:hover:bg-gray-700"
-                    >
-                      <td className="px-6 py-4">
-                        <div className="font-medium text-gray-900 dark:text-white">
-                          {item.product?.name || "Unknown"}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                        {item.batchNumber}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm">
-                          <div className="font-medium text-gray-900 dark:text-white">
-                            ხელმისაწვდომი: {item.availableQuantity}
-                          </div>
-                          <div className="text-gray-500 dark:text-gray-400">
-                            დაჯავშნილი: {item.reservedQuantity} / სულ: {item.quantity}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${expiryStatus.color}`}>
-                          {expiryStatus.label}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                        {item.warehouseName || item.warehouseLocation}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="inline-flex rounded-full px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                          {stateLabels[item.state]}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Link
-                            href={`/inventory/${item.id}`}
-                            className="rounded p-1 text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-                            title="ნახვა"
-                          >
-                            <EyeIcon className="h-4 w-4" />
-                          </Link>
-                          <Link
-                            href={`/inventory/${item.id}/adjust`}
-                            className="rounded p-1 text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-                            title="რეგულირება"
-                          >
-                            <PencilIcon className="h-4 w-4" />
-                          </Link>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+      {/* საწყობების ქარდები */}
+      {warehouseData.length === 0 ? (
+        <div className="rounded-lg border border-gray-200 bg-white px-6 py-8 text-center text-sm text-gray-500 shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
+          ინვენტარი არ მოიძებნა
         </div>
-      </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
+          {warehouseData.map((warehouseInfo) => (
+            <Link
+              key={warehouseInfo.warehouse.id}
+              href={`/inventory/warehouse/${warehouseInfo.warehouse.id}`}
+              className="group overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
+            >
+              {/* საწყობის header */}
+              <div className="border-b border-gray-200 bg-gray-50 px-6 py-4 transition-colors group-hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900 dark:group-hover:bg-gray-800">
+                <div className="flex items-center gap-3">
+                  <BoxIcon className="h-5 w-5 text-brand-500" />
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                      {warehouseInfo.warehouse.name}
+                    </h3>
+                    {warehouseInfo.warehouse.address && (
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {warehouseInfo.warehouse.address}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* საწყობის სტატისტიკა */}
+              <div className="px-6 py-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                    პროდუქტების რაოდენობა
+                  </span>
+                  <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                    {warehouseInfo.itemCount}
+                  </span>
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

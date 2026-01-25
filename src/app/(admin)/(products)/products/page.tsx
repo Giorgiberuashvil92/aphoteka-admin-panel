@@ -1,52 +1,95 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Product } from "@/types";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
 import { PlusIcon, PencilIcon, TrashBinIcon, EyeIcon } from "@/icons";
 import Link from "next/link";
-
-// Mock data - სამომავლოდ API-დან მოვა
-const mockProducts: Product[] = [
-  {
-    id: "1",
-    name: "Paracetamol 500mg",
-    description: "Pain relief medication",
-    price: 5.99,
-    active: true,
-    category: "Pain Relief",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: "2",
-    name: "Ibuprofen 200mg",
-    description: "Anti-inflammatory",
-    price: 7.50,
-    active: true,
-    category: "Pain Relief",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-];
+import { useProducts } from "@/hooks/useProducts";
+import { productsApi } from "@/lib/api";
 
 export default function ProductsPage() {
-  const [products, setProducts] = useState<Product[]>(mockProducts);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+  
+  // Debounce search term to avoid too many API calls
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
 
-  const filteredProducts = products.filter(
-    (product) =>
-      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.description?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+  
+  // API integration - მონაცემები მოდის ბაზიდან
+  const { data, loading, error, execute } = useProducts({
+    search: debouncedSearchTerm || undefined,
+    limit: 100,
+  });
 
-  const toggleProductStatus = (id: string) => {
-    setProducts(
-      products.map((p) =>
-        p.id === id ? { ...p, active: !p.active } : p
-      )
+  // Memoize products to avoid unnecessary re-renders
+  const products = useMemo(() => data?.data || [], [data?.data]);
+
+  // Client-side filtering is no longer needed since API handles search
+  // But we keep it as fallback for better UX
+  const filteredProducts = useMemo(() => {
+    if (!debouncedSearchTerm) return products;
+    
+    const search = debouncedSearchTerm.toLowerCase();
+    return products.filter(
+      (product) =>
+        product.name.toLowerCase().includes(search) ||
+        product.genericName?.toLowerCase().includes(search) ||
+        product.description?.toLowerCase().includes(search) ||
+        product.sku?.toLowerCase().includes(search) ||
+        product.manufacturer?.toLowerCase().includes(search) ||
+        product.countryOfOrigin?.toLowerCase().includes(search)
     );
+  }, [products, debouncedSearchTerm]);
+
+  const toggleProductStatus = async (id: string) => {
+    try {
+      await productsApi.toggleStatus(id);
+      // Refresh data after status change
+      execute();
+    } catch (error) {
+      console.error('Failed to toggle product status:', error);
+      alert('შეცდომა: ვერ მოხერხდა პროდუქტის სტატუსის შეცვლა');
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-500 mx-auto"></div>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">მონაცემების ჩატვირთვა...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <PageBreadCrumb pageTitle="პროდუქტების კატალოგი" />
+        <div className="rounded-lg border border-red-200 bg-red-50 p-6 dark:border-red-800 dark:bg-red-900/20">
+          <h3 className="text-lg font-semibold text-red-800 dark:text-red-200">
+            შეცდომა მონაცემების ჩატვირთვისას
+          </h3>
+          <p className="mt-2 text-red-600 dark:text-red-300">
+            {error instanceof Error ? error.message : 'უცნობი შეცდომა'}
+          </p>
+          <button
+            onClick={() => execute()}
+            className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+          >
+            ხელახლა ცდა
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -82,6 +125,12 @@ export default function ProductsPage() {
                   პროდუქტი
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                  დოზირება
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                  მწარმოებელი
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
                   კატეგორია
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
@@ -98,7 +147,7 @@ export default function ProductsPage() {
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
                     პროდუქტები არ მოიძებნა
                   </td>
                 </tr>
@@ -111,14 +160,35 @@ export default function ProductsPage() {
                     <td className="px-6 py-4">
                       <div>
                         <div className="font-medium text-gray-900 dark:text-white">
-                          {product.name}
+                          {product.genericName || product.name}
                         </div>
                         {product.description && (
                           <div className="text-sm text-gray-500 dark:text-gray-400">
                             {product.description}
                           </div>
                         )}
+                        {product.sku && (
+                          <div className="text-xs text-gray-400 dark:text-gray-500">
+                            SKU: {product.sku}
+                          </div>
+                        )}
                       </div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900 dark:text-white">
+                      <div className="font-medium">{product.strength || "-"}</div>
+                      {product.dosageForm && (
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          {product.dosageForm}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                      <div>{product.manufacturer || "-"}</div>
+                      {product.countryOfOrigin && (
+                        <div className="text-xs text-gray-400 dark:text-gray-500">
+                          {product.countryOfOrigin}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
                       {product.category || "-"}

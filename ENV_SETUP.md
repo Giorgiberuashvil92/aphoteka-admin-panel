@@ -1,0 +1,37 @@
+# Environment Variables Setup
+
+## Required Environment Variables
+
+შექმენით `.env.local` ფაილი პროექტის root დირექტორიაში:
+
+```env
+# API Configuration
+NEXT_PUBLIC_API_URL=http://localhost:3001/api
+
+# Production-ში:
+# NEXT_PUBLIC_API_URL=https://your-api-domain.com/api
+```
+
+## Environment Variables Structure
+
+### Development (.env.local)
+```env
+NEXT_PUBLIC_API_URL=http://localhost:3001/api
+```
+
+### Production (Vercel)
+Vercel Dashboard → Project Settings → Environment Variables:
+- `NEXT_PUBLIC_API_URL` = `https://your-api-domain.com/api`
+
+## Usage
+
+Environment variables `NEXT_PUBLIC_` prefix-ით ხელმისაწვდომია client-side-ზე:
+```typescript
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
+```
+
+## Important Notes
+
+- `.env.local` არის gitignore-ში და არ იტვირთება Git-ში
+- Production-ში დაამატეთ environment variables Vercel Dashboard-ში
+- ყველა `NEXT_PUBLIC_` variable ხელმისაწვდომია browser-ში

@@ -13,28 +13,74 @@ export interface User {
   phoneNumber: string;
   email?: string;
   fullName?: string;
+  warehouseId?: string; // თუ თანამშრომელია საწყობში
+  warehouse?: Warehouse; // Populated warehouse data
   status: "active" | "inactive" | "suspended";
   createdAt: Date;
   updatedAt: Date;
 }
 
-// Product Entity
+// Product Group - იერარქიის ზედა დონე (Generic Name)
+export interface ProductGroup {
+  id: string;
+  genericName: string; // e.g., "Paracetamol"
+  description?: string;
+  category?: string;
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Product Variant - იერარქიის მეორე დონე (Generic + Country)
+export interface ProductVariant {
+  id: string;
+  productGroupId: string;
+  productGroup?: ProductGroup;
+  countryOfOrigin: string; // e.g., "საქართველო", "გერმანია", "ინდოეთი"
+  manufacturer?: string; // მწარმოებელი კომპანიის სახელი
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Product Strength - იერარქიის მესამე დონე (Generic + Country + Strength)
+export interface ProductStrength {
+  id: string;
+  productVariantId: string;
+  productVariant?: ProductVariant;
+  strength: string; // e.g., "5 mg", "10 mg", "200 mg", "500 mg"
+  dosageForm: string; // tablet, syrup, injection
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Product Entity - იერარქიის ქვედა დონე (კონკრეტული პროდუქტი)
 export interface Product {
   id: string;
-  name: string; // Product name (brand)
+  productStrengthId: string; // Reference to ProductStrength
+  productStrength?: ProductStrength; // Populated strength data
+  
+  name: string; // Product name (brand) - e.g., "Paracetamol 500mg - Bayer"
   description?: string;
   price: number;
   active: boolean;
   category?: string;
   imageUrl?: string;
-  // Additional product information
-  sku?: string; // SKU / internal product code
-  genericName?: string; // Generic name
-  strength?: string; // e.g., 500 mg
-  dosageForm?: string; // tablet, syrup, injection
+  
+  // Specific product information
+  sku: string; // SKU / internal product code (unique)
   packSize?: string; // 10 tablets, 100 ml
-  barcode?: string; // GTIN, if available
+  barcode?: string; // GTIN, if available (unique)
   unitOfMeasure?: string; // ზომის ერთეული
+  
+  // Computed fields for easy access (from hierarchy)
+  genericName?: string; // From ProductGroup
+  countryOfOrigin?: string; // From ProductVariant
+  manufacturer?: string; // From ProductVariant
+  strength?: string; // From ProductStrength
+  dosageForm?: string; // From ProductStrength
+  
   createdAt: Date;
   updatedAt: Date;
 }
@@ -125,6 +171,30 @@ export interface OrderItem {
   inventoryId?: string;
 }
 
+// Warehouse Employee Role
+export enum WarehouseEmployeeRole {
+  MANAGER = "manager", // მენეჯერი
+  WAREHOUSE_KEEPER = "warehouse_keeper", // საწყობის მცველი
+  PICKER = "picker", // შემკრები
+  DISPATCHER = "dispatcher", // გამგზავნი
+  RECEIVER = "receiver", // მიმღები
+}
+
+// Warehouse Employee
+export interface WarehouseEmployee {
+  id: string;
+  warehouseId: string;
+  warehouse?: Warehouse;
+  userId: string;
+  user?: User;
+  role: WarehouseEmployeeRole;
+  active: boolean;
+  startedAt: Date; // როდის დაიწყო მუშაობა
+  endedAt?: Date; // როდის დასრულდა (თუ აღარ მუშაობს)
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // Warehouse Location
 export interface Warehouse {
   id: string;
@@ -132,8 +202,13 @@ export interface Warehouse {
   address: string;
   city: string;
   phoneNumber?: string;
+  email?: string;
+  managerId?: string; // მენეჯერის ID
+  manager?: User; // Populated manager data
+  employees?: WarehouseEmployee[]; // Populated employees list
   active: boolean;
   createdAt: Date;
+  updatedAt: Date;
 }
 
 // Inventory Adjustment

@@ -116,6 +116,11 @@ const othersItems: NavItem[] = [
     name: "პარამეტრები",
     path: "/settings",
   },
+  {
+    icon: <BoxCubeIcon />,
+    name: "მობილური აპლიკაცია",
+    path: "/mobile-app",
+  },
 ];
 
 const AppSidebar: React.FC = () => {
