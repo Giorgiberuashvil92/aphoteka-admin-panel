@@ -36,6 +36,8 @@ const mockOrder: Order = {
       productId: "1",
       product: {
         id: "1",
+        productStrengthId: "ps-1",
+        sku: "SKU-001",
         name: "Paracetamol 500mg",
         price: 5.99,
         active: true,
@@ -52,6 +54,8 @@ const mockOrder: Order = {
       productId: "2",
       product: {
         id: "2",
+        productStrengthId: "ps-2",
+        sku: "SKU-002",
         name: "Ibuprofen 200mg",
         price: 7.50,
         active: true,
