@@ -3,6 +3,12 @@
 # dependencies
 /.idea
 /node_modules
+
+# Monorepo: nested apps (each has its own node_modules)
+aphoteka-backend/node_modules/
+aphoteka-backend/dist/
+Kutuku-MobileApp/node_modules/
+Kutuku-MobileApp/.expo/
 /.pnp
 .pnp.js
 .yarn/install-state.gz

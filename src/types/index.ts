@@ -6,6 +6,41 @@ export enum UserRole {
   ADMIN = "admin",
 }
 
+// User Permissions
+export enum UserPermission {
+  // Product permissions
+  VIEW_PRODUCTS = 'view_products',
+  CREATE_PRODUCTS = 'create_products',
+  EDIT_PRODUCTS = 'edit_products',
+  DELETE_PRODUCTS = 'delete_products',
+  
+  // Inventory permissions
+  VIEW_INVENTORY = 'view_inventory',
+  MANAGE_INVENTORY = 'manage_inventory',
+  RECEIVE_INVENTORY = 'receive_inventory',
+  DISPATCH_INVENTORY = 'dispatch_inventory',
+  
+  // Warehouse permissions
+  VIEW_WAREHOUSES = 'view_warehouses',
+  MANAGE_WAREHOUSES = 'manage_warehouses',
+  
+  // User permissions
+  VIEW_USERS = 'view_users',
+  CREATE_USERS = 'create_users',
+  EDIT_USERS = 'edit_users',
+  DELETE_USERS = 'delete_users',
+  
+  // Order permissions
+  VIEW_ORDERS = 'view_orders',
+  MANAGE_ORDERS = 'manage_orders',
+  
+  // Reports permissions
+  VIEW_REPORTS = 'view_reports',
+  
+  // Admin permissions
+  ADMIN_ACCESS = 'admin_access',
+}
+
 // User Entity
 export interface User {
   id: string;
@@ -16,6 +51,7 @@ export interface User {
   warehouseId?: string; // თუ თანამშრომელია საწყობში
   warehouse?: Warehouse; // Populated warehouse data
   status: "active" | "inactive" | "suspended";
+  permissions?: UserPermission[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -80,6 +116,23 @@ export interface Product {
   manufacturer?: string; // From ProductVariant
   strength?: string; // From ProductStrength
   dosageForm?: string; // From ProductStrength
+  
+  // Additional catalog fields
+  productCode?: string; // საქონლის კოდი
+  quantity?: number; // რაოდენობა
+  totalPrice?: number; // საქონლის ფასი (quantity * price)
+  taxation?: string; // დაბეგვრა
+  invoiceNumber?: string; // ზედნადების ნომერი
+  buyer?: string; // მყიდველი
+  seller?: string; // გამყიდველი
+  activationDate?: Date | string; // გააქტიურების თარიღი
+  transportStartDate?: Date | string; // ტრანსპორტირების დაწყების თარიღი
+  certificateNumber?: string; // ფირნიშის ან ცნობის ნომერი
+  documentNumber?: string; // დოკუმენტის N
+  serialNumber?: string; // სერიის ნომერი
+  expiryDate?: Date | string; // ვარგისიანობის ვადა
+  packagingType?: string; // შეფუთვის სახეობა
+  productNameBrand?: string; // Product name (brand)
   
   createdAt: Date;
   updatedAt: Date;

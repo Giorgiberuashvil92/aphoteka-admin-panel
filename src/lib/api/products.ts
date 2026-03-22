@@ -42,9 +42,20 @@ export const productsApi = {
     return api.post<ProductResponse>('/products', product);
   },
 
+  // Bulk create products (Excel import)
+  bulkCreate: async (products: Partial<Product>[]): Promise<{
+    success: number;
+    failed: number;
+    total: number;
+    data: Product[];
+    errors?: Array<{ index: number; message: string }>;
+  }> => {
+    return api.post('/products/bulk', products);
+  },
+
   // Update product
   update: async (id: string, product: Partial<Product>): Promise<ProductResponse> => {
-    return api.put<ProductResponse>(`/products/${id}`, product);
+    return api.patch<ProductResponse>(`/products/${id}`, product);
   },
 
   // Delete product

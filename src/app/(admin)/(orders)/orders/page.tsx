@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Order, OrderStatus, PaymentStatus } from "@/types";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
 import { EyeIcon } from "@/icons";
 import Link from "next/link";
+import { warehousesApi, ordersApi } from "@/lib/api";
 
 // Mock data
 const mockOrders: Order[] = [
@@ -117,12 +119,36 @@ const statusColors: Record<OrderStatus, string> = {
 };
 
 export default function OrdersPage() {
+  const searchParams = useSearchParams();
+  const warehouseId = searchParams.get("warehouseId") || undefined;
+  
   const [orders, setOrders] = useState<Order[]>(mockOrders);
+  const [warehouse, setWarehouse] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterPaymentStatus, setFilterPaymentStatus] = useState<string>("all");
 
+  // Load warehouse info if warehouseId is provided
+  useEffect(() => {
+    if (warehouseId) {
+      warehousesApi.getById(warehouseId).then(response => {
+        setWarehouse(response.data);
+      });
+      // Load orders for this warehouse
+      ordersApi.getAll({ warehouseId }).then(response => {
+        setOrders(response.data || []);
+      }).catch(() => {
+        // Fallback to mock data
+      });
+    }
+  }, [warehouseId]);
+
   const filteredOrders = orders.filter((order) => {
+    // Filter by warehouse if warehouseId is provided
+    if (warehouseId && order.warehouseLocation !== warehouseId) {
+      return false;
+    }
+    
     const matchesSearch =
       order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
       order.user?.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -135,7 +161,29 @@ export default function OrdersPage() {
 
   return (
     <div className="space-y-6">
-      <PageBreadCrumb pageTitle="შეკვეთების მენეჯმენტი" />
+      <PageBreadCrumb pageTitle={warehouse ? `${warehouse.name} - შეკვეთები` : "შეკვეთების მენეჯმენტი"} />
+
+      {/* Warehouse Filter Info */}
+      {warehouse && (
+        <div className="rounded-lg border border-brand-200 bg-brand-50 p-4 dark:border-brand-800 dark:bg-brand-900/20">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-brand-900 dark:text-brand-200">
+                ფილტრი: {warehouse.name}
+              </p>
+              <p className="text-xs text-brand-700 dark:text-brand-300">
+                ნაჩვენებია მხოლოდ ამ საწყობის შეკვეთები ({filteredOrders.length})
+              </p>
+            </div>
+            <Link
+              href="/orders"
+              className="text-sm text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300"
+            >
+              ფილტრის მოხსნა
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col gap-4 sm:flex-row">

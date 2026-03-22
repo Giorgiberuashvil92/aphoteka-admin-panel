@@ -40,20 +40,27 @@ const navItems: NavItem[] = [
     subItems: [{ name: "მთავარი", path: "/", pro: false }],
   },
   {
+    icon: <BoxCubeIcon />,
+    name: "საწყობები",
+    subItems: [
+      { name: "ყველა საწყობი", path: "/warehouses", pro: false },
+      { name: "ახალი საწყობი", path: "/warehouses/new", pro: false },
+    ],
+  },
+  {
     icon: <BoxIcon />,
     name: "პროდუქტები",
     subItems: [
       { name: "კატალოგი", path: "/products", pro: false },
-      { name: "ახალი პროდუქტი", path: "/products/new", pro: false },
-      { name: "კატეგორიები", path: "/categories", pro: false },
+      { name: "Excel-იდან იმპორტი", path: "/products/import", pro: false },
     ],
   },
   {
-    icon: <BoxIconLine />,
-    name: "ინვენტარი",
+    icon: <GridIcon />,
+    name: "კატეგორიები",
     subItems: [
-      { name: "ინვენტარის სია", path: "/inventory", pro: false },
-      { name: "ინვენტარის მიღება", path: "/inventory/receive", pro: false },
+      { name: "ყველა კატეგორია", path: "/categories", pro: false },
+      { name: "ახალი კატეგორია", path: "/categories/new", pro: false },
     ],
   },
   {
@@ -68,7 +75,7 @@ const navItems: NavItem[] = [
     name: "მომხმარებლები",
     subItems: [
       { name: "მომხმარებლების სია", path: "/users", pro: false },
-      { name: "ახალი მომხმარებელი", path: "/users/new", pro: false },
+    
     ],
   },
   {
@@ -76,7 +83,6 @@ const navItems: NavItem[] = [
     name: "ფასდაკლებები",
     subItems: [
       { name: "ყველა ფასდაკლება", path: "/promotions", pro: false },
-      { name: "ახალი ფასდაკლება", path: "/promotions/new", pro: false },
     ],
   },
   {
@@ -84,7 +90,6 @@ const navItems: NavItem[] = [
     name: "მომწოდებლები",
     subItems: [
       { name: "მომწოდებლების სია", path: "/suppliers", pro: false },
-      { name: "ახალი მომწოდებელი", path: "/suppliers/new", pro: false },
     ],
   },
   {

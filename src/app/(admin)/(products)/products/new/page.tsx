@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
 import { Product } from "@/types";
+import { productsApi } from "@/lib/api";
 
 export default function NewProductPage() {
   const router = useRouter();
@@ -28,14 +29,36 @@ export default function NewProductPage() {
     e.preventDefault();
     setIsSubmitting(true);
 
-    // TODO: API call to create product
-    console.log("Creating product:", formData);
+    try {
+      // Prepare product data
+      const productData: Partial<Product> = {
+        name: formData.name,
+        description: formData.description || undefined,
+        price: parseFloat(formData.price),
+        category: formData.category || undefined,
+        active: formData.active,
+        sku: formData.sku || `AUTO-${Date.now()}`, // Auto-generate SKU if not provided
+        packSize: formData.packSize || undefined,
+        barcode: formData.barcode || undefined,
+        unitOfMeasure: formData.unitOfMeasure || undefined,
+        // Additional fields
+        genericName: formData.genericName || undefined,
+        strength: formData.strength || undefined,
+        dosageForm: formData.dosageForm || undefined,
+      };
 
-    // Simulate API call
-    setTimeout(() => {
-      setIsSubmitting(false);
+      // Create product via API
+      await productsApi.create(productData);
+
+      // Success - redirect to products list
+      alert("პროდუქტი წარმატებით შეიქმნა!");
       router.push("/products");
-    }, 1000);
+    } catch (error) {
+      console.error("Error creating product:", error);
+      alert("პროდუქტის შექმნისას მოხდა შეცდომა. გთხოვთ სცადოთ თავიდან.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

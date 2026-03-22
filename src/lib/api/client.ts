@@ -19,54 +19,23 @@ export async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  // Use mock data if enabled
-  if (USE_MOCK_DATA) {
+  // Route to appropriate handler
+  const path = endpoint.split('?')[0];
+  const method = options.method || 'GET';
+  
+  // Products, Inventory, Warehouses, Users, Auth, Promotions - always use real API, skip mock data
+  if (path === '/products' || path.startsWith('/products/') ||
+      path === '/inventory' || path.startsWith('/inventory/') ||
+      path === '/warehouses' || path.startsWith('/warehouses/') ||
+      path === '/users' || path.startsWith('/users/') ||
+      path === '/auth' || path.startsWith('/auth/') ||
+      path === '/promotions' || path.startsWith('/promotions/') ||
+      path === '/categories' || path.startsWith('/categories/')) {
+    // Skip mock data, go directly to real API
+  } else if (USE_MOCK_DATA) {
+    // Use mock data for other endpoints if enabled
     // Import mock data dynamically to avoid issues
     const { mockApiResponses } = await import('./mockData');
-    
-    // Route to appropriate mock handler
-    const path = endpoint.split('?')[0];
-    const method = options.method || 'GET';
-    
-    // Simple routing for mock data
-    if (path === '/products' && method === 'GET') {
-      const params = new URLSearchParams(endpoint.split('?')[1] || '');
-      const search = params.get('search') || undefined;
-      return mockApiResponses.products.getAll({ search }) as T;
-    }
-    
-    if (path.startsWith('/products/') && method === 'GET') {
-      const id = path.split('/products/')[1];
-      return mockApiResponses.products.getById(id) as T;
-    }
-    
-    if (path === '/products' && method === 'POST') {
-      const body = options.body ? JSON.parse(options.body as string) : {};
-      return mockApiResponses.products.create(body) as T;
-    }
-    
-    if (path.startsWith('/products/') && method === 'PATCH') {
-      const id = path.split('/products/')[1].split('/')[0];
-      if (path.includes('toggle-status')) {
-        return mockApiResponses.products.toggleStatus(id) as T;
-      }
-      const body = options.body ? JSON.parse(options.body as string) : {};
-      return mockApiResponses.products.update(id, body) as T;
-    }
-    
-    if (path === '/inventory' && method === 'GET') {
-      const params = new URLSearchParams(endpoint.split('?')[1] || '');
-      const warehouseId = params.get('warehouseId') || undefined;
-      const productId = params.get('productId') || undefined;
-      const state = params.get('state') || undefined;
-      const search = params.get('search') || undefined;
-      return mockApiResponses.inventory.getAll({ warehouseId, productId, state, search }) as T;
-    }
-    
-    if (path === '/inventory/receive' && method === 'POST') {
-      const body = options.body ? JSON.parse(options.body as string) : {};
-      return mockApiResponses.inventory.receive(body) as T;
-    }
     
     if (path === '/orders' && method === 'GET') {
       const params = new URLSearchParams(endpoint.split('?')[1] || '');
@@ -368,6 +337,14 @@ export async function apiRequest<T>(
 
   // Real API call
   const url = `${API_BASE_URL}${endpoint}`;
+  const requestBody = options.body ? (typeof options.body === 'string' ? JSON.parse(options.body) : options.body) : undefined;
+  console.log('🔍 API Request:', { 
+    url, 
+    method: options.method || 'GET', 
+    API_BASE_URL, 
+    endpoint,
+    body: requestBody 
+  });
   
   const defaultHeaders: HeadersInit = {
     'Content-Type': 'application/json',
