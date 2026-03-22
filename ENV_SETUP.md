@@ -10,6 +10,9 @@ NEXT_PUBLIC_API_URL=http://localhost:3001/api
 
 # Production-ში:
 # NEXT_PUBLIC_API_URL=https://your-api-domain.com/api
+
+# Admin panel (სრული URL — metadata / absolute ლინკები; Railway-ზე ნაგულისხმევად კოდში არის ეს დომენი)
+# NEXT_PUBLIC_SITE_URL=https://aphoteka-admin-panel-production.up.railway.app
 ```
 
 ## Environment Variables Structure

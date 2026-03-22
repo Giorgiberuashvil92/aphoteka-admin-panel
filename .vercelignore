@@ -5,3 +5,7 @@ node_modules
 .DS_Store
 *.tsbuildinfo
 .env*.local
+
+# Expo / Nest — არა Next admin; Vercel build-ზე არ უნდა ავიდეს (TS/@ paths კონფლიქტი)
+Kutuku-MobileApp
+aphoteka-backend
