@@ -1,11 +1,12 @@
 import { fetchBalanceWarehouses } from '@/lib/api/balanceClient';
+import { getApiBaseUrl } from '@/lib/apiBaseUrl';
 import {
   mapBalanceWarehouseToWarehouse,
   rowsFromBalanceWarehouses,
 } from '@/lib/api/balanceWarehouses';
 import { NextRequest, NextResponse } from 'next/server';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+const API_BASE = getApiBaseUrl();
 
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization');

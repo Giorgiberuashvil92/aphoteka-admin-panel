@@ -13,7 +13,7 @@
  * 
  * ან ხელით curl მოთხოვნებით:
  * 
- * curl -X POST "http://localhost:3001/api/products" \
+ * ლოკალური Nest: curl -X POST "http://localhost:3001/api/products" \
  *   -H "Content-Type: application/json" \
  *   -d '{
  *     "name": "პარაცეტამოლი 500მგ",

@@ -1,4 +1,5 @@
 import { fetchBalancePrices, fetchBalanceStocks } from '@/lib/api/balanceClient';
+import { getApiBaseUrl } from '@/lib/apiBaseUrl';
 import {
   buildPriceByUuid,
   getBalanceItems,
@@ -7,7 +8,7 @@ import {
 } from '@/lib/api/balanceSync';
 import { NextRequest, NextResponse } from 'next/server';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+const API_BASE = getApiBaseUrl();
 
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization');

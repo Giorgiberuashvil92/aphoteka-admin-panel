@@ -1,8 +1,8 @@
-// API Client Configuration
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+import { getApiBaseUrl } from '@/lib/apiBaseUrl';
 
-// Use mock data if API URL is not set or in development
-const USE_MOCK_DATA = !process.env.NEXT_PUBLIC_API_URL || process.env.NODE_ENV === 'development';
+// Mock მხოლოდ local dev-ში, როცა NEXT_PUBLIC_API_URL არ არის; production / Vercel → რეალური API
+const USE_MOCK_DATA =
+  process.env.NODE_ENV === 'development' && !process.env.NEXT_PUBLIC_API_URL?.trim();
 
 export class ApiError extends Error {
   constructor(
@@ -335,16 +335,19 @@ export async function apiRequest<T>(
     return {} as T;
   }
 
-  // Real API call
-  const url = `${API_BASE_URL}${endpoint}`;
+  // Real API call (ბაზის URL ყოველჯერ — სერვერზე env სწორად აისახოს)
+  const apiBase = getApiBaseUrl();
+  const url = `${apiBase}${endpoint}`;
   const requestBody = options.body ? (typeof options.body === 'string' ? JSON.parse(options.body) : options.body) : undefined;
-  console.log('🔍 API Request:', { 
-    url, 
-    method: options.method || 'GET', 
-    API_BASE_URL, 
-    endpoint,
-    body: requestBody 
-  });
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔍 API Request:', {
+      url,
+      method: options.method || 'GET',
+      apiBase,
+      endpoint,
+      body: requestBody,
+    });
+  }
   
   const defaultHeaders: HeadersInit = {
     'Content-Type': 'application/json',

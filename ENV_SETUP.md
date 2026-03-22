@@ -24,7 +24,9 @@ NEXT_PUBLIC_API_URL=http://localhost:3001/api
 
 ### Production (Vercel)
 Vercel Dashboard → Project Settings → Environment Variables:
-- `NEXT_PUBLIC_API_URL` = `https://your-api-domain.com/api`
+- `NEXT_PUBLIC_API_URL` = შენი Nest API (Railway), მაგ. `https://aphoteka-backend-production.up.railway.app/api`
+
+თუ ეს variable არ დააყენე, production build იყენებს ნაგულისხმევს `src/lib/apiBaseUrl.ts`-ში — შეცვალე იქ თუ Railway სერვისის სახელი სხვაა.
 
 ## Usage
 
