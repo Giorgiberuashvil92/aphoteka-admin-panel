@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
 import { PlusIcon, PencilIcon, TrashBinIcon, CheckCircleIcon, AlertIcon, EyeIcon, EyeCloseIcon } from "@/icons";
 import { mockProducts, mockCategories } from "@/lib/api/mockData";
-import { getApiBaseUrl } from "@/lib/apiBaseUrl";
+import { getApiBaseUrl, RAILWAY_NEST_API_DEFAULT } from "@/lib/apiBaseUrl";
 
 // Mobile App Version
 interface MobileAppVersion {
@@ -162,13 +162,18 @@ export default function MobileAppPage() {
             <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">npm run expo:android</code>
           </li>
           <li>
-            API (იგივე Nest რაც admin): admin აქ იყენებს{" "}
+            Admin (ბრაუზერი, ამ გვერდიდან): API ბაზა{" "}
             <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">{adminApiBase}</code>
+            {" "}(ლოკალურ dev-ზე შეიძლება იყოს localhost)
           </li>
           <li>
-            მობილური API დროებით ყოველთვის Railway (იგივე Nest); override:{" "}
-            <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">EXPO_PUBLIC_API_URL</code>{" "}
-            <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">Kutuku-MobileApp/.env</code> · EAS:{" "}
+            Kutuku მობილური — <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">api.config.ts</code>
+            : ყოველთვის უყურებს Railway-ს, ნაგულისხმევი{" "}
+            <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">
+              {RAILWAY_NEST_API_DEFAULT}
+            </code>
+            ; სხვა URL მხოლოდ <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">EXPO_PUBLIC_API_URL</code> (
+            <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">Kutuku-MobileApp/.env</code>) ან EAS{" "}
             <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">eas.json</code>
           </li>
           <li>

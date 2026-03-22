@@ -1,7 +1,7 @@
 /**
- * Aphoteka Backend API – მობილური აპისთვის
- * დროებით: ყოველთვის Railway, თუ EXPO_PUBLIC_API_URL არ არის (dev + production).
- * ლოკალური Nest-ისთვის მერე: დააყენე .env-ში EXPO_PUBLIC_API_URL=http://IP:3001/api
+ * Aphoteka Backend API — ყოველთვის Railway (dev + production), თუ EXPO_PUBLIC_API_URL ცარიელია.
+ * სხვა URL: Kutuku-MobileApp/.env → EXPO_PUBLIC_API_URL=...
+ * (იგივე ნაგულისხმევი სტრინგი რაც admin: src/lib/apiBaseUrl.ts → RAILWAY_NEST_API_DEFAULT)
  */
 const RAILWAY_API_BASE =
   'https://aphoteka-backend-production.up.railway.app/api';
