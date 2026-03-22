@@ -36,7 +36,7 @@
  *   }'
  */
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Product } from "@/types";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
@@ -53,7 +53,7 @@ import {
 import ProductFormModal from "@/components/products/ProductFormModal";
 import AddToWarehouseModal from "@/components/inventory/AddToWarehouseModal";
 
-export default function ProductsPage() {
+function ProductsPageContent() {
   const searchParams = useSearchParams();
   const warehouseId = searchParams.get("warehouseId") || undefined;
   
@@ -874,5 +874,19 @@ export default function ProductsPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function ProductsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[200px] items-center justify-center text-gray-500">
+          იტვირთება...
+        </div>
+      }
+    >
+      <ProductsPageContent />
+    </Suspense>
   );
 }

@@ -20,6 +20,7 @@ export const ordersApi = {
     status?: string;
     paymentStatus?: string;
     search?: string;
+    warehouseId?: string;
   }): Promise<OrdersResponse> => {
     const queryParams = new URLSearchParams();
     if (params?.page) queryParams.append('page', params.page.toString());
@@ -27,6 +28,7 @@ export const ordersApi = {
     if (params?.status) queryParams.append('status', params.status);
     if (params?.paymentStatus) queryParams.append('paymentStatus', params.paymentStatus);
     if (params?.search) queryParams.append('search', params.search);
+    if (params?.warehouseId) queryParams.append('warehouseId', params.warehouseId);
     
     const query = queryParams.toString();
     return api.get<OrdersResponse>(`/orders${query ? `?${query}` : ''}`);

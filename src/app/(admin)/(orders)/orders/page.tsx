@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Order, OrderStatus, PaymentStatus } from "@/types";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
@@ -118,7 +118,7 @@ const statusColors: Record<OrderStatus, string> = {
   [OrderStatus.FAILED]: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
 };
 
-export default function OrdersPage() {
+function OrdersPageContent() {
   const searchParams = useSearchParams();
   const warehouseId = searchParams.get("warehouseId") || undefined;
   
@@ -335,5 +335,19 @@ export default function OrdersPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function OrdersPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[200px] items-center justify-center text-gray-500">
+          იტვირთება...
+        </div>
+      }
+    >
+      <OrdersPageContent />
+    </Suspense>
   );
 }
