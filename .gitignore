@@ -34,6 +34,7 @@ yarn-error.log*
 
 # local env files
 .env*.local
+ENV_copypaste_test.local.txt
 
 # vercel
 .vercel

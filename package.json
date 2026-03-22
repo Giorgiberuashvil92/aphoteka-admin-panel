@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "expo": "npm run start --prefix Kutuku-MobileApp",
+    "expo:ios": "npm run ios --prefix Kutuku-MobileApp",
+    "expo:android": "npm run android --prefix Kutuku-MobileApp",
+    "expo:web": "npm run web --prefix Kutuku-MobileApp"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.19",

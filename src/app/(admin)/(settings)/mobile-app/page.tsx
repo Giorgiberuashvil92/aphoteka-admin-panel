@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
 import { PlusIcon, PencilIcon, TrashBinIcon, CheckCircleIcon, AlertIcon, EyeIcon, EyeCloseIcon } from "@/icons";
 import { mockProducts, mockCategories } from "@/lib/api/mockData";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 
 // Mobile App Version
 interface MobileAppVersion {
@@ -139,9 +140,42 @@ export default function MobileAppPage() {
     setBanners(banners.filter(b => b.id !== id));
   };
 
+  const adminApiBase = getApiBaseUrl();
+
   return (
     <div className="space-y-6">
       <PageBreadCrumb pageTitle="მობილური აპლიკაციის მართვა" />
+
+      <div className="rounded-xl border border-brand-200 bg-brand-50/80 p-5 dark:border-brand-800 dark:bg-brand-950/30">
+        <h2 className="text-base font-semibold text-brand-900 dark:text-brand-100">
+          Expo — Kutuku (მონორეპო)
+        </h2>
+        <p className="mt-2 text-sm text-brand-800 dark:text-brand-200">
+          კოდი: <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">Kutuku-MobileApp/</code>
+          · iOS bundle / Android package: <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">app.json</code> → expo.ios.bundleIdentifier, expo.android.package
+        </p>
+        <ul className="mt-3 list-inside list-disc space-y-1 text-sm text-brand-800 dark:text-brand-200">
+          <li>
+            გაშვება root-იდან:{" "}
+            <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">npm run expo</code> · iOS:{" "}
+            <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">npm run expo:ios</code> · Android:{" "}
+            <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">npm run expo:android</code>
+          </li>
+          <li>
+            API (იგივე Nest რაც admin): admin აქ იყენებს{" "}
+            <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">{adminApiBase}</code>
+          </li>
+          <li>
+            მობილური API დროებით ყოველთვის Railway (იგივე Nest); override:{" "}
+            <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">EXPO_PUBLIC_API_URL</code>{" "}
+            <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">Kutuku-MobileApp/.env</code> · EAS:{" "}
+            <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">eas.json</code>
+          </li>
+          <li>
+            Build: <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">cd Kutuku-MobileApp && npx eas-cli build --platform all</code>
+          </li>
+        </ul>
+      </div>
 
       {/* Tabs */}
       <div className="border-b border-gray-200 dark:border-gray-700">

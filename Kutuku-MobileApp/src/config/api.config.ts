@@ -1,20 +1,16 @@
 /**
  * Aphoteka Backend API – მობილური აპისთვის
- * 1) EXPO_PUBLIC_API_URL — .env / EAS env (უპირატესია)
- * 2) production build (__DEV__ === false) — Railway Nest (იგივე რაც admin apiBaseUrl)
- * 3) dev — localhost (სიმულატორი); ფიზიკური მოწყობილობა: EXPO_PUBLIC_API_URL=http://IP:3001/api
+ * დროებით: ყოველთვის Railway, თუ EXPO_PUBLIC_API_URL არ არის (dev + production).
+ * ლოკალური Nest-ისთვის მერე: დააყენე .env-ში EXPO_PUBLIC_API_URL=http://IP:3001/api
  */
-const PRODUCTION_DEFAULT_API_BASE =
+const RAILWAY_API_BASE =
   'https://aphoteka-backend-production.up.railway.app/api';
 
 export function getApiBaseUrl(): string {
   const raw =
     typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_API_URL?.trim() : '';
   if (raw) return raw.replace(/\/$/, '');
-  if (!__DEV__) {
-    return PRODUCTION_DEFAULT_API_BASE.replace(/\/$/, '');
-  }
-  return 'http://localhost:3001/api';
+  return RAILWAY_API_BASE.replace(/\/$/, '');
 }
 
 export const API_CONFIG = {
