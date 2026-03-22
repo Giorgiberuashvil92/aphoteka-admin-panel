@@ -6,7 +6,7 @@
   "regions": ["fra1"],
   "build": {
     "env": {
-      "NEXT_PUBLIC_API_URL": "https://aphoteka-backend-production.up.railway.app/api"
+      "NEXT_PUBLIC_API_URL": "https://aphoteka-admin-panel-production.up.railway.app/api"
     }
   }
 }

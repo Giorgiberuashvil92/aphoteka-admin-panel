@@ -4,7 +4,7 @@
  * (იგივე ნაგულისხმევი სტრინგი რაც admin: src/lib/apiBaseUrl.ts → RAILWAY_NEST_API_DEFAULT)
  */
 const RAILWAY_API_BASE =
-  'https://aphoteka-backend-production.up.railway.app/api';
+  'https://aphoteka-admin-panel-production.up.railway.app/api';
 
 export function getApiBaseUrl(): string {
   const raw =

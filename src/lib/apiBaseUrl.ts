@@ -4,7 +4,7 @@
  * პრიორიტეტი: NEXT_PUBLIC_API_URL. შემდეგ: production/Vercel → Railway; dev → localhost.
  */
 export const RAILWAY_NEST_API_DEFAULT =
-  'https://aphoteka-backend-production.up.railway.app/api';
+  'https://aphoteka-admin-panel-production.up.railway.app/api';
 
 export function getApiBaseUrl(): string {
   const fromEnv = process.env.NEXT_PUBLIC_API_URL?.trim();

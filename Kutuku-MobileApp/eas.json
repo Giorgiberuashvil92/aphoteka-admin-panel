@@ -11,13 +11,13 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://aphoteka-backend-production.up.railway.app/api"
+        "EXPO_PUBLIC_API_URL": "https://aphoteka-admin-panel-production.up.railway.app/api"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://aphoteka-backend-production.up.railway.app/api"
+        "EXPO_PUBLIC_API_URL": "https://aphoteka-admin-panel-production.up.railway.app/api"
       }
     }
   },
