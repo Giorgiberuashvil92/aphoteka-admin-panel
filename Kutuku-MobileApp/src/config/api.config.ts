@@ -1,18 +1,26 @@
 /**
  * Aphoteka Backend API – მობილური აპისთვის
- * ბეკენდი: .env PORT (ხშირად 3001) ან default 3002 – იხ. aphoteka-backend
- * რეალურ მოწყობილობაზე: EXPO_PUBLIC_API_URL=http://თქვენი_IP:3001/api
+ * 1) EXPO_PUBLIC_API_URL — .env / EAS env (უპირატესია)
+ * 2) production build (__DEV__ === false) — Railway Nest (იგივე რაც admin apiBaseUrl)
+ * 3) dev — localhost (სიმულატორი); ფიზიკური მოწყობილობა: EXPO_PUBLIC_API_URL=http://IP:3001/api
  */
-const getBaseUrl = () => {
-  if (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
+const PRODUCTION_DEFAULT_API_BASE =
+  'https://aphoteka-backend-production.up.railway.app/api';
+
+export function getApiBaseUrl(): string {
+  const raw =
+    typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_API_URL?.trim() : '';
+  if (raw) return raw.replace(/\/$/, '');
+  if (!__DEV__) {
+    return PRODUCTION_DEFAULT_API_BASE.replace(/\/$/, '');
   }
-  // ლოკალური – იგივე პორტი რაც ბეკენდზე (.env PORT ან 3001)
   return 'http://localhost:3001/api';
-};
+}
 
 export const API_CONFIG = {
-  BASE_URL: getBaseUrl(),
+  get BASE_URL() {
+    return getApiBaseUrl();
+  },
   endpoints: {
     auth: {
       loginMobile: '/auth/login-mobile',
