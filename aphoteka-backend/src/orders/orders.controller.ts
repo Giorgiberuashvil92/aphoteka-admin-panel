@@ -1,8 +1,17 @@
-import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Patch,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { Request } from '@nestjs/common';
+import { OrderStatus } from './schemas/order.schema';
 
 @Controller('orders')
 export class OrdersController {
@@ -13,6 +22,25 @@ export class OrdersController {
   create(@Body() dto: CreateOrderDto, @Request() req: any) {
     const userId = req.user?.id || req.user?.sub;
     return this.ordersService.create(userId, dto);
+  }
+
+  /** ადმინ პანელი (JWT) — სრული სია */
+  @Get('admin/all')
+  @UseGuards(JwtAuthGuard)
+  findAllAdmin() {
+    return this.ordersService.findAllForAdmin();
+  }
+
+  @Get('admin/:id')
+  @UseGuards(JwtAuthGuard)
+  findOneAdmin(@Param('id') id: string) {
+    return this.ordersService.findOneForAdmin(id);
+  }
+
+  @Patch('admin/:id')
+  @UseGuards(JwtAuthGuard)
+  updateAdmin(@Param('id') id: string, @Body() body: { status: OrderStatus }) {
+    return this.ordersService.updateForAdmin(id, body.status);
   }
 
   @Get()

@@ -7,9 +7,9 @@ export default function MyOrder() {
   return (
     <MyOrderScreen
       onBack={() => router.back()}
+      onLoginPress={() => router.push('/login' as any)}
       onOrderPress={(orderId: string) => {
-        console.log('Order detail:', orderId);
-        // TODO: Navigate to order detail
+        router.push(`/order-tracking?id=${encodeURIComponent(orderId)}` as any);
       }}
       onHomePress={() => {
         console.log('Home pressed');

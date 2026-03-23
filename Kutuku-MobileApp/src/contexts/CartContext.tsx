@@ -25,6 +25,8 @@ interface CartContextType {
   removeFromCart: (itemId: string) => void;
   updateQuantity: (itemId: string, quantity: number) => void;
   clearCart: () => void;
+  /** შეკვეთის შემდეგ — დადასტურების დიალოგის გარეშე */
+  clearCartSilently: () => void;
   isInCart: (itemId: string) => boolean;
   getItemQuantity: (itemId: string) => number;
 }
@@ -125,6 +127,10 @@ export function CartProvider({ children }: CartProviderProps) {
     });
   }, [removeFromCart]);
 
+  const clearCartSilently = useCallback(() => {
+    setItems([]);
+  }, []);
+
   // Clear entire cart
   const clearCart = useCallback(() => {
     Alert.alert(
@@ -169,6 +175,7 @@ export function CartProvider({ children }: CartProviderProps) {
     removeFromCart,
     updateQuantity,
     clearCart,
+    clearCartSilently,
     isInCart,
     getItemQuantity,
   };

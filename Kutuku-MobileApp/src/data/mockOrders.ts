@@ -1,10 +1,18 @@
-// Mock Orders Data for Development
+// Mock Orders Data for Development + API სტატუსების ეტიკეტები (Nest: pending | confirmed | shipped | delivered | cancelled)
+
+export type OrderStatusUi =
+  | 'pending'
+  | 'confirmed'
+  | 'processing'
+  | 'shipped'
+  | 'delivered'
+  | 'cancelled';
 
 export interface MockOrder {
   id: string;
   orderNumber: string;
   date: string;
-  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+  status: OrderStatusUi;
   items: {
     id: string;
     name: string;
@@ -119,10 +127,12 @@ export const MOCK_ORDERS: MockOrder[] = [
   },
 ];
 
-export const getOrderStatusText = (status: MockOrder['status']): string => {
+export const getOrderStatusText = (status: OrderStatusUi): string => {
   switch (status) {
     case 'pending':
       return 'მოლოდინში';
+    case 'confirmed':
+      return 'დადასტურებული';
     case 'processing':
       return 'მუშავდება';
     case 'shipped':
@@ -136,10 +146,12 @@ export const getOrderStatusText = (status: MockOrder['status']): string => {
   }
 };
 
-export const getOrderStatusColor = (status: MockOrder['status']): string => {
+export const getOrderStatusColor = (status: OrderStatusUi): string => {
   switch (status) {
     case 'pending':
       return '#FFA500';
+    case 'confirmed':
+      return '#1976D2';
     case 'processing':
       return '#2196F3';
     case 'shipped':

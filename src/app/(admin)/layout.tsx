@@ -4,7 +4,9 @@ import { useSidebar } from "@/context/SidebarContext";
 import AppHeader from "@/layout/AppHeader";
 import AppSidebar from "@/layout/AppSidebar";
 import Backdrop from "@/layout/Backdrop";
-import React from "react";
+import { bootstrapAdminAuth } from "@/lib/bootstrapAdminAuth";
+import { ensureAuthTokenFromEnv } from "@/lib/authToken";
+import React, { useEffect } from "react";
 
 export default function AdminLayout({
   children,
@@ -12,6 +14,11 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const { isExpanded, isHovered, isMobileOpen } = useSidebar();
+
+  useEffect(() => {
+    ensureAuthTokenFromEnv();
+    void bootstrapAdminAuth();
+  }, []);
 
   // Dynamic class for main content margin based on sidebar state
   const mainContentMargin = isMobileOpen

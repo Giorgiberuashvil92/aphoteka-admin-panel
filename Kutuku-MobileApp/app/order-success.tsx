@@ -1,18 +1,22 @@
 import { OrderSuccessScreen } from '@/src/screens';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 export default function OrderSuccess() {
   const router = useRouter();
+  const { orderId } = useLocalSearchParams<{ orderId?: string }>();
+  const id = typeof orderId === 'string' ? orderId : Array.isArray(orderId) ? orderId[0] : '';
 
   return (
     <OrderSuccessScreen
+      orderId={id}
       onOrderTracking={() => {
-        console.log('Order tracking');
-        router.push('/order-tracking?id=1' as any);
+        if (id) {
+          router.push(`/order-tracking?id=${encodeURIComponent(id)}` as any);
+        } else {
+          router.push('/my-order' as any);
+        }
       }}
       onBackToHome={() => {
-        console.log('Back to home');
-        // Navigate to home and reset navigation stack
         router.replace('/home' as any);
       }}
     />

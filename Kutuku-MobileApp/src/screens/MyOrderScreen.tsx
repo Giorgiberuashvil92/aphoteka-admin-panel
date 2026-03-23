@@ -1,10 +1,22 @@
 import { BottomNavigation } from '@/src/components/common/BottomNavigation';
 import { useCart, useFavorites } from '@/src/contexts';
-import { MOCK_ORDERS, getOrderStatusColor, getOrderStatusText, type MockOrder } from '@/src/data/mockOrders';
+import { getOrderStatusColor, getOrderStatusText } from '@/src/data/mockOrders';
+import { OrdersService, type MyOrderListItem } from '@/src/services/orders.service';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
-import { Image, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 type MyOrderScreenProps = {
   onBack: () => void;
@@ -14,9 +26,21 @@ type MyOrderScreenProps = {
   onCategoriesPress: () => void;
   onCartPress: () => void;
   onProfilePress: () => void;
+  /** თუ API 401 / ტოკენი არ არის — შესვლის გვერდზე გადასვლა */
+  onLoginPress?: () => void;
 };
 
-type FilterTab = 'all' | 'pending' | 'processing' | 'shipped' | 'delivered';
+type FilterTab = 'all' | 'processing' | 'shipped' | 'delivered';
+
+function matchesFilter(order: MyOrderListItem, tab: FilterTab): boolean {
+  if (tab === 'all') return true;
+  if (tab === 'processing') {
+    return order.status === 'pending' || order.status === 'confirmed';
+  }
+  if (tab === 'shipped') return order.status === 'shipped';
+  if (tab === 'delivered') return order.status === 'delivered';
+  return true;
+}
 
 export function MyOrderScreen({
   onBack,
@@ -26,15 +50,46 @@ export function MyOrderScreen({
   onCategoriesPress,
   onCartPress,
   onProfilePress,
+  onLoginPress,
 }: MyOrderScreenProps) {
   const { itemCount } = useCart();
   const { favoriteCount } = useFavorites();
-  const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
-  const [orders] = useState<MockOrder[]>(MOCK_ORDERS);
 
-  const filteredOrders = activeFilter === 'all' 
-    ? orders 
-    : orders.filter(order => order.status === activeFilter);
+  const [orders, setOrders] = useState<MyOrderListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<'auth' | 'network' | 'unknown' | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | undefined>();
+
+  const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
+
+  const loadOrders = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    setLoadError(null);
+    setErrorMessage(undefined);
+
+    const result = await OrdersService.fetchMyOrders();
+
+    if (!result.ok) {
+      if (!isRefresh) setOrders([]);
+      setLoadError(result.error);
+      setErrorMessage('message' in result ? result.message : undefined);
+    } else {
+      setOrders(result.orders);
+      setLoadError(null);
+    }
+
+    if (isRefresh) setRefreshing(false);
+    else setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadOrders(false);
+  }, [loadOrders]);
+
+  const filteredOrders =
+    activeFilter === 'all' ? orders : orders.filter((o) => matchesFilter(o, activeFilter));
 
   const filterTabs: { key: FilterTab; label: string }[] = [
     { key: 'all', label: 'ყველა' },
@@ -43,11 +98,12 @@ export function MyOrderScreen({
     { key: 'delivered', label: 'მიტანილი' },
   ];
 
+  const showAuthGate = loadError === 'auth' && !loading;
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={theme.colors.white} />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
           <Ionicons name="chevron-back" size={24} color={theme.colors.text.primary} />
@@ -56,20 +112,16 @@ export function MyOrderScreen({
         <View style={styles.backButton} />
       </View>
 
-      {/* Filter Tabs */}
       <View style={styles.filterContainer}>
-        <ScrollView 
-          horizontal 
+        <ScrollView
+          horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterContent}
         >
           {filterTabs.map((tab) => (
             <TouchableOpacity
               key={tab.key}
-              style={[
-                styles.filterTab,
-                activeFilter === tab.key && styles.filterTabActive,
-              ]}
+              style={[styles.filterTab, activeFilter === tab.key && styles.filterTabActive]}
               onPress={() => setActiveFilter(tab.key)}
             >
               <Text
@@ -85,121 +137,146 @@ export function MyOrderScreen({
         </ScrollView>
       </View>
 
-      {/* Orders List */}
-      <ScrollView 
-        style={styles.content}
-        contentContainerStyle={styles.contentContainer}
-        showsVerticalScrollIndicator={false}
-      >
-        {filteredOrders.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="receipt-outline" size={80} color={theme.colors.gray[300]} />
-            <Text style={styles.emptyTitle}>შეკვეთები არ მოიძებნა</Text>
-            <Text style={styles.emptySubtitle}>
-              {activeFilter === 'all' 
-                ? 'თქვენ ჯერ არ გაქვთ შეკვეთები'
-                : `არ არის ${filterTabs.find(t => t.key === activeFilter)?.label} შეკვეთები`
-              }
-            </Text>
-            <TouchableOpacity style={styles.browseButton} onPress={onHomePress}>
-              <Text style={styles.browseButtonText}>პროდუქტების დათვალიერება</Text>
+      {loading && orders.length === 0 ? (
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={styles.loadingText}>შეკვეთების ჩატვირთვა...</Text>
+        </View>
+      ) : showAuthGate ? (
+        <View style={styles.centered}>
+          <Ionicons name="lock-closed-outline" size={64} color={theme.colors.gray[300]} />
+          <Text style={styles.emptyTitle}>შესვლა საჭიროა</Text>
+          <Text style={styles.emptySubtitle}>
+            თქვენი შეკვეთების სანახავად შედით ანგარიშში.
+          </Text>
+          {onLoginPress ? (
+            <TouchableOpacity style={styles.browseButton} onPress={onLoginPress}>
+              <Text style={styles.browseButtonText}>შესვლა</Text>
             </TouchableOpacity>
-          </View>
-        ) : (
-          filteredOrders.map((order) => (
-            <TouchableOpacity
-              key={order.id}
-              style={styles.orderCard}
-              onPress={() => onOrderPress(order.id)}
-            >
-              {/* Order Header */}
-              <View style={styles.orderHeader}>
-                <View style={styles.orderHeaderLeft}>
-                  <Text style={styles.orderNumber}>{order.orderNumber}</Text>
-                  <Text style={styles.orderDate}>{order.date}</Text>
-                </View>
-                <View
-                  style={[
-                    styles.statusBadge,
-                    { backgroundColor: getOrderStatusColor(order.status) + '15' },
-                  ]}
-                >
-                  <Text
+          ) : null}
+        </View>
+      ) : loadError && orders.length === 0 ? (
+        <View style={styles.centered}>
+          <Ionicons name="cloud-offline-outline" size={64} color={theme.colors.gray[300]} />
+          <Text style={styles.emptyTitle}>ჩატვირთვა ვერ მოხერხდა</Text>
+          <Text style={styles.emptySubtitle}>
+            {loadError === 'network'
+              ? 'შეამოწმეთ ინტერნეტი და სცადეთ ხელახლა.'
+              : errorMessage || 'სერვერთან კავშირი ვერ დამყარდა.'}
+          </Text>
+          <TouchableOpacity style={styles.browseButton} onPress={() => loadOrders(false)}>
+            <Text style={styles.browseButtonText}>ხელახლა ცდა</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.contentContainer}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => loadOrders(true)}
+              colors={[theme.colors.primary]}
+            />
+          }
+        >
+          {filteredOrders.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="receipt-outline" size={80} color={theme.colors.gray[300]} />
+              <Text style={styles.emptyTitle}>შეკვეთები არ მოიძებნა</Text>
+              <Text style={styles.emptySubtitle}>
+                {activeFilter === 'all'
+                  ? 'თქვენ ჯერ არ გაქვთ შეკვეთები'
+                  : `არ არის ${filterTabs.find((t) => t.key === activeFilter)?.label} შეკვეთები`}
+              </Text>
+              <TouchableOpacity style={styles.browseButton} onPress={onHomePress}>
+                <Text style={styles.browseButtonText}>პროდუქტების დათვალიერება</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            filteredOrders.map((order) => (
+              <View key={order.id} style={styles.orderCard}>
+                <View style={styles.orderHeader}>
+                  <View style={styles.orderHeaderLeft}>
+                    <Text style={styles.orderNumber}>{order.orderNumber}</Text>
+                    <Text style={styles.orderDate}>{order.date}</Text>
+                  </View>
+                  <View
                     style={[
-                      styles.statusText,
-                      { color: getOrderStatusColor(order.status) },
+                      styles.statusBadge,
+                      { backgroundColor: getOrderStatusColor(order.status) + '15' },
                     ]}
                   >
-                    {getOrderStatusText(order.status)}
-                  </Text>
+                    <Text
+                      style={[
+                        styles.statusText,
+                        { color: getOrderStatusColor(order.status) },
+                      ]}
+                    >
+                      {getOrderStatusText(order.status)}
+                    </Text>
+                  </View>
                 </View>
-              </View>
 
-              {/* Order Items */}
-              <View style={styles.orderItems}>
-                {order.items.slice(0, 2).map((item, index) => (
-                  <View key={index} style={styles.orderItem}>
-                    <Image
-                      source={{ uri: item.image }}
-                      style={styles.itemImage}
-                      resizeMode="cover"
-                    />
-                    <View style={styles.itemInfo}>
-                      <Text style={styles.itemName} numberOfLines={1}>
-                        {item.name}
-                      </Text>
-                      <Text style={styles.itemQuantity}>რაოდენობა: {item.quantity}</Text>
+                <View style={styles.orderItems}>
+                  {order.items.slice(0, 2).map((item) => (
+                    <View key={item.id} style={styles.orderItem}>
+                      <Image
+                        source={{ uri: item.image }}
+                        style={styles.itemImage}
+                        resizeMode="cover"
+                      />
+                      <View style={styles.itemInfo}>
+                        <Text style={styles.itemName} numberOfLines={1}>
+                          {item.name}
+                        </Text>
+                        <Text style={styles.itemQuantity}>რაოდენობა: {item.quantity}</Text>
+                      </View>
+                      <Text style={styles.itemPrice}>₾{item.lineTotal.toFixed(2)}</Text>
                     </View>
-                    <Text style={styles.itemPrice}>₾{(item.price * item.quantity).toFixed(2)}</Text>
-                  </View>
-                ))}
-                {order.items.length > 2 && (
-                  <Text style={styles.moreItems}>
-                    +{order.items.length - 2} სხვა პროდუქტი
-                  </Text>
-                )}
-              </View>
-
-              {/* Order Footer */}
-              <View style={styles.orderFooter}>
-                <View style={styles.orderTotal}>
-                  <Text style={styles.totalLabel}>ჯამური თანხა:</Text>
-                  <Text style={styles.totalValue}>₾{order.total.toFixed(2)}</Text>
+                  ))}
+                  {order.items.length > 2 && (
+                    <Text style={styles.moreItems}>
+                      +{order.items.length - 2} სხვა პროდუქტი
+                    </Text>
+                  )}
                 </View>
-                {order.trackingNumber && (
-                  <View style={styles.trackingInfo}>
-                    <Ionicons name="location-outline" size={16} color={theme.colors.primary} />
-                    <Text style={styles.trackingNumber}>{order.trackingNumber}</Text>
-                  </View>
-                )}
-              </View>
 
-              {/* Action Buttons */}
-              <View style={styles.orderActions}>
-                {order.status === 'delivered' && (
-                  <TouchableOpacity style={styles.actionButton}>
-                    <Text style={styles.actionButtonText}>ხელახლა შეკვეთა</Text>
-                  </TouchableOpacity>
-                )}
-                {(order.status === 'shipped' || order.status === 'processing') && (
-                  <TouchableOpacity style={[styles.actionButton, styles.actionButtonPrimary]}>
+                <View style={styles.orderFooter}>
+                  <View style={styles.orderTotal}>
+                    <Text style={styles.totalLabel}>ჯამური თანხა:</Text>
+                    <Text style={styles.totalValue}>₾{order.total.toFixed(2)}</Text>
+                  </View>
+                  {order.trackingNumber ? (
+                    <View style={styles.trackingInfo}>
+                      <Ionicons name="document-text-outline" size={16} color={theme.colors.primary} />
+                      <Text style={styles.trackingNumber} numberOfLines={1}>
+                        {order.trackingNumber}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                <View style={styles.orderActions}>
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.actionButtonPrimary]}
+                    onPress={() => onOrderPress(order.id)}
+                    activeOpacity={0.85}
+                  >
                     <Text style={[styles.actionButtonText, styles.actionButtonTextPrimary]}>
-                      თვალყურის დევნება
+                      სტატუსის ნახვა
                     </Text>
                   </TouchableOpacity>
-                )}
-                <TouchableOpacity style={styles.actionButton}>
-                  <Text style={styles.actionButtonText}>დეტალები</Text>
-                </TouchableOpacity>
+                </View>
               </View>
-            </TouchableOpacity>
-          ))
-        )}
+            ))
+          )}
 
-        <View style={{ height: 100 }} />
-      </ScrollView>
+          <View style={{ height: 100 }} />
+        </ScrollView>
+      )}
 
-      {/* Bottom Navigation */}
       <BottomNavigation
         activeTab="home"
         onHomePress={onHomePress}
@@ -218,6 +295,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.gray[50],
+  },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: theme.colors.text.secondary,
   },
   header: {
     flexDirection: 'row',
@@ -416,10 +504,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: theme.colors.primary,
     fontWeight: '500',
+    flex: 1,
   },
   orderActions: {
     flexDirection: 'row',
     gap: 8,
+    marginTop: 4,
   },
   actionButton: {
     flex: 1,

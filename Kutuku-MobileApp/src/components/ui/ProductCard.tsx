@@ -5,11 +5,24 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Image, ImageSourcePropType, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+function coercePrice(value: number | string | undefined | null): number {
+  if (value === undefined || value === null) return NaN;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+  const n = parseFloat(String(value).trim().replace(',', '.'));
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/** ლარი — ერთ სტრიქონად <Text>-ში (RN: ტექსტი არ უნდა „გაიპობინოს“ ბრეისებსა და ₾-ს შორის) */
+function formatLari(value: number | string | undefined | null): string {
+  const n = coercePrice(value);
+  return Number.isFinite(n) ? n.toFixed(2) : '0.00';
+}
+
 export interface ProductCardProps {
   id: string;
   name: string;
-  currentPrice?: number;
-  originalPrice?: number;
+  currentPrice?: number | string;
+  originalPrice?: number | string;
   discount?: number;
   image: ImageSourcePropType | string;
   onPress?: () => void;
@@ -45,7 +58,11 @@ export function ProductCard({
   const { addToCart } = useCart();
   const { addToFavorites, removeFromFavorites, isFavorite } = useFavorites();
   const [showBottomSheet, setShowBottomSheet] = useState(false);
-  const hasDiscount = discount && discount > 0;
+  const hasDiscount = Boolean(discount && discount > 0);
+  const priceNum = coercePrice(currentPrice);
+  const originalNum = coercePrice(originalPrice);
+  const safePrice = Number.isFinite(priceNum) ? priceNum : 0;
+  const safeOriginalPrice = Number.isFinite(originalNum) ? originalNum : undefined;
   const imageSource = typeof image === 'string' ? { uri: image } : image;
   const isInFavorites = isFavorite(id);
 
@@ -60,8 +77,8 @@ export function ProductCard({
       addToCart({
         id,
         name,
-        price: currentPrice || 0,
-        originalPrice,
+        price: safePrice,
+        originalPrice: safeOriginalPrice,
         discount,
         image: typeof image === 'string' ? image : '',
       });
@@ -98,8 +115,8 @@ export function ProductCard({
               addToFavorites({
                 id,
                 name,
-                price: currentPrice || 0,
-                originalPrice,
+                price: safePrice,
+                originalPrice: safeOriginalPrice,
                 discount,
                 image: typeof image === 'string' ? image : '',
                 rating,
@@ -137,14 +154,16 @@ export function ProductCard({
         <View style={styles.priceSection}>
           <View style={styles.currentPriceContainer}>
             <Text style={styles.currentPriceText} numberOfLines={1}>
-              {currentPrice ? currentPrice.toFixed(2) : '0.00'}₾
+              {`${formatLari(currentPrice)}₾`}
             </Text>
           </View>
 
-          {originalPrice && currentPrice && originalPrice > currentPrice && (
+          {Number.isFinite(originalNum) &&
+            Number.isFinite(priceNum) &&
+            originalNum > priceNum && (
             <View style={styles.originalPriceContainer}>
               <Text style={styles.originalPriceText} numberOfLines={1}>
-                {originalPrice.toFixed(2)}₾
+                {`${formatLari(originalPrice)}₾`}
               </Text>
             </View>
           )}
@@ -177,8 +196,8 @@ export function ProductCard({
             ? {
                 id,
                 name,
-                price: currentPrice || 0,
-                originalPrice,
+                price: safePrice,
+                originalPrice: safeOriginalPrice,
                 discount,
                 image: typeof image === 'string' ? image : '',
                 rating,

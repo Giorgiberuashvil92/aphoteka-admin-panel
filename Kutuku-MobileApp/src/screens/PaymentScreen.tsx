@@ -1,55 +1,205 @@
+import { DEFAULT_PAYMENT_METHOD_ID } from '@/src/config/paymentMethods.config';
 import { useCart } from '@/src/contexts';
-import { PaymentService } from '@/src/services/payment.service';
+import {
+  DeliveryAddressService,
+  formatShippingAddressLine,
+  isDeliveryAddressComplete,
+  type DeliveryAddress,
+} from '@/src/services/deliveryAddress.service';
+import { OrdersService } from '@/src/services/orders.service';
+import {
+  PaymentService,
+  type PaymentMethodRow,
+} from '@/src/services/payment.service';
+import { UserService } from '@/src/services/user.service';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
-import { Image, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+
+const MONGO_OBJECT_ID_RE = /^[a-fA-F0-9]{24}$/;
+
+function coerceUnitPrice(value: number | string | undefined | null): number {
+  if (value === undefined || value === null) return NaN;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+  const n = parseFloat(String(value).trim().replace(',', '.'));
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function paymentNoteForOrder(
+  selectedId: string,
+  row: PaymentMethodRow | undefined,
+): string {
+  if (!row) return 'გადახდა: არჩეული მეთოდი';
+  if (row.id === 'cod') return 'გადახდა: ნაღდი მიტანისას';
+  if (row.kind === 'card') {
+    return `გადახდა: ბარათი — ${row.name}, ${row.number}`;
+  }
+  return `გადახდა: ${row.name} — ${row.number}`;
+}
 
 type PaymentScreenProps = {
   onBack: () => void;
-  onCheckout: () => void;
+  /** შეკვეთა წარმატებით შეიქმნა სერვერზე */
+  onOrderPlaced: (orderId: string) => void;
+  /** JWT არ არის — გადასვლა შესვლაზე */
+  onLoginRequired: () => void;
   onEditAddress: () => void;
   onAddPaymentMethod: () => void;
 };
 
-export function PaymentScreen({ onBack, onCheckout, onEditAddress, onAddPaymentMethod }: PaymentScreenProps) {
-  const { items: cartItems, totalPrice } = useCart();
-  const [selectedPayment, setSelectedPayment] = useState('1');
+export function PaymentScreen({
+  onBack,
+  onOrderPlaced,
+  onLoginRequired,
+  onEditAddress,
+  onAddPaymentMethod,
+}: PaymentScreenProps) {
+  const { items: cartItems, totalPrice, clearCartSilently, itemCount } = useCart();
+  const [selectedPayment, setSelectedPayment] = useState(DEFAULT_PAYMENT_METHOD_ID);
   const [promoCode, setPromoCode] = useState('');
-  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
+  const [paymentRows, setPaymentRows] = useState<PaymentMethodRow[]>([]);
+  const [paymentMethodsLoading, setPaymentMethodsLoading] = useState(true);
+  const [placingOrder, setPlacingOrder] = useState(false);
+  const [delivery, setDelivery] = useState<DeliveryAddress | null>(null);
 
   const subtotal = totalPrice;
   const shipping = 5.0;
   const total = subtotal + shipping;
 
-  const address = {
-    type: 'სახლი',
-    street: 'ვაჟა-ფშაველას გამზ. 41',
-    city: 'თბილისი, საქართველო, 0177',
-  };
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      setPaymentMethodsLoading(true);
+      void (async () => {
+        try {
+          const [del, rows] = await Promise.all([
+            DeliveryAddressService.get(),
+            PaymentService.getPaymentRows(),
+          ]);
+          if (cancelled) return;
+          setDelivery(del);
+          setPaymentRows(rows);
+          setSelectedPayment((prev) =>
+            rows.some((r) => r.id === prev) ? prev : DEFAULT_PAYMENT_METHOD_ID,
+          );
+        } finally {
+          if (!cancelled) setPaymentMethodsLoading(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
 
-  useEffect(() => {
-    loadPaymentMethods();
-  }, []);
+  const handlePlaceOrder = async () => {
+    if (placingOrder) return;
 
-  // Reload when screen comes into focus
-  useEffect(() => {
-    const interval = setInterval(() => {
-      loadPaymentMethods();
-    }, 1000);
+    const token = await UserService.getAccessToken();
+    if (!token) {
+      Alert.alert('შესვლა საჭიროა', 'შეკვეთის გასაფორმებლად გაიარეთ ავტორიზაცია.', [
+        { text: 'გაუქმება', style: 'cancel' },
+        { text: 'შესვლა', onPress: onLoginRequired },
+      ]);
+      return;
+    }
 
-    return () => clearInterval(interval);
-  }, []);
+    if (!cartItems.length) {
+      Alert.alert('კალათა ცარიელია', 'დაამატეთ პროდუქტები კალათაში.');
+      onBack();
+      return;
+    }
 
-  const loadPaymentMethods = () => {
-    const cards = PaymentService.getCards();
-    const methods = cards.map((card) => ({
-      id: card.id,
-      name: card.type === 'mastercard' ? 'Master Card' : card.type === 'visa' ? 'Visa Card' : 'PayPal',
-      number: card.cardNumber,
-      icon: 'card',
-    }));
-    setPaymentMethods(methods);
+    if (paymentMethodsLoading || !paymentRows.length) {
+      Alert.alert('იტვირთება', 'დაელოდეთ გადახდის მეთოდების ჩატვირთვას.');
+      return;
+    }
+    if (!paymentRows.some((r) => r.id === selectedPayment)) {
+      Alert.alert('გადახდა', 'აირჩიეთ გადახდის მეთოდი.');
+      return;
+    }
+
+    const latest = await DeliveryAddressService.get();
+    if (!latest || !isDeliveryAddressComplete(latest)) {
+      Alert.alert(
+        'მისამართი საჭიროა',
+        'გადახდამდე შეავსეთ მიწოდების მისამართი და ტელეფონი.',
+        [
+          { text: 'გაუქმება', style: 'cancel' },
+          { text: 'მისამართი', onPress: onEditAddress },
+        ],
+      );
+      return;
+    }
+
+    const line = formatShippingAddressLine(latest);
+    const phoneForOrder = latest.phone.replace(/\s/g, '').trim();
+
+    for (const item of cartItems) {
+      if (!MONGO_OBJECT_ID_RE.test(String(item.id).trim())) {
+        Alert.alert(
+          'პროდუქტი ვერ მოიძებნა',
+          'კალათაში არის პროდუქტი სერვერის ID-ს გარეშე. გახსენით კატალოგიდან და თავიდან დაამატეთ.'
+        );
+        return;
+      }
+      const unit = coerceUnitPrice(item.price);
+      if (!Number.isFinite(unit) || unit < 0) {
+        Alert.alert('ფასის შეცდომა', `პროდუქტი „${item.name}“ — ფასი არასწორია.`);
+        return;
+      }
+    }
+
+    const selected = paymentRows.find((m) => m.id === selectedPayment);
+    const paymentNote = paymentNoteForOrder(selectedPayment, selected);
+
+    setPlacingOrder(true);
+    try {
+      const result = await OrdersService.createOrder({
+        items: cartItems.map((item) => ({
+          productId: String(item.id).trim(),
+          productName: item.name,
+          quantity: item.quantity,
+          unitPrice: coerceUnitPrice(item.price),
+          imageUrl: item.image?.trim() || undefined,
+          packSize: item.packageSize,
+        })),
+        shippingAddress: line,
+        phoneNumber: phoneForOrder,
+        comment: `${paymentNote}; მიწოდების საფასური (შეფასება აპში): ${shipping.toFixed(2)}₾; ჯამი აპში (პროდუქტები+მიწოდება): ${total.toFixed(2)}₾`,
+      });
+
+      if (!result.ok) {
+        if (result.error === 'auth') {
+          Alert.alert('სესია', result.message ?? 'საჭიროა ხელახალი შესვლა', [
+            { text: 'გაუქმება', style: 'cancel' },
+            { text: 'შესვლა', onPress: onLoginRequired },
+          ]);
+        } else {
+          Alert.alert('შეკვეთა ვერ შეიქმნა', result.message ?? 'სცადეთ ხელახლა');
+        }
+        return;
+      }
+
+      clearCartSilently();
+      onOrderPlaced(result.orderId);
+    } finally {
+      setPlacingOrder(false);
+    }
   };
 
   return (
@@ -81,14 +231,33 @@ export function PaymentScreen({ onBack, onCheckout, onEditAddress, onAddPaymentM
               <Text style={styles.editButton}>ცვლილება</Text>
             </TouchableOpacity>
           </View>
-          <View style={styles.addressCard}>
+          <View
+            style={[
+              styles.addressCard,
+              !isDeliveryAddressComplete(delivery) && styles.addressCardWarning,
+            ]}
+          >
             <View style={styles.addressIcon}>
               <Ionicons name="home-outline" size={26} color={theme.colors.primary} />
             </View>
             <View style={styles.addressInfo}>
-              <Text style={styles.addressType}>{address.type}</Text>
-              <Text style={styles.addressStreet}>{address.street}</Text>
-              <Text style={styles.addressCity}>{address.city}</Text>
+              {delivery && isDeliveryAddressComplete(delivery) ? (
+                <>
+                  <Text style={styles.addressType}>{delivery.label}</Text>
+                  <Text style={styles.addressStreet}>{delivery.street}</Text>
+                  <Text style={styles.addressCity}>
+                    {delivery.city}
+                    {delivery.building ? ` · ${delivery.building}` : ''}
+                    {delivery.floor ? ` · ${delivery.floor}` : ''}
+                  </Text>
+                  <Text style={styles.addressPhone}>ტელ: {delivery.phone}</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.addressType}>მისამართი არ არის შევსებული</Text>
+                  <Text style={styles.addressStreet}>დააჭირეთ „ცვლილება“ — მიუთითეთ ქუჩა, ქალაქი და ტელეფონი</Text>
+                </>
+              )}
             </View>
             <Ionicons name="chevron-forward" size={20} color={theme.colors.gray[500]} />
           </View>
@@ -100,7 +269,7 @@ export function PaymentScreen({ onBack, onCheckout, onEditAddress, onAddPaymentM
             <Ionicons name="bag-outline" size={20} color={theme.colors.primary} />
             <Text style={styles.sectionTitle}>პროდუქტები</Text>
             <View style={styles.countBadge}>
-              <Text style={styles.countBadgeText}>{cartItems.length}</Text>
+              <Text style={styles.countBadgeText}>{itemCount}</Text>
             </View>
           </View>
           {cartItems.map((item, index) => (
@@ -117,48 +286,112 @@ export function PaymentScreen({ onBack, onCheckout, onEditAddress, onAddPaymentM
                 ) : null}
                 <Text style={styles.productQuantity}>× {item.quantity}</Text>
               </View>
-              <Text style={styles.productPrice}>{(item.price * item.quantity).toFixed(2)}₾</Text>
+              <Text style={styles.productPrice}>
+                {(() => {
+                  const u = coerceUnitPrice(item.price);
+                  const line = Number.isFinite(u) ? u * item.quantity : 0;
+                  return `${line.toFixed(2)}₾`;
+                })()}
+              </Text>
             </View>
           ))}
         </View>
 
-        {/* Payment methods Card */}
+        {/* Payment methods Card — ჩასმული მეთოდები (კონფიგი) + შენახული ბარათები */}
         <View style={styles.card}>
-          <View style={styles.sectionTitleRow}>
-            <Ionicons name="card-outline" size={20} color={theme.colors.primary} />
-            <Text style={styles.sectionTitle}>გადახდის მეთოდი</Text>
+          <View style={styles.paymentSectionHeader}>
+            <View style={styles.sectionTitleRow}>
+              <Ionicons name="card-outline" size={20} color={theme.colors.primary} />
+              <Text style={styles.sectionTitle}>გადახდის მეთოდი</Text>
+            </View>
+            {paymentMethodsLoading ? (
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+            ) : null}
           </View>
-          {paymentMethods.map((method) => (
-            <TouchableOpacity
-              key={method.id}
-              style={[styles.paymentMethod, selectedPayment === method.id && styles.paymentMethodSelected]}
-              onPress={() => setSelectedPayment(method.id)}
-              activeOpacity={0.8}
-            >
-              <View style={styles.paymentIcon}>
-                <Ionicons
-                  name={method.icon as any}
-                  size={26}
-                  color={selectedPayment === method.id ? theme.colors.primary : theme.colors.gray[500]}
-                />
-              </View>
-              <View style={styles.paymentInfo}>
-                <Text style={styles.paymentName}>{method.name}</Text>
-                <Text style={styles.paymentNumber}>{method.number}</Text>
-              </View>
-              {selectedPayment === method.id ? (
-                <View style={styles.paymentCheck}>
-                  <Ionicons name="checkmark-circle" size={24} color={theme.colors.primary} />
-                </View>
-              ) : (
-                <View style={styles.paymentRadio} />
-              )}
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity style={styles.addPaymentButton} onPress={onAddPaymentMethod} activeOpacity={0.8}>
-            <Ionicons name="add-circle-outline" size={22} color={theme.colors.primary} />
-            <Text style={styles.addPaymentText}>ახალი ბარათის დამატება</Text>
-          </TouchableOpacity>
+          {paymentMethodsLoading && paymentRows.length === 0 ? (
+            <View style={styles.paymentLoadingWrap}>
+              <ActivityIndicator color={theme.colors.primary} />
+              <Text style={styles.paymentLoadingText}>იტვირთება...</Text>
+            </View>
+          ) : (
+            <>
+              {paymentRows.map((method) => (
+                <TouchableOpacity
+                  key={method.id}
+                  style={[
+                    styles.paymentMethod,
+                    selectedPayment === method.id && styles.paymentMethodSelected,
+                  ]}
+                  onPress={() => setSelectedPayment(method.id)}
+                  onLongPress={
+                    method.kind === 'card'
+                      ? () => {
+                          Alert.alert('ბარათის წაშლა', 'წავშალოთ ეს ბარათი მოწყობილობიდან?', [
+                            { text: 'არა', style: 'cancel' },
+                            {
+                              text: 'წაშლა',
+                              style: 'destructive',
+                              onPress: () => {
+                                void (async () => {
+                                  await PaymentService.removeCardByRowId(method.id);
+                                  const rows = await PaymentService.getPaymentRows();
+                                  setPaymentRows(rows);
+                                  setSelectedPayment((prev) => {
+                                    if (prev !== method.id) {
+                                      return rows.some((r) => r.id === prev)
+                                        ? prev
+                                        : DEFAULT_PAYMENT_METHOD_ID;
+                                    }
+                                    return rows.some((r) => r.id === DEFAULT_PAYMENT_METHOD_ID)
+                                      ? DEFAULT_PAYMENT_METHOD_ID
+                                      : rows[0]?.id ?? DEFAULT_PAYMENT_METHOD_ID;
+                                  });
+                                })();
+                              },
+                            },
+                          ]);
+                        }
+                      : undefined
+                  }
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.paymentIcon}>
+                    <Ionicons
+                      name={method.icon}
+                      size={26}
+                      color={
+                        selectedPayment === method.id
+                          ? theme.colors.primary
+                          : theme.colors.gray[500]
+                      }
+                    />
+                  </View>
+                  <View style={styles.paymentInfo}>
+                    <Text style={styles.paymentName}>{method.name}</Text>
+                    <Text style={styles.paymentNumber}>{method.number}</Text>
+                    {method.kind === 'card' ? (
+                      <Text style={styles.paymentHint}>ხანგრძლივი დაჭერა — წაშლა</Text>
+                    ) : null}
+                  </View>
+                  {selectedPayment === method.id ? (
+                    <View style={styles.paymentCheck}>
+                      <Ionicons name="checkmark-circle" size={24} color={theme.colors.primary} />
+                    </View>
+                  ) : (
+                    <View style={styles.paymentRadio} />
+                  )}
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                style={styles.addPaymentButton}
+                onPress={onAddPaymentMethod}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add-circle-outline" size={22} color={theme.colors.primary} />
+                <Text style={styles.addPaymentText}>ახალი ბარათის დამატება</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
 
         {/* Promo Card */}
@@ -186,6 +419,9 @@ export function PaymentScreen({ onBack, onCheckout, onEditAddress, onAddPaymentM
         {/* Summary Card */}
         <View style={styles.summaryCard}>
           <Text style={styles.summaryCardTitle}>შეკვეთის ჯამი</Text>
+          <Text style={styles.serverNote}>
+            სერვერზე ინახება პროდუქტების ჯამი; მიწოდების საფასური აქ არის შეფასება (იხილეთ კომენტარი შეკვეთაში).
+          </Text>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>ქვეჯამი</Text>
             <Text style={styles.summaryValue}>{subtotal.toFixed(2)}₾</Text>
@@ -206,9 +442,20 @@ export function PaymentScreen({ onBack, onCheckout, onEditAddress, onAddPaymentM
 
       {/* Fixed checkout button */}
       <View style={styles.bottomBar}>
-        <TouchableOpacity style={styles.checkoutButton} onPress={onCheckout} activeOpacity={0.9}>
-          <Text style={styles.checkoutButtonText}>გადახდა {total.toFixed(2)}₾</Text>
-          <Ionicons name="lock-closed" size={18} color={theme.colors.white} />
+        <TouchableOpacity
+          style={[styles.checkoutButton, placingOrder && styles.checkoutButtonDisabled]}
+          onPress={handlePlaceOrder}
+          activeOpacity={0.9}
+          disabled={placingOrder}
+        >
+          {placingOrder ? (
+            <ActivityIndicator color={theme.colors.white} />
+          ) : (
+            <>
+              <Text style={styles.checkoutButtonText}>შეკვეთის გაფორმება · {total.toFixed(2)}₾</Text>
+              <Ionicons name="checkmark-done" size={20} color={theme.colors.white} />
+            </>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -285,6 +532,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.gray[300],
   },
+  addressCardWarning: {
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.primary + '0F',
+  },
   addressIcon: {
     width: 52,
     height: 52,
@@ -310,6 +561,12 @@ const styles = StyleSheet.create({
   addressCity: {
     fontSize: 13,
     color: theme.colors.text.secondary,
+  },
+  addressPhone: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    marginTop: 4,
   },
   countBadge: {
     backgroundColor: theme.colors.primary,
@@ -362,6 +619,26 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: theme.colors.primary,
   },
+  paymentSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  paymentLoadingWrap: {
+    paddingVertical: 28,
+    alignItems: 'center',
+    gap: 10,
+  },
+  paymentLoadingText: {
+    fontSize: 14,
+    color: theme.colors.text.secondary,
+  },
+  paymentHint: {
+    fontSize: 11,
+    color: theme.colors.text.tertiary,
+    marginTop: 4,
+  },
   paymentMethod: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -398,7 +675,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: theme.colors.text.secondary,
   },
-  paymentCheck: {},
+  paymentCheck: {
+    marginLeft: 4,
+  },
   paymentRadio: {
     width: 22,
     height: 22,
@@ -461,7 +740,13 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     color: theme.colors.text.primary,
-    marginBottom: 14,
+    marginBottom: 8,
+  },
+  serverNote: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: theme.colors.text.tertiary,
+    marginBottom: 12,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -516,7 +801,11 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
     paddingVertical: 16,
     borderRadius: theme.borderRadius.lg,
+    minHeight: 54,
     ...theme.shadows.md,
+  },
+  checkoutButtonDisabled: {
+    opacity: 0.85,
   },
   checkoutButtonText: {
     fontSize: 16,

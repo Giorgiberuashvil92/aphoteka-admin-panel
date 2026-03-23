@@ -19,6 +19,7 @@ export { AddressScreen } from './AddressScreen';
 export { AddCardScreen } from './AddCardScreen';
 export { OrderSuccessScreen } from './OrderSuccessScreen';
 export { MyOrderScreen } from './MyOrderScreen';
+export { DoctorPrescribeScreen } from './DoctorPrescribeScreen';
 export { OrderTrackingScreen } from './OrderTrackingScreen';
 export { WelcomeScreen } from './WelcomeScreen';
 export { OnboardingScreen } from './OnboardingScreen';

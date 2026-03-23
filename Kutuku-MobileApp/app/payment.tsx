@@ -7,9 +7,11 @@ export default function Payment() {
   return (
     <PaymentScreen
       onBack={() => router.back()}
-      onCheckout={() => {
-        console.log('Checkout confirmed');
-        router.push('/order-success' as any);
+      onLoginRequired={() => router.push('/login' as any)}
+      onOrderPlaced={(orderId) => {
+        router.replace(
+          `/order-success?orderId=${encodeURIComponent(orderId)}` as any
+        );
       }}
       onEditAddress={() => {
         router.push('/address' as any);

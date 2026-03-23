@@ -15,6 +15,7 @@ import { LoginMobileDto } from './dto/login-mobile.dto';
 import { RegisterMobileDto } from './dto/register-mobile.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Controller('auth')
@@ -63,5 +64,15 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   async getProfile(@Request() req) {
     return req.user;
+  }
+
+  /** მობილური: პაროლის შეცვლა (JWT + მიმდინარე პაროლი) */
+  @Post('change-password')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async changePassword(@Request() req: any, @Body() dto: ChangePasswordDto) {
+    const userId =
+      req.user?.id ?? req.user?._id?.toString?.() ?? req.user?.sub;
+    return this.authService.changePassword(String(userId), dto);
   }
 }

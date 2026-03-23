@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Kutuku",
-    "slug": "Kutuku",
+    "slug": "aphoteka",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -52,8 +52,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "87ff9059-df01-4af5-abd6-357a20342ae6"
+        "projectId": "eacb31d7-9a70-4d30-87aa-c2096e714d5a"
       }
-    }
+    },
+    "owner": "gioberuashvili15"
   }
 }

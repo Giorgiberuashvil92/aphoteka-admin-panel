@@ -3,11 +3,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/src/theme';
 
 type OrderSuccessScreenProps = {
+  /** სერვერიდან მიღებული შეკვეთის ID */
+  orderId?: string;
   onOrderTracking: () => void;
   onBackToHome: () => void;
 };
 
-export function OrderSuccessScreen({ onOrderTracking, onBackToHome }: OrderSuccessScreenProps) {
+export function OrderSuccessScreen({ orderId, onOrderTracking, onBackToHome }: OrderSuccessScreenProps) {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={theme.colors.white} />
@@ -26,20 +28,25 @@ export function OrderSuccessScreen({ onOrderTracking, onBackToHome }: OrderSucce
           </View>
         </View>
 
-        <Text style={styles.title}>Order Successfully</Text>
+        <Text style={styles.title}>შეკვეთა მიღებულია</Text>
+        {orderId ? (
+          <Text style={styles.orderIdText} selectable>
+            № {orderId}
+          </Text>
+        ) : null}
         <Text style={styles.message}>
-          Your order will be packed by the clerk, will arrive at your house in 3 to 4 days
+          შეკვეთა გადაეცა სისტემას. მალე დაგიკავშირდებით ან შეგიძლიათ სტატუსი იხილოთ ტრეკინგში.
         </Text>
       </View>
 
       {/* Buttons */}
       <View style={styles.bottomSection}>
         <TouchableOpacity style={styles.trackingButton} onPress={onOrderTracking}>
-          <Text style={styles.trackingButtonText}>Order Tracking</Text>
+          <Text style={styles.trackingButtonText}>შეკვეთის ტრეკინგი</Text>
         </TouchableOpacity>
         
         <TouchableOpacity style={styles.homeButton} onPress={onBackToHome}>
-          <Text style={styles.homeButtonText}>Back to Home</Text>
+          <Text style={styles.homeButtonText}>მთავარ გვერდზე</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -112,8 +119,15 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     color: theme.colors.text.primary,
-    marginBottom: 16,
+    marginBottom: 8,
     textAlign: 'center',
+  },
+  orderIdText: {
+    fontSize: 13,
+    color: theme.colors.text.secondary,
+    marginBottom: 14,
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
   },
   message: {
     fontSize: 14,

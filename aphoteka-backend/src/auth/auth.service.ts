@@ -15,6 +15,7 @@ import { LoginMobileDto } from './dto/login-mobile.dto';
 import { RegisterMobileDto } from './dto/register-mobile.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { UserRole } from '../users/schemas/user.schema';
 
 @Injectable()
@@ -259,6 +260,31 @@ export class AuthService {
       // In development, return code for testing
       resetCode: process.env.NODE_ENV === 'development' ? resetCode : undefined,
     };
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new BadRequestException('Invalid user');
+    }
+    const user = await this.userModel.findById(userId).exec();
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    if (!user.password) {
+      throw new BadRequestException('Password is not set for this account');
+    }
+    const currentOk = await bcrypt.compare(dto.currentPassword, user.password);
+    if (!currentOk) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException(
+        'New password must be different from the current one',
+      );
+    }
+    user.password = await bcrypt.hash(dto.newPassword, 10);
+    await user.save();
+    return { message: 'Password has been changed successfully' };
   }
 
   async resetPassword(resetPasswordDto: ResetPasswordDto) {

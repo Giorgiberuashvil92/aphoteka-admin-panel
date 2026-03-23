@@ -1,8 +1,10 @@
 import { useCart, useFavorites } from '@/src/contexts';
+import { OrdersService } from '@/src/services/orders.service';
 import { UserService } from '@/src/services/user.service';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 type SettingsScreenProps = {
@@ -16,6 +18,8 @@ type SettingsScreenProps = {
   onHelpSupport: () => void;
   onAbout: () => void;
   onLogout: () => void;
+  /** ექიმის რეჟიმი — პაციენტზე წამლების დანიშვნა */
+  onDoctorPrescribe?: () => void;
 };
 
 export function SettingsScreen({
@@ -29,15 +33,35 @@ export function SettingsScreen({
   onHelpSupport,
   onAbout,
   onLogout,
+  onDoctorPrescribe,
 }: SettingsScreenProps) {
   const { itemCount, clearCart } = useCart();
   const { favoriteCount, clearFavorites } = useFavorites();
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
+  const [ordersCount, setOrdersCount] = useState(0);
 
   useEffect(() => {
     loadUserInfo();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      (async () => {
+        const result = await OrdersService.fetchMyOrders();
+        if (!active) return;
+        if (result.ok) {
+          setOrdersCount(result.orders.length);
+        } else {
+          setOrdersCount(0);
+        }
+      })();
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
 
   const loadUserInfo = async () => {
     const user = await UserService.getCurrentUser();
@@ -79,7 +103,8 @@ export function SettingsScreen({
     items: MenuItem[];
   };
 
-  const menuSections: MenuSection[] = [
+  const menuSections: MenuSection[] = useMemo(
+    () => [
     {
       title: 'ანგარიში',
       items: [
@@ -92,7 +117,7 @@ export function SettingsScreen({
           icon: 'receipt-outline',
           label: 'ჩემი შეკვეთები',
           onPress: onMyOrders,
-          badge: '3',
+          ...(ordersCount > 0 ? { badge: String(ordersCount) } : {}),
         },
         {
           icon: 'location-outline',
@@ -104,6 +129,15 @@ export function SettingsScreen({
           label: 'გადახდის მეთოდები',
           onPress: onPaymentMethods,
         },
+        ...(onDoctorPrescribe
+          ? [
+              {
+                icon: 'medkit-outline' as const,
+                label: 'ექიმის რეჟიმი (დანიშნულებები)',
+                onPress: onDoctorPrescribe,
+              },
+            ]
+          : []),
       ],
     },
     {
@@ -137,7 +171,9 @@ export function SettingsScreen({
         },
       ],
     },
-  ];
+  ],
+    [onMyOrders, onDoctorPrescribe, onEditProfile, onAddresses, onPaymentMethods, onNotifications, onLanguage, onHelpSupport, onAbout, ordersCount]
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -191,7 +227,7 @@ export function SettingsScreen({
             <View style={styles.statIconContainer}>
               <Ionicons name="receipt" size={24} color={theme.colors.success} />
             </View>
-            <Text style={styles.statValue}>3</Text>
+            <Text style={styles.statValue}>{ordersCount}</Text>
             <Text style={styles.statLabel}>შეკვეთები</Text>
           </View>
         </View>

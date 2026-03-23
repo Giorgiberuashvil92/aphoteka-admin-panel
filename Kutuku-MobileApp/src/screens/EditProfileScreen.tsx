@@ -7,12 +7,17 @@ import { UserService } from '@/src/services/user.service';
 type EditProfileScreenProps = {
   onBack: () => void;
   onSave: () => void;
-  onMoreOptions?: () => void;
 };
 
-export function EditProfileScreen({ onBack, onSave, onMoreOptions }: EditProfileScreenProps) {
+export function EditProfileScreen({ onBack, onSave }: EditProfileScreenProps) {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -29,35 +34,83 @@ export function EditProfileScreen({ onBack, onSave, onMoreOptions }: EditProfile
 
   const handleSave = async () => {
     if (!username.trim()) {
-      Alert.alert('Error', 'Username cannot be empty');
+      Alert.alert('შეცდომა', 'სახელი და გვარი სავალდებულოა');
       return;
     }
 
     if (!email.trim()) {
-      Alert.alert('Error', 'Email cannot be empty');
+      Alert.alert('შეცდომა', 'ელფოსტა სავალდებულოა');
+      return;
+    }
+
+    const wantsPasswordChange =
+      currentPassword.trim().length > 0 ||
+      newPassword.trim().length > 0 ||
+      confirmPassword.trim().length > 0;
+
+    if (wantsPasswordChange) {
+      if (!currentPassword.trim()) {
+        Alert.alert('შეცდომა', 'მიმდინარე პაროლი სავალდებულოა');
+        return;
+      }
+      if (!newPassword.trim()) {
+        Alert.alert('შეცდომა', 'ახალი პაროლი სავალდებულოა');
+        return;
+      }
+      if (newPassword.length < 6) {
+        Alert.alert('შეცდომა', 'ახალი პაროლი მინიმუმ 6 სიმბოლო უნდა იყოს');
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        Alert.alert('შეცდომა', 'ახალი პაროლი და დადასტურება არ ემთხვევა');
+        return;
+      }
+    }
+
+    const user = await UserService.getCurrentUser();
+    if (!user) {
+      Alert.alert('შეცდომა', 'მომხმარებელი ვერ მოიძებნა. ხელახლა შედით სისტემაში.');
       return;
     }
 
     setLoading(true);
     try {
-      const user = await UserService.getCurrentUser();
-      if (user) {
-        const names = username.trim().split(' ');
-        const firstName = names[0] || '';
-        const lastName = names.slice(1).join(' ') || '';
+      const names = username.trim().split(/\s+/);
+      const firstName = names[0] || '';
+      const lastName = names.slice(1).join(' ') || '';
 
-        await UserService.updateProfile(user.id, {
-          firstName,
-          lastName,
-          email: email.trim(),
-        });
+      const ok = await UserService.updateProfile(user.id, {
+        firstName,
+        lastName,
+        email: email.trim(),
+      });
 
-        Alert.alert('Success', 'Profile updated successfully', [
-          { text: 'OK', onPress: onSave }
-        ]);
+      if (!ok) {
+        Alert.alert(
+          'შეცდომა',
+          'პროფილის განახლება ვერ მოხერხდა. შეამოწმეთ კავშირი ან ხელახლა შედით ანგარიშში.'
+        );
+        return;
       }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update profile');
+
+      if (wantsPasswordChange) {
+        const pwd = await UserService.changePassword(currentPassword, newPassword);
+        if (!pwd.ok) {
+          Alert.alert(
+            'შეცდომა',
+            `პროფილი განახლდა, მაგრამ პაროლი ვერ შეიცვალა: ${pwd.message}`
+          );
+          return;
+        }
+      }
+
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+
+      Alert.alert('წარმატება', 'ცვლილებები შენახულია', [{ text: 'კარგი', onPress: onSave }]);
+    } catch {
+      Alert.alert('შეცდომა', 'შენახვა ვერ მოხერხდა');
     } finally {
       setLoading(false);
     }
@@ -72,10 +125,8 @@ export function EditProfileScreen({ onBack, onSave, onMoreOptions }: EditProfile
         <TouchableOpacity style={styles.backButton} onPress={onBack}>
           <Ionicons name="chevron-back" size={24} color={theme.colors.text.primary} />
         </TouchableOpacity>
-        <Text style={styles.title}>Edit Profile</Text>
-        <TouchableOpacity style={styles.moreButton} onPress={onMoreOptions}>
-          <Ionicons name="ellipsis-vertical" size={24} color={theme.colors.text.primary} />
-        </TouchableOpacity>
+        <Text style={styles.title}>პროფილის რედაქტირება</Text>
+        <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView 
@@ -98,14 +149,14 @@ export function EditProfileScreen({ onBack, onSave, onMoreOptions }: EditProfile
 
         {/* Username Field */}
         <View style={styles.inputContainer}>
-          <Text style={styles.label}>Username</Text>
+          <Text style={styles.label}>სახელი და გვარი</Text>
           <View style={styles.inputWrapper}>
             <Ionicons name="person-outline" size={20} color={theme.colors.primary} />
             <TextInput
               style={styles.input}
               value={username}
               onChangeText={setUsername}
-              placeholder="Enter username"
+              placeholder="მაგ. გიორგი გიორგაძე"
               placeholderTextColor={theme.colors.text.secondary}
             />
           </View>
@@ -113,14 +164,14 @@ export function EditProfileScreen({ onBack, onSave, onMoreOptions }: EditProfile
 
         {/* Email Field */}
         <View style={styles.inputContainer}>
-          <Text style={styles.label}>Email or Phone Number</Text>
+          <Text style={styles.label}>ელფოსტა</Text>
           <View style={styles.inputWrapper}>
             <Ionicons name="mail-outline" size={20} color={theme.colors.primary} />
             <TextInput
               style={styles.input}
               value={email}
               onChangeText={setEmail}
-              placeholder="Enter email"
+              placeholder="email@example.com"
               placeholderTextColor={theme.colors.text.secondary}
               keyboardType="email-address"
               autoCapitalize="none"
@@ -128,9 +179,86 @@ export function EditProfileScreen({ onBack, onSave, onMoreOptions }: EditProfile
           </View>
         </View>
 
+        <Text style={styles.sectionHeading}>პაროლი</Text>
+        <Text style={styles.passwordHint}>
+          პაროლის შესაცვლელად შეავსეთ სამივე ველი. თუ არ გსურთ ცვლილება, დატოვეთ ცარიელი.
+        </Text>
+
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>მიმდინარე პაროლი</Text>
+          <View style={styles.inputWrapper}>
+            <Ionicons name="lock-closed-outline" size={20} color={theme.colors.text.secondary} />
+            <TextInput
+              style={styles.input}
+              value={currentPassword}
+              onChangeText={setCurrentPassword}
+              placeholder="••••••••"
+              placeholderTextColor={theme.colors.text.secondary}
+              secureTextEntry={!showCurrentPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TouchableOpacity onPress={() => setShowCurrentPassword((v) => !v)} hitSlop={12}>
+              <Ionicons
+                name={showCurrentPassword ? 'eye-outline' : 'eye-off-outline'}
+                size={20}
+                color={theme.colors.text.secondary}
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>ახალი პაროლი</Text>
+          <View style={styles.inputWrapper}>
+            <Ionicons name="lock-closed-outline" size={20} color={theme.colors.text.secondary} />
+            <TextInput
+              style={styles.input}
+              value={newPassword}
+              onChangeText={setNewPassword}
+              placeholder="მინ. 6 სიმბოლო"
+              placeholderTextColor={theme.colors.text.secondary}
+              secureTextEntry={!showNewPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TouchableOpacity onPress={() => setShowNewPassword((v) => !v)} hitSlop={12}>
+              <Ionicons
+                name={showNewPassword ? 'eye-outline' : 'eye-off-outline'}
+                size={20}
+                color={theme.colors.text.secondary}
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>ახალი პაროლის დადასტურება</Text>
+          <View style={styles.inputWrapper}>
+            <Ionicons name="lock-closed-outline" size={20} color={theme.colors.text.secondary} />
+            <TextInput
+              style={styles.input}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              placeholder="გაიმეორეთ ახალი პაროლი"
+              placeholderTextColor={theme.colors.text.secondary}
+              secureTextEntry={!showConfirmPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TouchableOpacity onPress={() => setShowConfirmPassword((v) => !v)} hitSlop={12}>
+              <Ionicons
+                name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'}
+                size={20}
+                color={theme.colors.text.secondary}
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* Account Linked With */}
         <View style={styles.linkedAccountContainer}>
-          <Text style={styles.label}>Account Liked With</Text>
+          <Text style={styles.label}>დაკავშირებული ანგარიში</Text>
           <TouchableOpacity style={styles.linkedAccount}>
             <View style={styles.linkedAccountLeft}>
               <Image 
@@ -150,7 +278,7 @@ export function EditProfileScreen({ onBack, onSave, onMoreOptions }: EditProfile
           disabled={loading}
         >
           <Text style={styles.saveButtonText}>
-            {loading ? 'Saving...' : 'Save Changes'}
+            {loading ? 'ინახება...' : 'შენახვა'}
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -184,13 +312,22 @@ const styles = StyleSheet.create({
     fontWeight: theme.typography.fontWeight.bold,
     color: theme.colors.text.primary,
   },
-  moreButton: {
+  headerSpacer: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: theme.colors.gray[50],
-    justifyContent: 'center',
-    alignItems: 'center',
+  },
+  sectionHeading: {
+    fontSize: theme.typography.fontSize.lg,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.xs,
+  },
+  passwordHint: {
+    fontSize: theme.typography.fontSize.sm,
+    color: theme.colors.text.secondary,
+    lineHeight: 20,
+    marginBottom: theme.spacing.md,
   },
   scrollView: {
     flex: 1,

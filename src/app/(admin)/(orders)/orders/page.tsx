@@ -8,90 +8,8 @@ import { EyeIcon } from "@/icons";
 import Link from "next/link";
 import { warehousesApi, ordersApi } from "@/lib/api";
 
-// Mock data
-const mockOrders: Order[] = [
-  {
-    id: "ORD-001",
-    userId: "user-1",
-    user: {
-      id: "user-1",
-      role: "consumer" as any,
-      phoneNumber: "+995555123456",
-      fullName: "გიორგი ბერიძე",
-      status: "active",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-    status: OrderStatus.CONFIRMED,
-    totalAmount: 25.50,
-    deliveryFee: 5.00,
-    paymentStatus: PaymentStatus.COMPLETED,
-    deliveryAddress: "რუსთაველის გამზირი 1, თბილისი",
-    deliveryCity: "თბილისი",
-    deliveryPhone: "+995555123456",
-    warehouseLocation: "WAREHOUSE-1",
-    createdAt: new Date("2024-01-20T10:00:00"),
-    updatedAt: new Date("2024-01-20T10:05:00"),
-    confirmedAt: new Date("2024-01-20T10:05:00"),
-    items: [
-      {
-        id: "1",
-        orderId: "ORD-001",
-        productId: "1",
-        quantity: 2,
-        priceAtOrderTime: 5.99,
-        batchNumber: "BATCH-2024-001",
-      },
-      {
-        id: "2",
-        orderId: "ORD-001",
-        productId: "2",
-        quantity: 1,
-        priceAtOrderTime: 7.50,
-        batchNumber: "BATCH-2024-003",
-      },
-    ],
-  },
-  {
-    id: "ORD-002",
-    userId: "user-2",
-    user: {
-      id: "user-2",
-      role: "consumer" as any,
-      phoneNumber: "+995555654321",
-      fullName: "ანა მელაძე",
-      status: "active",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-    status: OrderStatus.OUT_FOR_DELIVERY,
-    totalAmount: 15.99,
-    deliveryFee: 5.00,
-    paymentStatus: PaymentStatus.COMPLETED,
-    deliveryAddress: "აღმაშენებლის გამზირი 10, თბილისი",
-    deliveryCity: "თბილისი",
-    deliveryPhone: "+995555654321",
-    warehouseLocation: "WAREHOUSE-1",
-    createdAt: new Date("2024-01-20T09:00:00"),
-    updatedAt: new Date("2024-01-20T11:00:00"),
-    confirmedAt: new Date("2024-01-20T09:05:00"),
-    packedAt: new Date("2024-01-20T10:30:00"),
-    dispatchedAt: new Date("2024-01-20T11:00:00"),
-    items: [
-      {
-        id: "3",
-        orderId: "ORD-002",
-        productId: "1",
-        quantity: 1,
-        priceAtOrderTime: 5.99,
-        batchNumber: "BATCH-2024-001",
-      },
-    ],
-  },
-];
-
 const statusLabels: Record<OrderStatus, string> = {
-  [OrderStatus.CREATED]: "შექმნილი",
+  [OrderStatus.CREATED]: "მოლოდინში",
   [OrderStatus.CONFIRMED]: "დადასტურებული",
   [OrderStatus.PACKED]: "დაფასული",
   [OrderStatus.OUT_FOR_DELIVERY]: "გზაში",
@@ -109,7 +27,8 @@ const paymentStatusLabels: Record<PaymentStatus, string> = {
 };
 
 const statusColors: Record<OrderStatus, string> = {
-  [OrderStatus.CREATED]: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200",
+  [OrderStatus.CREATED]:
+    "bg-red-100 text-red-900 dark:bg-red-950/80 dark:text-red-100",
   [OrderStatus.CONFIRMED]: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
   [OrderStatus.PACKED]: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
   [OrderStatus.OUT_FOR_DELIVERY]: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
@@ -121,49 +40,92 @@ const statusColors: Record<OrderStatus, string> = {
 function OrdersPageContent() {
   const searchParams = useSearchParams();
   const warehouseId = searchParams.get("warehouseId") || undefined;
-  
-  const [orders, setOrders] = useState<Order[]>(mockOrders);
-  const [warehouse, setWarehouse] = useState<any>(null);
+
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [warehouse, setWarehouse] = useState<{ name?: string } | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterPaymentStatus, setFilterPaymentStatus] = useState<string>("all");
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Load warehouse info if warehouseId is provided
   useEffect(() => {
     if (warehouseId) {
-      warehousesApi.getById(warehouseId).then(response => {
-        setWarehouse(response.data);
-      });
-      // Load orders for this warehouse
-      ordersApi.getAll({ warehouseId }).then(response => {
-        setOrders(response.data || []);
-      }).catch(() => {
-        // Fallback to mock data
-      });
+      warehousesApi
+        .getById(warehouseId)
+        .then((response) => setWarehouse(response.data))
+        .catch(() => setWarehouse(null));
+    } else {
+      setWarehouse(null);
     }
   }, [warehouseId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    ordersApi
+      .getAll(warehouseId ? { warehouseId } : undefined)
+      .then((response) => {
+        if (!cancelled) setOrders(response.data ?? []);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setOrders([]);
+          const msg =
+            err && typeof err === "object" && "data" in err
+              ? JSON.stringify((err as { data?: unknown }).data)
+              : err instanceof Error
+                ? err.message
+                : "შეკვეთების ჩატვირთვა ვერ მოხერხდა";
+          setLoadError(msg);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [warehouseId]);
+
   const filteredOrders = orders.filter((order) => {
-    // Filter by warehouse if warehouseId is provided
-    if (warehouseId && order.warehouseLocation !== warehouseId) {
-      return false;
-    }
-    
+    const q = searchTerm.toLowerCase();
     const matchesSearch =
-      order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.user?.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.user?.phoneNumber.includes(searchTerm);
+      order.id.toLowerCase().includes(q) ||
+      order.user?.fullName?.toLowerCase().includes(q) ||
+      (order.user?.phoneNumber?.includes(searchTerm) ?? false) ||
+      (order.user?.email?.toLowerCase().includes(q) ?? false) ||
+      order.items.some((it) => it.product?.name?.toLowerCase().includes(q));
     const matchesStatus = filterStatus === "all" || order.status === filterStatus;
     const matchesPaymentStatus =
       filterPaymentStatus === "all" || order.paymentStatus === filterPaymentStatus;
     return matchesSearch && matchesStatus && matchesPaymentStatus;
   });
 
+  const isAwaitingStaffAction = (order: Order) =>
+    order.status === OrderStatus.CREATED;
+
   return (
     <div className="space-y-6">
-      <PageBreadCrumb pageTitle={warehouse ? `${warehouse.name} - შეკვეთები` : "შეკვეთების მენეჯმენტი"} />
+      <PageBreadCrumb
+        pageTitle={
+          warehouse?.name ? `${warehouse.name} - შეკვეთები` : "შეკვეთების მენეჯმენტი"
+        }
+      />
 
-      {/* Warehouse Filter Info */}
+      {loadError && (
+        <div
+          className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+          role="alert"
+        >
+          <strong className="font-semibold">API შეცდომა:</strong> {loadError}
+          <p className="mt-1 text-xs opacity-90">
+            შეამოწმეთ რომ ხართ შესული და <code className="rounded bg-red-100 px-1 dark:bg-red-900">NEXT_PUBLIC_API_URL</code> მიუთითებს Nest API-ზე (მაგ. Railway).
+          </p>
+        </div>
+      )}
+
       {warehouse && (
         <div className="rounded-lg border border-brand-200 bg-brand-50 p-4 dark:border-brand-800 dark:bg-brand-900/20">
           <div className="flex items-center justify-between">
@@ -172,7 +134,7 @@ function OrdersPageContent() {
                 ფილტრი: {warehouse.name}
               </p>
               <p className="text-xs text-brand-700 dark:text-brand-300">
-                ნაჩვენებია მხოლოდ ამ საწყობის შეკვეთები ({filteredOrders.length})
+                საწყობის ველი ჯერ არ არის შეკვეთაში — სია შეიძლება ცარიელი იყოს საწყობის ფილტრით.
               </p>
             </div>
             <Link
@@ -185,11 +147,10 @@ function OrdersPageContent() {
         </div>
       )}
 
-      {/* Filters */}
       <div className="flex flex-col gap-4 sm:flex-row">
         <input
           type="text"
-          placeholder="ძიება შეკვეთის ID, მომხმარებლის სახელით ან ტელეფონით..."
+          placeholder="ძიება ID, სახელი, ტელეფონი, ელფოსტა..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white"
@@ -220,7 +181,6 @@ function OrdersPageContent() {
         </select>
       </div>
 
-      {/* Orders Table */}
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -250,34 +210,62 @@ function OrdersPageContent() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {filteredOrders.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center text-sm text-gray-500">
+                    იტვირთება...
+                  </td>
+                </tr>
+              ) : filteredOrders.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
                     შეკვეთები არ მოიძებნა
                   </td>
                 </tr>
               ) : (
-                filteredOrders.map((order) => (
+                filteredOrders.map((order) => {
+                  const urgent = isAwaitingStaffAction(order);
+                  return (
                   <tr
                     key={order.id}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-700"
+                    className={
+                      urgent
+                        ? "border-l-4 border-l-red-500 bg-red-50/90 hover:bg-red-100/90 dark:border-l-red-400 dark:bg-red-950/35 dark:hover:bg-red-950/50"
+                        : "hover:bg-gray-50 dark:hover:bg-gray-700"
+                    }
                   >
                     <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900 dark:text-white">
+                      <div
+                        className="max-w-[140px] truncate font-mono text-sm font-medium text-gray-900 dark:text-white"
+                        title={order.id}
+                      >
                         {order.id}
                       </div>
-                      <div className="text-sm text-gray-500 dark:text-gray-400">
-                        {order.items.length} პროდუქტი
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {order.items.length} პოზიცია
+                      </div>
+                      <div
+                        className="mt-1 line-clamp-2 max-w-[min(100%,320px)] text-xs leading-snug text-gray-600 dark:text-gray-300"
+                        title={order.items
+                          .map((it) => `${it.product?.name ?? "—"} ×${it.quantity}`)
+                          .join(", ")}
+                      >
+                        {order.items
+                          .map((it) => `${it.product?.name ?? "—"} ×${it.quantity}`)
+                          .join(" · ")}
                       </div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-sm">
                         <div className="font-medium text-gray-900 dark:text-white">
-                          {order.user?.fullName || "Unknown"}
+                          {order.user?.fullName || "—"}
                         </div>
                         <div className="text-gray-500 dark:text-gray-400">
-                          {order.user?.phoneNumber}
+                          {order.user?.phoneNumber || order.deliveryPhone || "—"}
                         </div>
+                        {order.user?.email ? (
+                          <div className="text-xs text-gray-400">{order.user.email}</div>
+                        ) : null}
                       </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
@@ -310,8 +298,8 @@ function OrdersPageContent() {
                           order.paymentStatus === PaymentStatus.COMPLETED
                             ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
                             : order.paymentStatus === PaymentStatus.FAILED
-                            ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-                            : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                              ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                              : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
                         }`}
                       >
                         {paymentStatusLabels[order.paymentStatus]}
@@ -328,7 +316,8 @@ function OrdersPageContent() {
                       </Link>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

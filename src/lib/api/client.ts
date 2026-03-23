@@ -1,4 +1,5 @@
 import { getApiBaseUrl } from '@/lib/apiBaseUrl';
+import { getAuthToken } from '@/lib/authToken';
 
 // Mock მხოლოდ local dev-ში, როცა NEXT_PUBLIC_API_URL არ არის; production / Vercel → რეალური API
 const USE_MOCK_DATA =
@@ -30,7 +31,8 @@ export async function apiRequest<T>(
       path === '/users' || path.startsWith('/users/') ||
       path === '/auth' || path.startsWith('/auth/') ||
       path === '/promotions' || path.startsWith('/promotions/') ||
-      path === '/categories' || path.startsWith('/categories/')) {
+      path === '/categories' || path.startsWith('/categories/') ||
+      path === '/orders' || path.startsWith('/orders/')) {
     // Skip mock data, go directly to real API
   } else if (USE_MOCK_DATA) {
     // Use mock data for other endpoints if enabled
@@ -335,7 +337,6 @@ export async function apiRequest<T>(
     return {} as T;
   }
 
-  // Real API call (ბაზის URL ყოველჯერ — სერვერზე env სწორად აისახოს)
   const apiBase = getApiBaseUrl();
   const url = `${apiBase}${endpoint}`;
   const requestBody = options.body ? (typeof options.body === 'string' ? JSON.parse(options.body) : options.body) : undefined;
@@ -353,8 +354,7 @@ export async function apiRequest<T>(
     'Content-Type': 'application/json',
   };
 
-  // Add auth token if available
-  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  const token = getAuthToken();
   if (token) {
     defaultHeaders['Authorization'] = `Bearer ${token}`;
   }

@@ -63,7 +63,7 @@ export function AddCardScreen({ onBack, onAddCard }: AddCardScreenProps) {
 
   const handleAddCard = () => {
     if (!cardNumber || !holderName || !expiry || !cvv) {
-      alert('Please fill all fields');
+      alert('შეავსეთ ყველა ველი');
       return;
     }
 

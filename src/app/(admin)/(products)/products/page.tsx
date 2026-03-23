@@ -52,6 +52,7 @@ import {
 } from "@/lib/api/balanceStocks";
 import ProductFormModal from "@/components/products/ProductFormModal";
 import AddToWarehouseModal from "@/components/inventory/AddToWarehouseModal";
+import { getAuthToken } from "@/lib/authToken";
 
 function ProductsPageContent() {
   const searchParams = useSearchParams();
@@ -143,8 +144,7 @@ function ProductsPageContent() {
     setSyncLoading(true);
     setSyncResult(null);
     try {
-      const token =
-        typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+      const token = getAuthToken();
       const res = await fetch("/api/balance/sync-stocks", {
         method: "POST",
         headers: {
@@ -194,8 +194,7 @@ function ProductsPageContent() {
     const id = setInterval(() => {
       if (syncBalanceToDbRef.current) return;
       syncBalanceToDbRef.current = true;
-      const token =
-        typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+      const token = getAuthToken();
       fetch("/api/balance/sync-stocks", {
         method: "POST",
         headers: {
@@ -387,7 +386,10 @@ function ProductsPageContent() {
             Excel Import
           </Link>
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => {
+              setEditingProduct(null);
+              setIsModalOpen(true);
+            }}
             className="flex items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600"
           >
             <PlusIcon className="h-4 w-4" />

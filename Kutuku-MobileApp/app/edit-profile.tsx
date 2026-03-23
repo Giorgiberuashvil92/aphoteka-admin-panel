@@ -6,17 +6,8 @@ export default function EditProfile() {
 
   return (
     <EditProfileScreen
-      onBack={() => {
-        console.log('Back pressed');
-        router.back();
-      }}
-      onSave={() => {
-        console.log('Profile saved');
-        router.back();
-      }}
-      onMoreOptions={() => {
-        console.log('More options pressed');
-      }}
+      onBack={() => router.back()}
+      onSave={() => router.back()}
     />
   );
 }

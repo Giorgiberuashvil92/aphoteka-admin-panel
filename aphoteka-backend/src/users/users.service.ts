@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { User, UserDocument } from './schemas/user.schema';
@@ -32,6 +36,38 @@ export class UsersService {
   async findAll(): Promise<User[]> {
     const users = await this.userModel.find().populate('warehouseId').exec();
     return users.map((user) => user.toObject());
+  }
+
+  /** მობილური „ექიმის“ რეჟიმი: პაციენტის ძიება ელფოსტით (case-insensitive) */
+  async lookupByEmail(email: string): Promise<{
+    id: string;
+    email?: string;
+    fullName?: string;
+    phoneNumber: string;
+  }> {
+    const trimmed = email?.trim();
+    if (!trimmed) {
+      throw new BadRequestException('ელფოსტა სავალდებულოა');
+    }
+    const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const user = await this.userModel
+      .findOne({ email: new RegExp(`^${escaped}$`, 'i') })
+      .select('email fullName phoneNumber')
+      .lean()
+      .exec();
+
+    if (!user || !user.email) {
+      throw new NotFoundException(
+        'ამ ელფოსტით მომხმარებელი არ მოიძებნა (ელფოსტა უნდა იყოს რეგისტრირებული)',
+      );
+    }
+
+    return {
+      id: user._id.toString(),
+      email: user.email,
+      fullName: user.fullName,
+      phoneNumber: user.phoneNumber,
+    };
   }
 
   async findOne(id: string): Promise<User> {

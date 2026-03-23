@@ -1,17 +1,15 @@
 import { AddCardScreen } from '@/src/screens';
-import { useRouter } from 'expo-router';
 import { PaymentService } from '@/src/services/payment.service';
+import { useRouter } from 'expo-router';
 
-export default function AddCard() {
+export default function AddCardRoute() {
   const router = useRouter();
 
   return (
     <AddCardScreen
       onBack={() => router.back()}
       onAddCard={(card) => {
-        console.log('Card added:', card);
-        PaymentService.addCard(card);
-        router.back();
+        void PaymentService.addCard(card).then(() => router.back());
       }}
     />
   );

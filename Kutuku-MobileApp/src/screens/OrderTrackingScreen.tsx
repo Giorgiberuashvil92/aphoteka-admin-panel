@@ -1,336 +1,398 @@
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, StatusBar, Image, Linking } from 'react-native';
-import { useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { getOrderStatusColor, getOrderStatusText, type OrderStatusUi } from '@/src/data/mockOrders';
+import { OrdersService, type MyOrderListItem } from '@/src/services/orders.service';
 import { theme } from '@/src/theme';
+import { Ionicons } from '@expo/vector-icons';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 type OrderTrackingScreenProps = {
   orderId: string;
   onBack: () => void;
 };
 
+const STATUS_FLOW: Exclude<OrderStatusUi, 'cancelled' | 'processing'>[] = [
+  'pending',
+  'confirmed',
+  'shipped',
+  'delivered',
+];
+
+const STEP_META: Record<
+  (typeof STATUS_FLOW)[number],
+  { title: string; subtitle: string; icon: keyof typeof Ionicons.glyphMap }
+> = {
+  pending: {
+    title: 'მიღებულია',
+    subtitle: 'შეკვეთა სისტემაშია',
+    icon: 'receipt-outline',
+  },
+  confirmed: {
+    title: 'დადასტურებულია',
+    subtitle: 'მზადდება გაგზავნისთვის',
+    icon: 'checkmark-circle-outline',
+  },
+  shipped: {
+    title: 'გზაშია',
+    subtitle: 'მიტანის პროცესში',
+    icon: 'car-outline',
+  },
+  delivered: {
+    title: 'მიტანილია',
+    subtitle: 'შეკვეთა დასრულებულია',
+    icon: 'checkmark-done-outline',
+  },
+};
+
+function buildTimeline(status: OrderStatusUi) {
+  const current = status === 'processing' ? 'confirmed' : status;
+  if (current === 'cancelled') {
+    return [
+      {
+        key: 'cancelled',
+        title: 'გაუქმებულია',
+        subtitle: 'ეს შეკვეთა გაუქმდა',
+        icon: 'close-circle-outline' as const,
+        completed: true,
+        active: true,
+        muted: false,
+      },
+    ];
+  }
+
+  const flowIdx = STATUS_FLOW.indexOf(current as (typeof STATUS_FLOW)[number]);
+  const idx = flowIdx >= 0 ? flowIdx : 0;
+
+  return STATUS_FLOW.map((status, i) => ({
+    key: status,
+    ...STEP_META[status],
+    completed: i <= idx,
+    active: i === idx,
+    muted: i > idx,
+  }));
+}
+
 export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProps) {
-  const [region] = useState({
-    latitude: 32.7157,
-    longitude: -117.1611,
-    latitudeDelta: 0.05,
-    longitudeDelta: 0.05,
-  });
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  type OrderDetail = MyOrderListItem & { shippingAddress?: string; phoneNumber?: string };
+  const [order, setOrder] = useState<OrderDetail | null>(null);
 
-  // Delivery route coordinates
-  const routeCoordinates = [
-    { latitude: 32.7157, longitude: -117.1611 }, // Start (Shop)
-    { latitude: 32.7200, longitude: -117.1550 },
-    { latitude: 32.7250, longitude: -117.1500 },
-    { latitude: 32.7300, longitude: -117.1450 }, // End (Customer)
-  ];
-
-  const courier = {
-    name: 'Alexander Jr',
-    role: 'Courier',
-    phone: '+1234567890',
-    image: 'https://randomuser.me/api/portraits/men/32.jpg',
-  };
-
-  const progress = [
-    {
-      id: '1',
-      title: 'Upbox Bag',
-      subtitle: 'Shop',
-      time: '02:50 PM',
-      icon: 'storefront',
-      completed: true,
+  const load = useCallback(
+    async (isRefresh: boolean) => {
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
+      setError(null);
+      const res = await OrdersService.fetchOrderById(orderId);
+      if (!res.ok) {
+        if (res.error === 'auth') {
+          setError('შეკვეთის სანახავად შედით ანგარიშში');
+        } else if (res.error === 'not_found') {
+          setError('შეკვეთა არ მოიძებნა');
+        } else {
+          setError(res.message || 'ჩატვირთვა ვერ მოხერხდა');
+        }
+        setOrder(null);
+      } else {
+        setOrder(res.order);
+      }
+      if (isRefresh) setRefreshing(false);
+      else setLoading(false);
     },
-    {
-      id: '2',
-      title: 'On the way',
-      subtitle: 'Delivery',
-      time: '03:20 PM',
-      icon: 'bicycle',
-      completed: true,
-    },
-    {
-      id: '3',
-      title: '5482 Adobe Falls Rd #155an Diego,...',
-      subtitle: 'House',
-      time: '03:45 PM',
-      icon: 'location',
-      completed: false,
-    },
-  ];
+    [orderId],
+  );
 
-  const handleCall = () => {
-    Linking.openURL(`tel:${courier.phone}`);
-  };
+  useEffect(() => {
+    load(false);
+  }, [load]);
 
-  const handleMessage = () => {
-    Linking.openURL(`sms:${courier.phone}`);
-  };
+  const steps = useMemo(() => {
+    if (!order) return [];
+    return buildTimeline(order.status);
+  }, [order]);
+
+  if (loading && !order) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.topBar}>
+          <TouchableOpacity onPress={onBack} style={styles.iconBtn}>
+            <Ionicons name="chevron-back" size={24} color={theme.colors.text.primary} />
+          </TouchableOpacity>
+          <Text style={styles.topTitle}>შეკვეთის სტატუსი</Text>
+          <View style={styles.iconBtn} />
+        </View>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={styles.muted}>იტვირთება...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error && !order) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.topBar}>
+          <TouchableOpacity onPress={onBack} style={styles.iconBtn}>
+            <Ionicons name="chevron-back" size={24} color={theme.colors.text.primary} />
+          </TouchableOpacity>
+          <Text style={styles.topTitle}>შეკვეთის სტატუსი</Text>
+          <View style={styles.iconBtn} />
+        </View>
+        <View style={styles.center}>
+          <Ionicons name="alert-circle-outline" size={56} color={theme.colors.gray[400]} />
+          <Text style={styles.errText}>{error}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={() => load(false)}>
+            <Text style={styles.retryBtnText}>ხელახლა ცდა</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
-      
-      {/* Map */}
-      <MapView
-        style={styles.map}
-        provider={PROVIDER_GOOGLE}
-        initialRegion={region}
-        showsUserLocation={false}
-        showsMyLocationButton={false}
-        showsCompass={false}
-        toolbarEnabled={false}
-      >
-        {/* Route Polyline */}
-        <Polyline
-          coordinates={routeCoordinates}
-          strokeColor={theme.colors.primary}
-          strokeWidth={4}
-        />
-
-        {/* Start Marker (Shop) */}
-        <Marker coordinate={routeCoordinates[0]}>
-          <View style={styles.markerStart}>
-            <Ionicons name="storefront" size={20} color={theme.colors.white} />
-          </View>
-        </Marker>
-
-        {/* Current Location Marker (Courier) */}
-        <Marker coordinate={routeCoordinates[2]}>
-          <View style={styles.markerCurrent}>
-            <Ionicons name="bicycle" size={24} color={theme.colors.white} />
-          </View>
-        </Marker>
-
-        {/* End Marker (Customer) */}
-        <Marker coordinate={routeCoordinates[3]}>
-          <View style={styles.markerEnd}>
-            <Ionicons name="location" size={20} color={theme.colors.white} />
-          </View>
-        </Marker>
-      </MapView>
-
-      {/* Header Overlay */}
-      <View style={styles.headerOverlay}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
+    <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="dark-content" />
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={onBack} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={24} color={theme.colors.text.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Order Tracking</Text>
-        <View style={styles.backButton} />
+        <Text style={styles.topTitle}>შეკვეთის სტატუსი</Text>
+        <View style={styles.iconBtn} />
       </View>
 
-      {/* Bottom Sheet */}
-      <View style={styles.bottomSheet}>
-        {/* Courier Info */}
-        <View style={styles.courierCard}>
-          <Image source={{ uri: courier.image }} style={styles.courierImage} />
-          <View style={styles.courierInfo}>
-            <Text style={styles.courierName}>{courier.name}</Text>
-            <Text style={styles.courierRole}>{courier.role}</Text>
-          </View>
-          <TouchableOpacity style={styles.actionButton} onPress={handleMessage}>
-            <Ionicons name="chatbubble-outline" size={20} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} onPress={handleCall}>
-            <Ionicons name="call-outline" size={20} color={theme.colors.primary} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Progress Timeline */}
-        <View style={styles.progressSection}>
-          <Text style={styles.progressTitle}>Progress of your Order</Text>
-          
-          {progress.map((item, index) => (
-            <View key={item.id} style={styles.progressItem}>
-              <View style={styles.progressIconContainer}>
-                <View style={[
-                  styles.progressIcon,
-                  item.completed && styles.progressIconCompleted
-                ]}>
-                  <Ionicons 
-                    name={item.icon as any} 
-                    size={20} 
-                    color={item.completed ? theme.colors.white : theme.colors.gray[400]} 
-                  />
-                </View>
-                {index < progress.length - 1 && (
-                  <View style={[
-                    styles.progressLine,
-                    item.completed && styles.progressLineCompleted
-                  ]} />
-                )}
-              </View>
-              
-              <View style={styles.progressContent}>
-                <Text style={styles.progressItemTitle}>{item.title}</Text>
-                <View style={styles.progressItemBottom}>
-                  <Text style={styles.progressItemSubtitle}>{item.subtitle}</Text>
-                  <Text style={styles.progressItemTime}>{item.time}</Text>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} />
+        }
+      >
+        {order ? (
+          <>
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.orderNo}>{order.orderNumber}</Text>
+                <View
+                  style={[
+                    styles.badge,
+                    { backgroundColor: getOrderStatusColor(order.status) + '18' },
+                  ]}
+                >
+                  <Text style={[styles.badgeText, { color: getOrderStatusColor(order.status) }]}>
+                    {getOrderStatusText(order.status)}
+                  </Text>
                 </View>
               </View>
+              <Text style={styles.dateText}>{order.date}</Text>
+              <Text style={styles.totalLabel}>
+                ჯამი: <Text style={styles.totalVal}>₾{order.total.toFixed(2)}</Text>
+              </Text>
+              {order.phoneNumber ? (
+                <Text style={styles.meta}>ტელეფონი: {order.phoneNumber}</Text>
+              ) : null}
+              {order.shippingAddress ? (
+                <Text style={styles.meta}>მისამართი: {order.shippingAddress}</Text>
+              ) : null}
             </View>
-          ))}
-        </View>
 
-        {/* Mark as Done Button */}
-        <TouchableOpacity style={styles.doneButton}>
-          <Text style={styles.doneButtonText}>Mark as Done</Text>
-        </TouchableOpacity>
-      </View>
+            <Text style={styles.sectionTitle}>სტატუსები</Text>
+            <View style={styles.card}>
+              {steps.map((step, index) => (
+                <View key={step.key} style={styles.stepRow}>
+                  <View style={styles.stepIconCol}>
+                    <View
+                      style={[
+                        styles.stepIcon,
+                        step.completed && styles.stepIconDone,
+                        step.muted && styles.stepIconMuted,
+                      ]}
+                    >
+                      <Ionicons
+                        name={step.icon}
+                        size={22}
+                        color={
+                          step.completed ? theme.colors.white : theme.colors.gray[400]
+                        }
+                      />
+                    </View>
+                    {index < steps.length - 1 ? (
+                      <View
+                        style={[
+                          styles.stepLine,
+                          step.completed && styles.stepLineDone,
+                        ]}
+                      />
+                    ) : null}
+                  </View>
+                  <View style={styles.stepBody}>
+                    <Text
+                      style={[
+                        styles.stepTitle,
+                        step.muted && styles.stepTitleMuted,
+                      ]}
+                    >
+                      {step.title}
+                    </Text>
+                    <Text style={styles.stepSub}>{step.subtitle}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+
+            <Text style={styles.sectionTitle}>პოზიციები</Text>
+            <View style={styles.card}>
+              {order.items.map((it) => (
+                <View key={it.id} style={styles.lineRow}>
+                  <View style={styles.lineMain}>
+                    <Text style={styles.lineName} numberOfLines={2}>
+                      {it.name}
+                    </Text>
+                    <Text style={styles.lineQty}>× {it.quantity}</Text>
+                  </View>
+                  <Text style={styles.linePrice}>₾{it.lineTotal.toFixed(2)}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        ) : null}
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safe: {
     flex: 1,
+    backgroundColor: theme.colors.gray[50],
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
     backgroundColor: theme.colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.gray[100],
   },
-  map: {
+  iconBtn: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  topTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 32,
+  },
+  center: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
   },
-  headerOverlay: {
-    position: 'absolute',
-    top: 50,
-    left: 0,
-    right: 0,
+  muted: {
+    marginTop: 12,
+    color: theme.colors.text.secondary,
+    fontSize: 14,
+  },
+  errText: {
+    marginTop: 16,
+    textAlign: 'center',
+    color: theme.colors.text.secondary,
+    fontSize: 15,
+  },
+  retryBtn: {
+    marginTop: 20,
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryBtnText: {
+    color: theme.colors.white,
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  card: {
+    backgroundColor: theme.colors.white,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: theme.colors.gray[100],
+  },
+  cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    marginBottom: 8,
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: theme.colors.white,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-    backgroundColor: theme.colors.white,
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  markerStart: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: theme.colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: theme.colors.white,
-  },
-  markerCurrent: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: theme.colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 4,
-    borderColor: theme.colors.white,
-    shadowColor: theme.colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  markerEnd: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: theme.colors.error,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: theme.colors.white,
-  },
-  bottomSheet: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: theme.colors.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 20,
-    paddingBottom: 40,
-    paddingHorizontal: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 10,
-  },
-  courierCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.gray[50],
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 24,
-    gap: 12,
-  },
-  courierImage: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-  },
-  courierInfo: {
-    flex: 1,
-  },
-  courierName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-    marginBottom: 4,
-  },
-  courierRole: {
-    fontSize: 13,
-    color: theme.colors.text.secondary,
-  },
-  actionButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: theme.colors.white,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  progressSection: {
-    marginBottom: 24,
-  },
-  progressTitle: {
+  orderNo: {
     fontSize: 18,
     fontWeight: '700',
     color: theme.colors.text.primary,
-    marginBottom: 20,
   },
-  progressItem: {
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  badgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  dateText: {
+    fontSize: 14,
+    color: theme.colors.text.secondary,
+    marginBottom: 8,
+  },
+  totalLabel: {
+    fontSize: 15,
+    color: theme.colors.text.secondary,
+  },
+  totalVal: {
+    fontWeight: '700',
+    color: theme.colors.primary,
+  },
+  meta: {
+    fontSize: 13,
+    color: theme.colors.text.secondary,
+    marginTop: 6,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    marginBottom: 10,
+  },
+  stepRow: {
     flexDirection: 'row',
-    marginBottom: 20,
+    minHeight: 56,
   },
-  progressIconContainer: {
+  stepIconCol: {
     alignItems: 'center',
-    marginRight: 16,
+    width: 44,
+    marginRight: 12,
   },
-  progressIcon: {
+  stepIcon: {
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -338,50 +400,67 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  progressIconCompleted: {
+  stepIconDone: {
     backgroundColor: theme.colors.primary,
   },
-  progressLine: {
-    width: 2,
+  stepIconMuted: {
+    opacity: 0.5,
+  },
+  stepLine: {
+    width: 3,
     flex: 1,
+    minHeight: 16,
     backgroundColor: theme.colors.gray[200],
-    marginTop: 8,
+    marginVertical: 4,
+    borderRadius: 2,
   },
-  progressLineCompleted: {
+  stepLineDone: {
     backgroundColor: theme.colors.primary,
+    opacity: 0.35,
   },
-  progressContent: {
+  stepBody: {
     flex: 1,
-    paddingTop: 4,
+    paddingTop: 8,
+    paddingBottom: 16,
   },
-  progressItemTitle: {
+  stepTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+  },
+  stepTitleMuted: {
+    color: theme.colors.text.secondary,
+  },
+  stepSub: {
+    fontSize: 13,
+    color: theme.colors.text.secondary,
+    marginTop: 4,
+  },
+  lineRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.gray[50],
+  },
+  lineMain: {
+    flex: 1,
+    marginRight: 12,
+  },
+  lineName: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: theme.colors.text.primary,
+  },
+  lineQty: {
+    fontSize: 13,
+    color: theme.colors.text.secondary,
+    marginTop: 4,
+  },
+  linePrice: {
     fontSize: 15,
     fontWeight: '600',
     color: theme.colors.text.primary,
-    marginBottom: 6,
-  },
-  progressItemBottom: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  progressItemSubtitle: {
-    fontSize: 13,
-    color: theme.colors.text.secondary,
-  },
-  progressItemTime: {
-    fontSize: 13,
-    color: theme.colors.text.secondary,
-  },
-  doneButton: {
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  doneButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.white,
   },
 });

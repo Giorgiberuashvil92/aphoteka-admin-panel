@@ -142,10 +142,23 @@ export default function ProductFormModal({
     setIsSubmitting(true);
 
     try {
+      const priceNum = parseFloat(formData.price);
+      if (!Number.isFinite(priceNum) || priceNum < 0) {
+        alert("შეიყვანეთ სწორი ერთეულის ფასი (რიცხვი ≥ 0)");
+        return;
+      }
+
+      const productId =
+        product?.id ?? (product as { _id?: string } | undefined)?._id;
+      if (product && !productId) {
+        alert("პროდუქტის ID ვერ მოიძებნა — განაახლეთ გვერდი და სცადეთ ხელახლა");
+        return;
+      }
+
       const productData: Partial<Product> = {
         name: formData.name,
         description: formData.description || undefined,
-        price: parseFloat(formData.price),
+        price: priceNum,
         category: formData.category || undefined,
         active: formData.active,
         sku: formData.sku || formData.productCode || `AUTO-${Date.now()}`,
@@ -174,9 +187,9 @@ export default function ProductFormModal({
         productNameBrand: formData.productNameBrand || undefined,
       };
 
-      if (product) {
+      if (product && productId) {
         // Update existing product
-        await productsApi.update(product.id, productData);
+        await productsApi.update(productId, productData);
         alert("პროდუქტი წარმატებით განახლდა");
       } else {
         // Create new product
@@ -200,7 +213,7 @@ export default function ProductFormModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-100000 flex items-center justify-center bg-black/50 p-4">
       <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-lg bg-white shadow-xl dark:bg-gray-800">
         <div className="sticky top-0 z-10 border-b border-gray-200 bg-white px-6 py-4 dark:border-gray-700 dark:bg-gray-800">
           <div className="flex items-center justify-between">

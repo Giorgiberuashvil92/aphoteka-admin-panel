@@ -129,6 +129,54 @@ class UserServiceClass {
     }
   }
 
+  /** JWT-ით პაროლის შეცვლა (POST /auth/change-password) */
+  async changePassword(
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
+    if (!USE_API) {
+      return {
+        ok: false,
+        message: 'პაროლის შეცვლა მხოლოდ სერვერთან კავშირისასაა ხელმისაწვდომი',
+      };
+    }
+    try {
+      const token = await this.getAccessToken();
+      if (!token) {
+        return { ok: false, message: 'საჭიროა შესვლა' };
+      }
+      const res = await fetch(
+        `${API_CONFIG.BASE_URL}${API_CONFIG.endpoints.auth.changePassword}`,
+        {
+          method: 'POST',
+          headers: getAuthHeaders(token),
+          body: JSON.stringify({ currentPassword, newPassword }),
+        },
+      );
+      let body: unknown;
+      try {
+        body = await res.json();
+      } catch {
+        body = null;
+      }
+      if (!res.ok) {
+        const msg =
+          body && typeof body === 'object' && 'message' in body
+            ? Array.isArray((body as { message: unknown }).message)
+              ? (body as { message: string[] }).message.join(', ')
+              : String((body as { message: string }).message)
+            : `HTTP ${res.status}`;
+        return { ok: false, message: msg };
+      }
+      return { ok: true };
+    } catch (e) {
+      return {
+        ok: false,
+        message: e instanceof Error ? e.message : 'ქსელის შეცდომა',
+      };
+    }
+  }
+
   /** ბაზიდან პროფილის ჩატვირთვა (GET /auth/me) */
   async fetchProfile(): Promise<User | null> {
     if (!USE_API) return this.getCurrentUser();
@@ -168,6 +216,51 @@ class UserServiceClass {
 
   // Update user profile
   async updateProfile(userId: string, updates: Partial<User>): Promise<boolean> {
+    if (USE_API) {
+      try {
+        const token = await this.getAccessToken();
+        if (!token) return false;
+
+        const fullName = [updates.firstName, updates.lastName]
+          .filter((s) => (s ?? '').trim())
+          .join(' ')
+          .trim();
+
+        const payload: { email?: string; fullName?: string } = {};
+        if (updates.email != null && updates.email.trim()) {
+          payload.email = updates.email.trim();
+        }
+        if (fullName) {
+          payload.fullName = fullName;
+        }
+
+        const url = `${API_CONFIG.BASE_URL}${API_CONFIG.endpoints.users.update(userId)}`;
+        const res = await fetch(url, {
+          method: 'PATCH',
+          headers: getAuthHeaders(token),
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          return false;
+        }
+
+        const currentUser = await this.getCurrentUser();
+        if (currentUser && currentUser.id === userId) {
+          await this.setCurrentUser({
+            ...currentUser,
+            firstName: updates.firstName ?? currentUser.firstName,
+            lastName: updates.lastName ?? currentUser.lastName,
+            email: updates.email != null ? updates.email.trim() : currentUser.email,
+          });
+        }
+        return true;
+      } catch (error) {
+        console.error('Error updating profile:', error);
+        return false;
+      }
+    }
+
     try {
       const users = await this.getUsers();
       const userIndex = users.findIndex((u) => u.id === userId);
@@ -179,7 +272,6 @@ class UserServiceClass {
       users[userIndex] = { ...users[userIndex], ...updates };
       await AsyncStorage.setItem(this.USERS_KEY, JSON.stringify(users));
 
-      // Update current user if it's the same user
       const currentUser = await this.getCurrentUser();
       if (currentUser && currentUser.id === userId) {
         await this.setCurrentUser(users[userIndex]);

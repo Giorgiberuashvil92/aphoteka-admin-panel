@@ -10,6 +10,7 @@ import {
   getBalanceWarehouses,
   rowsFromBalanceWarehouses,
 } from "@/lib/api/balanceWarehouses";
+import { getAuthToken } from "@/lib/authToken";
 
 export default function WarehousesPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -96,8 +97,7 @@ export default function WarehousesPage() {
     setSyncLoading(true);
     setSyncResult(null);
     try {
-      const token =
-        typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+      const token = getAuthToken();
       const res = await fetch("/api/balance/sync-warehouses", {
         method: "POST",
         headers: {

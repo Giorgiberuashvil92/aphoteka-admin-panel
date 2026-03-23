@@ -65,6 +65,7 @@ export default function Settings() {
         console.log('About pressed');
         // TODO: Navigate to about
       }}
+      onDoctorPrescribe={() => router.push('/doctor-prescribe' as any)}
       onLogout={handleLogout}
     />
   );
