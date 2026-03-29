@@ -1,6 +1,6 @@
 import type { Product } from '@/types';
 
-/** Balance პასუხიდან Items მასივის ამოღება (Items, value, Value, Source ან root მასივი) */
+/** Balance პასუხიდან Items მასივის ამოღება (Items, value, Value, Source, data, Rows ან root მასივი) */
 export function getBalanceItems(data: unknown): Record<string, unknown>[] {
   if (Array.isArray(data)) return data as Record<string, unknown>[];
   if (data && typeof data === 'object') {
@@ -10,6 +10,27 @@ export function getBalanceItems(data: unknown): Record<string, unknown>[] {
     if (Array.isArray(o.Value)) return o.Value as Record<string, unknown>[];
     /** Exchange/Prices დოკუმენტაცია: პასუხი ხშირად `{ Source: [ { PriceType, Item, Currency, Price } ] }` */
     if (Array.isArray(o.Source)) return o.Source as Record<string, unknown>[];
+    const flatArrayKeys = [
+      'data',
+      'Data',
+      'result',
+      'Result',
+      'Rows',
+      'rows',
+      'Records',
+      'records',
+    ] as const;
+    for (const k of flatArrayKeys) {
+      const v = o[k];
+      if (Array.isArray(v)) return v as Record<string, unknown>[];
+    }
+    for (const k of ['value', 'Value', 'data', 'Data'] as const) {
+      const inner = o[k];
+      if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+        const nested = getBalanceItems(inner);
+        if (nested.length > 0) return nested;
+      }
+    }
   }
   return [];
 }
@@ -199,6 +220,10 @@ export type BalanceStockBreakdownLine = {
   seriesUuid?: string;
 };
 
+export function stockLinesHaveSeriesUuid(lines: BalanceStockBreakdownLine[]): boolean {
+  return lines.some((l) => l.seriesUuid && l.seriesUuid !== NULL_GROUP_UID);
+}
+
 export type AggregatedBalanceStockForItem = {
   totalQuantity: number;
   totalReserve: number;
@@ -268,4 +293,164 @@ export function aggregateExchangeStocksByItemUid(
     map.set(itemUid, cur);
   }
   return map;
+}
+
+export type BalanceItemSeriesLine = {
+  seriesNumber?: string;
+  seriesUuid?: string;
+  quantity?: number;
+  expiryDate?: string;
+  warehouseUuid?: string;
+};
+
+/** მაგ. Balance ItemsSeries `Name`: `123 - 31.12.2023` */
+function tryParseItemsSeriesDisplayName(name: string): {
+  seriesNumber?: string;
+  expiryDate?: string;
+} {
+  const t = name.trim();
+  if (!t) return {};
+  const idx = t.lastIndexOf('-');
+  if (idx <= 0 || idx >= t.length - 1) return {};
+  const left = t.slice(0, idx).trim();
+  const right = t.slice(idx + 1).trim();
+  if (!left) return {};
+
+  let expiryDate: string | undefined;
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(right);
+  if (iso) {
+    expiryDate = `${iso[1]}-${iso[2]}-${iso[3]}`;
+  } else {
+    const dmy = /^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/.exec(right);
+    if (dmy) {
+      const dd = dmy[1].padStart(2, '0');
+      const mm = dmy[2].padStart(2, '0');
+      let yyyy = dmy[3];
+      if (yyyy.length === 2) yyyy = `20${yyyy}`;
+      expiryDate = `${yyyy}-${mm}-${dd}`;
+    }
+  }
+  if (!expiryDate) return {};
+  return { seriesNumber: left, expiryDate };
+}
+
+function balanceSeriesUuidKey(u: string | undefined | null): string | undefined {
+  if (!u || typeof u !== 'string') return undefined;
+  const t = u.trim().toLowerCase();
+  if (!t || t === NULL_GROUP_UID) return undefined;
+  return t;
+}
+
+/** ItemsSeries (Balance): `SeriesNumber`, `ValidUntil`, `Item` (სერიის ref), ზოგადი `uid` = ნომენკლატურა */
+export function normalizeBalanceItemSeriesRows(data: unknown): BalanceItemSeriesLine[] {
+  const rows = getBalanceItems(data);
+  const out: BalanceItemSeriesLine[] = [];
+  for (const row of rows) {
+    let sn = getStr(
+      row,
+      'SeriesNumber',
+      'SerialNumber',
+      'SerieNumber',
+      'SeriesName',
+      'Number'
+    );
+    const nameField = getStr(row, 'Name', 'Presentation', 'Description');
+    const fromName =
+      nameField && nameField.includes('-')
+        ? tryParseItemsSeriesDisplayName(nameField)
+        : {};
+    if (!sn && fromName.seriesNumber) sn = fromName.seriesNumber;
+    const su = getStr(
+      row,
+      'SeriesRef',
+      'SeriesUUID',
+      'Item',
+      'item',
+      'Series',
+      'Ref',
+      'UUID'
+    );
+    const suClean = su && su !== NULL_GROUP_UID ? su : undefined;
+    const qRaw = Number(row.Quantity ?? row.Qty ?? row.Amount);
+    const qty = Number.isFinite(qRaw) ? qRaw : undefined;
+    const wh = getStr(row, 'Warehouse', 'warehouse');
+    const expRaw = getDate(
+      row,
+      'ValidUntil',
+      'ExpiryDate',
+      'expiryDate',
+      'ValidTo',
+      'ShelfLifeEnd',
+      'Date',
+      'Expiry'
+    );
+    let expiryDate = expRaw
+      ? /^(\d{4}-\d{2}-\d{2})/.exec(expRaw.trim())?.[1] ?? expRaw
+      : undefined;
+    if (!expiryDate && fromName.expiryDate) expiryDate = fromName.expiryDate;
+    out.push({
+      seriesNumber: sn || undefined,
+      seriesUuid: suClean,
+      quantity: qty,
+      expiryDate,
+      warehouseUuid: wh || undefined,
+    });
+  }
+  return out;
+}
+
+export function formatSerialSummaryForBalanceSeries(
+  lines: BalanceItemSeriesLine[]
+): string | undefined {
+  const nums = [
+    ...new Set(lines.map((l) => l.seriesNumber).filter(Boolean) as string[]),
+  ];
+  if (nums.length === 0) return undefined;
+  if (nums.length <= 3) return nums.join(', ');
+  return `${nums.slice(0, 3).join(', ')} +${nums.length - 3}`;
+}
+
+/**
+ * ItemsSeries (სერიის №, ვადა) + Exchange/Stocks ხაზები (`seriesUuid` = ItemsSeries `Item`).
+ * თუ API ცარიელია, მაინც ივსება საწყობის ხაზებიდან (მინიმუმ uuid + რაოდენობა + საწყობო).
+ * ერთი ItemsSeries ჩანაწერი + ერთი სერია საწყობში → №/ვადა ივსება ზუსტი `Item` თუ არ ემთხვევა.
+ */
+export function mergeBalanceItemSeriesFromStocks(
+  itemsSeriesLines: BalanceItemSeriesLine[],
+  stockLines: BalanceStockBreakdownLine[]
+): BalanceItemSeriesLine[] {
+  const withSeries = stockLines.filter(
+    (l) => l.seriesUuid && l.seriesUuid !== NULL_GROUP_UID
+  );
+  const metaBySeriesRef = new Map<string, BalanceItemSeriesLine>();
+  for (const line of itemsSeriesLines) {
+    const key = balanceSeriesUuidKey(line.seriesUuid);
+    if (key) metaBySeriesRef.set(key, line);
+  }
+
+  const distinctStockSeries = new Set(
+    withSeries.map((s) => balanceSeriesUuidKey(s.seriesUuid)).filter(Boolean)
+  );
+  const singleCatalogRowApplies =
+    itemsSeriesLines.length === 1 && distinctStockSeries.size === 1;
+  const singleMeta = singleCatalogRowApplies ? itemsSeriesLines[0] : undefined;
+
+  if (withSeries.length > 0) {
+    return withSeries.map((sl) => {
+      const su = sl.seriesUuid as string;
+      const k = balanceSeriesUuidKey(su);
+      const meta =
+        singleMeta ?? (k ? metaBySeriesRef.get(k) : undefined);
+      return {
+        seriesNumber: meta?.seriesNumber,
+        expiryDate: meta?.expiryDate,
+        seriesUuid: su,
+        quantity: sl.quantity,
+        warehouseUuid: sl.balanceWarehouseUuid,
+      };
+    });
+  }
+
+  if (itemsSeriesLines.length > 0) return itemsSeriesLines;
+  return [];
 }

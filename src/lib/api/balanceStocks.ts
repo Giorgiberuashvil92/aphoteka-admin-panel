@@ -64,6 +64,23 @@ export async function getBalanceItemPricing(): Promise<unknown> {
   return json.data;
 }
 
+export async function getBalanceItemsSeries(
+  uid: string,
+  opts?: { startingPeriod?: string; endingPeriod?: string }
+): Promise<unknown> {
+  const sp = new URLSearchParams();
+  sp.set('uid', uid);
+  if (opts?.startingPeriod !== undefined)
+    sp.set('StartingPeriod', opts.startingPeriod);
+  if (opts?.endingPeriod !== undefined) sp.set('EndingPeriod', opts.endingPeriod);
+  const res = await fetch(`/api/balance/items-series?${sp.toString()}`, {
+    cache: 'no-store',
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Balance ItemsSeries API შეცდომა');
+  return json.data;
+}
+
 export {
   itemPricingRowsForDbProducts,
   rowsFromBalanceItemPricing,

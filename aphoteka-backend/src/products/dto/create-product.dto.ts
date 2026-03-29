@@ -9,6 +9,7 @@ import {
   IsArray,
   ValidateNested,
 } from 'class-validator';
+import { BalanceItemSeriesLineDto } from './balance-item-series-line.dto';
 import { BalanceStockBreakdownLineDto } from './balance-stock-breakdown-line.dto';
 
 export class CreateProductDto {
@@ -93,6 +94,12 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => BalanceStockBreakdownLineDto)
   balanceStockBreakdown?: BalanceStockBreakdownLineDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BalanceItemSeriesLineDto)
+  balanceItemSeries?: BalanceItemSeriesLineDto[];
 
   @IsNumber()
   @IsOptional()

@@ -131,6 +131,14 @@ export interface Product {
     reserve: number;
     seriesUuid?: string;
   }>;
+  /** Balance ItemsSeries — სერიული ნომრები ნომენკლატურაზე */
+  balanceItemSeries?: Array<{
+    seriesNumber?: string;
+    seriesUuid?: string;
+    quantity?: number;
+    expiryDate?: string;
+    warehouseUuid?: string;
+  }>;
   totalPrice?: number; // საქონლის ფასი (quantity * price)
   taxation?: string; // დაბეგვრა
   invoiceNumber?: string; // ზედნადების ნომერი

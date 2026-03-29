@@ -158,6 +158,25 @@ export class Product {
     seriesUuid?: string;
   }>;
 
+  @Prop({
+    type: [
+      {
+        seriesNumber: { type: String },
+        seriesUuid: { type: String },
+        quantity: { type: Number },
+        expiryDate: { type: String },
+        warehouseUuid: { type: String },
+      },
+    ],
+  })
+  balanceItemSeries?: Array<{
+    seriesNumber?: string;
+    seriesUuid?: string;
+    quantity?: number;
+    expiryDate?: string;
+    warehouseUuid?: string;
+  }>;
+
   @Prop({ type: Number })
   totalPrice?: number; // საქონლის ფასი (quantity * price)
 

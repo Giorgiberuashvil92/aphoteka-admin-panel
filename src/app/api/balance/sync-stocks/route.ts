@@ -1,5 +1,6 @@
 import {
   fetchBalanceExchangeStocks,
+  fetchBalanceItemsSeriesForItem,
   fetchBalancePrices,
   fetchBalancePricesByUuid,
   fetchBalanceStocks,
@@ -11,12 +12,17 @@ import {
   buildBalanceWarehouseNameByUuid,
   buildPriceByUuid,
   buildSkuToBalanceItemUid,
+  formatSerialSummaryForBalanceSeries,
   getBalanceItems,
   getBalancePricesRows,
   getItemUuid,
   isBalanceGroupRow,
   mapBalanceItemToProduct,
+  mergeBalanceItemSeriesFromStocks,
+  normalizeBalanceItemSeriesRows,
+  stockLinesHaveSeriesUuid,
   type AggregatedBalanceStockForItem,
+  type BalanceItemSeriesLine,
 } from '@/lib/api/balanceSync';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -75,6 +81,19 @@ export async function POST(request: NextRequest) {
     }
     const skuToBalanceItemUid = buildSkuToBalanceItemUid(leafItems);
 
+    const seriesByItemUid = new Map<string, BalanceItemSeriesLine[]>();
+    const seriesFetchOk = new Set<string>();
+    const seriesSettled = await Promise.allSettled(
+      leafUuids.map((uid) => fetchBalanceItemsSeriesForItem(uid))
+    );
+    leafUuids.forEach((uid, i) => {
+      const r = seriesSettled[i];
+      if (r.status === 'fulfilled') {
+        seriesFetchOk.add(uid);
+        seriesByItemUid.set(uid, normalizeBalanceItemSeriesRows(r.value));
+      }
+    });
+
     if (withSku.length === 0) {
       return NextResponse.json({
         ok: true,
@@ -116,8 +135,29 @@ export async function POST(request: NextRequest) {
       const id = bySku.get(product.sku!);
       const itemUid = skuToBalanceItemUid.get(product.sku!) ?? '';
       const agg = itemUid ? stockByItemUid.get(itemUid) : undefined;
+      const stockLines = agg?.lines ?? [];
+      const hasStockSeries = stockLinesHaveSeriesUuid(stockLines);
+      const apiSeries: BalanceItemSeriesLine[] =
+        itemUid && seriesFetchOk.has(itemUid)
+          ? (seriesByItemUid.get(itemUid) ?? [])
+          : [];
+      const shouldPatchSeries =
+        Boolean(itemUid) && (seriesFetchOk.has(itemUid) || hasStockSeries);
+      const mergedSeries = shouldPatchSeries
+        ? mergeBalanceItemSeriesFromStocks(apiSeries, stockLines)
+        : undefined;
       const payload = {
         ...product,
+        ...(mergedSeries !== undefined
+          ? {
+              balanceItemSeries: mergedSeries,
+              serialNumber:
+                mergedSeries.length > 0
+                  ? formatSerialSummaryForBalanceSeries(mergedSeries) ??
+                    product.serialNumber
+                  : product.serialNumber,
+            }
+          : {}),
         ...(agg
           ? {
               quantity: agg.totalQuantity,

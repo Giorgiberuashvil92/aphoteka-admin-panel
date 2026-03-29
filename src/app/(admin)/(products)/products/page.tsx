@@ -99,6 +99,8 @@ function ProductsPageContent() {
   const [balanceExchangeQtyRaw, setBalanceExchangeQtyRaw] = useState<unknown>(null);
   const [balanceExchangeQtyLoading, setBalanceExchangeQtyLoading] = useState(true);
   const [balanceExchangeQtyError, setBalanceExchangeQtyError] = useState<string | null>(null);
+  const [balanceStockDetailProduct, setBalanceStockDetailProduct] =
+    useState<Product | null>(null);
 
   // Debounce search term to avoid too many API calls
   useEffect(() => {
@@ -195,6 +197,20 @@ function ProductsPageContent() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!balanceStockDetailProduct) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setBalanceStockDetailProduct(null);
+    };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [balanceStockDetailProduct]);
 
   const syncBalanceToDb = async () => {
     setSyncLoading(true);
@@ -826,7 +842,7 @@ function ProductsPageContent() {
                   რეზერვი
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  Balance საწყობები
+                  Balance ნაშთი
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
                   ერთეულის ფასი
@@ -838,28 +854,7 @@ function ProductsPageContent() {
                   დაბეგვრა
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  ზედნადების ნომერი
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
                   სტატუსი
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  მყიდველი
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  გამყიდველი
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  გააქტიურების თარიღი
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  ტრანსპორტირების დაწყების თარიღი
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  ფირნიშის ან ცნობის ნომერი
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  დოკუმენტის N
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
                   SKU / internal product code
@@ -889,9 +884,6 @@ function ProductsPageContent() {
                   Pack size (10 tablets, 100 ml)
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  Barcode (GTIN, if available)
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
                   შეფუთვის სახეობა
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
@@ -905,7 +897,7 @@ function ProductsPageContent() {
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={30} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={22} className="px-6 py-8 text-center text-sm text-gray-500">
                     პროდუქტები არ მოიძებნა
                   </td>
                 </tr>
@@ -940,27 +932,25 @@ function ProductsPageContent() {
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       {product.reservedQuantity != null ? product.reservedQuantity : "—"}
                     </td>
-                    {/* Balance საწყობები */}
-                    <td
-                      className="max-w-[14rem] truncate px-4 py-3 text-xs text-gray-500 dark:text-gray-400"
-                      title={
-                        product.balanceStockBreakdown?.length
-                          ? JSON.stringify(product.balanceStockBreakdown, null, 2)
-                          : ""
-                      }
-                    >
-                      {product.balanceStockBreakdown?.length
-                        ? product.balanceStockBreakdown
-                            .map((l) => {
-                              const label =
-                                l.balanceWarehouseName ||
-                                (l.balanceWarehouseUuid
-                                  ? `${l.balanceWarehouseUuid.slice(0, 8)}…`
-                                  : "—");
-                              return `${label}: ${l.quantity} (რ${l.reserve})`;
-                            })
-                            .join("; ")
-                        : "—"}
+                    {/* Balance ნაშთი / სერიული — დეტალები მოდალში */}
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const nWh = product.balanceStockBreakdown?.length ?? 0;
+                        const nSe = product.balanceItemSeries?.length ?? 0;
+                        const n = nWh + nSe;
+                        return n > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setBalanceStockDetailProduct(product)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-brand-600 shadow-sm hover:bg-brand-50 dark:border-gray-600 dark:bg-gray-800 dark:text-brand-400 dark:hover:bg-gray-700"
+                          >
+                            <EyeIcon className="h-3.5 w-3.5 shrink-0" />
+                            <span>დეტალები ({n})</span>
+                          </button>
+                        ) : (
+                          <span className="text-sm text-gray-400 dark:text-gray-500">—</span>
+                        );
+                      })()}
                     </td>
                     {/* ერთეულის ფასი */}
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
@@ -974,10 +964,6 @@ function ProductsPageContent() {
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       {product.taxation || "-"}
                     </td>
-                    {/* ზედნადების ნომერი */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.invoiceNumber || "-"}
-                    </td>
                     {/* სტატუსი */}
                     <td className="px-4 py-3">
                       <span
@@ -989,30 +975,6 @@ function ProductsPageContent() {
                       >
                         {product.active ? "აქტიური" : "არააქტიური"}
                       </span>
-                    </td>
-                    {/* მყიდველი */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.buyer || "-"}
-                    </td>
-                    {/* გამყიდველი */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.seller || "-"}
-                    </td>
-                    {/* გააქტიურების თარიღი */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.activationDate ? new Date(product.activationDate).toLocaleDateString('ka-GE') : "-"}
-                    </td>
-                    {/* ტრანსპორტირების დაწყების თარიღი */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.transportStartDate ? new Date(product.transportStartDate).toLocaleDateString('ka-GE') : "-"}
-                    </td>
-                    {/* ფირნიშის ან ცნობის ნომერი */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.certificateNumber || "-"}
-                    </td>
-                    {/* დოკუმენტის N */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.documentNumber || "-"}
                     </td>
                     {/* SKU / internal product code */}
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
@@ -1054,10 +1016,6 @@ function ProductsPageContent() {
                     {/* Pack size (10 tablets, 100 ml) */}
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       {product.packSize || "-"}
-                    </td>
-                    {/* Barcode (GTIN, if available) */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.barcode || "-"}
                     </td>
                     {/* შეფუთვის სახეობა */}
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
@@ -1115,6 +1073,172 @@ function ProductsPageContent() {
           </table>
         </div>
       </div>
+
+      {/* Balance ნაშთის დეტალები (საწყობები / რეზერვი) */}
+      {balanceStockDetailProduct && (
+        <div
+          className="fixed inset-0 z-100 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="balance-stock-modal-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/50 backdrop-blur-[1px]"
+            aria-label="დახურვა"
+            onClick={() => setBalanceStockDetailProduct(null)}
+          />
+          <div className="relative z-10 flex max-h-[min(85vh,720px)] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-700">
+              <div className="min-w-0">
+                <h2
+                  id="balance-stock-modal-title"
+                  className="text-lg font-semibold text-gray-900 dark:text-white"
+                >
+                  Balance — ნაშთი და სერიული ნომრები
+                </h2>
+                <p className="mt-1 truncate text-sm text-gray-600 dark:text-gray-400">
+                  {balanceStockDetailProduct.name}
+                  <span className="ml-2 font-mono text-xs text-gray-500">
+                    SKU: {balanceStockDetailProduct.sku}
+                  </span>
+                </p>
+                <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-500 dark:text-gray-400">
+                  <span>
+                    ჯამური რაოდენობა:{" "}
+                    <strong className="text-gray-800 dark:text-gray-200">
+                      {balanceStockDetailProduct.quantity ?? "—"}
+                    </strong>
+                  </span>
+                  <span>
+                    ჯამური რეზერვი:{" "}
+                    <strong className="text-gray-800 dark:text-gray-200">
+                      {balanceStockDetailProduct.reservedQuantity ?? "—"}
+                    </strong>
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBalanceStockDetailProduct(null)}
+                className="shrink-0 rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                aria-label="დახურვა"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 space-y-8 overflow-auto px-5 py-4">
+              {(balanceStockDetailProduct.balanceStockBreakdown ?? []).length >
+              0 ? (
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold text-gray-800 dark:text-gray-200">
+                    საწყობების მიხედვით
+                  </h3>
+                  <table className="w-full text-left text-sm">
+                    <thead className="sticky top-0 bg-white dark:bg-gray-900">
+                      <tr className="border-b border-gray-200 text-xs font-medium uppercase text-gray-500 dark:border-gray-600 dark:text-gray-400">
+                        <th className="px-3 py-2">საწყობო</th>
+                        <th className="px-3 py-2 text-right">რაოდენობა</th>
+                        <th className="px-3 py-2 text-right">რეზერვი</th>
+                        <th className="px-3 py-2">ფილიალი (UUID)</th>
+                        <th className="px-3 py-2">სერია</th>
+                        <th className="px-3 py-2">საწყობო UUID</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                      {(balanceStockDetailProduct.balanceStockBreakdown ?? []).map(
+                        (line, idx) => (
+                          <tr key={idx} className="text-gray-800 dark:text-gray-200">
+                            <td className="px-3 py-2.5">
+                              <span className="font-medium">
+                                {line.balanceWarehouseName || "—"}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-right tabular-nums">
+                              {line.quantity}
+                            </td>
+                            <td className="px-3 py-2.5 text-right tabular-nums">
+                              {line.reserve}
+                            </td>
+                            <td
+                              className="max-w-40 truncate px-3 py-2.5 font-mono text-xs text-gray-600 dark:text-gray-400"
+                              title={line.balanceBranchUuid}
+                            >
+                              {line.balanceBranchUuid || "—"}
+                            </td>
+                            <td
+                              className="max-w-40 truncate px-3 py-2.5 font-mono text-xs"
+                              title={line.seriesUuid}
+                            >
+                              {line.seriesUuid || "—"}
+                            </td>
+                            <td
+                              className="max-w-48 truncate px-3 py-2.5 font-mono text-xs text-gray-600 dark:text-gray-400"
+                              title={line.balanceWarehouseUuid}
+                            >
+                              {line.balanceWarehouseUuid || "—"}
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+
+              {(balanceStockDetailProduct.balanceItemSeries ?? []).length > 0 ? (
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold text-gray-800 dark:text-gray-200">
+                    სერიული ნომრები (ItemsSeries)
+                  </h3>
+                  <table className="w-full text-left text-sm">
+                    <thead className="sticky top-0 bg-white dark:bg-gray-900">
+                      <tr className="border-b border-gray-200 text-xs font-medium uppercase text-gray-500 dark:border-gray-600 dark:text-gray-400">
+                        <th className="px-3 py-2">სერიული №</th>
+                        <th className="px-3 py-2 text-right">რაოდენობა</th>
+                        <th className="px-3 py-2">ვადა</th>
+                        <th className="px-3 py-2">სერიის UUID</th>
+                        <th className="px-3 py-2">საწყობო UUID</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                      {(balanceStockDetailProduct.balanceItemSeries ?? []).map(
+                        (line, idx) => (
+                          <tr key={idx} className="text-gray-800 dark:text-gray-200">
+                            <td className="px-3 py-2.5 font-medium">
+                              {line.seriesNumber || "—"}
+                            </td>
+                            <td className="px-3 py-2.5 text-right tabular-nums">
+                              {line.quantity ?? "—"}
+                            </td>
+                            <td className="px-3 py-2.5 text-gray-600 dark:text-gray-400">
+                              {line.expiryDate ?? "—"}
+                            </td>
+                            <td
+                              className="max-w-44 truncate px-3 py-2.5 font-mono text-xs"
+                              title={line.seriesUuid}
+                            >
+                              {line.seriesUuid || "—"}
+                            </td>
+                            <td
+                              className="max-w-44 truncate px-3 py-2.5 font-mono text-xs text-gray-600 dark:text-gray-400"
+                              title={line.warehouseUuid}
+                            >
+                              {line.warehouseUuid || "—"}
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Product Form Modal */}
       <ProductFormModal

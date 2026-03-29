@@ -1,4 +1,4 @@
-import axios, { type AxiosInstance } from 'axios';
+import axios, { type AxiosInstance, isAxiosError } from 'axios';
 import https from 'node:https';
 
 const BALANCE_USER_NAME = process.env.BALANCE_USER_NAME ?? 'Ntsulik@gmail.com';
@@ -152,4 +152,70 @@ export async function fetchBalanceExchangeStocks(
   query?: BalanceExchangeStocksQuery
 ): Promise<unknown> {
   return balanceGetJson(buildBalanceExchangeStocksUrl(query));
+}
+
+/** სრული ბაზის URL (მაგ. `…/Exchange/ItemsSeries` ბოლომდე). ცარიელი env → sm/o შემდეგ sm/a (404-ზე ფოლბექი) */
+function balanceItemsSeriesPublicationBases(): string[] {
+  const env = process.env.BALANCE_ITEMS_SERIES_URL?.trim();
+  if (env) return [env];
+  return [
+    'https://cloud.balance.ge/sm/o/Balance/7596/hs/Exchange/ItemsSeries',
+    'https://cloud.balance.ge/sm/a/Balance/7596/hs/Exchange/ItemsSeries',
+  ];
+}
+
+/** პირველი ბაზა (ლოგის/დოკისთვის) */
+export const BALANCE_ITEMS_SERIES_URL = balanceItemsSeriesPublicationBases()[0];
+
+export function buildBalanceItemsSeriesUrlForBase(
+  base: string,
+  itemUid: string,
+  opts?: { startingPeriod?: string; endingPeriod?: string }
+): string {
+  const u = new URL(base);
+  u.searchParams.set('uid', itemUid.trim());
+  u.searchParams.set('StartingPeriod', opts?.startingPeriod ?? '');
+  u.searchParams.set('EndingPeriod', opts?.endingPeriod ?? '');
+  return u.toString();
+}
+
+export function buildBalanceItemsSeriesUrl(
+  itemUid: string,
+  opts?: { startingPeriod?: string; endingPeriod?: string }
+): string {
+  return buildBalanceItemsSeriesUrlForBase(
+    balanceItemsSeriesPublicationBases()[0],
+    itemUid,
+    opts
+  );
+}
+
+/** დებაგი: რა URL-ებს ვცდით (sm/o → sm/a ან მხოლოდ env) */
+export function getBalanceItemsSeriesCandidateUrls(
+  itemUid: string,
+  opts?: { startingPeriod?: string; endingPeriod?: string }
+): string[] {
+  return balanceItemsSeriesPublicationBases().map((base) =>
+    buildBalanceItemsSeriesUrlForBase(base, itemUid, opts)
+  );
+}
+
+export async function fetchBalanceItemsSeriesForItem(
+  itemUid: string,
+  opts?: { startingPeriod?: string; endingPeriod?: string }
+): Promise<unknown> {
+  const bases = balanceItemsSeriesPublicationBases();
+  let lastErr: unknown;
+  for (let i = 0; i < bases.length; i++) {
+    const url = buildBalanceItemsSeriesUrlForBase(bases[i], itemUid, opts);
+    try {
+      return await balanceGetJson(url);
+    } catch (e) {
+      lastErr = e;
+      const is404 = isAxiosError(e) && e.response?.status === 404;
+      if (is404 && i < bases.length - 1) continue;
+      throw e;
+    }
+  }
+  throw lastErr;
 }
