@@ -28,7 +28,7 @@ export { getEncodedToken };
 export const BALANCE_WAREHOUSES_URL =
   'https://cloud.balance.ge/sm/a/Balance/7596/hs/Exchange/Warehouses';
 
-async function balanceGetJson(url: string): Promise<unknown> {
+export async function balanceGetJson(url: string): Promise<unknown> {
   const client = getBalanceTokenInstance();
   const { data } = await client.get<string | unknown>(url, {
     headers: { 'Content-Type': 'application/json' },
@@ -58,11 +58,98 @@ export async function fetchBalanceStocks(): Promise<unknown> {
   return balanceGetJson(BALANCE_STOCKS_URL);
 }
 
-/** Balance Exchange – ფასები (Items-ის UUID-ით უკავშირდება) */
+/** სატესტო: `sm/a/Balance/7596/hs/Exchange/Items` — `uid` ოფციონალური (არა `sm/o`) */
+const BALANCE_ITEMS_TEST_PATH =
+  'https://cloud.balance.ge/sm/a/Balance/7596/hs/Exchange/Items';
+
+export function buildBalanceItemsTestUrl(uid?: string | null): string {
+  const u = new URL(BALANCE_ITEMS_TEST_PATH);
+  const t = uid?.trim();
+  if (t) u.searchParams.set('uid', t);
+  return u.toString();
+}
+
+export async function fetchBalanceItemsTest(uid?: string | null): Promise<unknown> {
+  return balanceGetJson(buildBalanceItemsTestUrl(uid));
+}
+
 export const BALANCE_PRICES_URL =
   process.env.BALANCE_PRICES_URL ??
   'https://cloud.balance.ge/sm/a/Balance/7596/hs/Exchange/Prices';
 
+/** Exchange საერთო `uid` — Prices / Stocks / სხვა */
+const BALANCE_EXCHANGE_UID = 'b067980d-7eb5-11ec-80d2-000c29409daa';
+
+function pricesUrlWithQuery(extra?: Record<string, string>): string {
+  const u = new URL(BALANCE_PRICES_URL);
+  u.searchParams.set('uid', BALANCE_EXCHANGE_UID);
+  if (extra) {
+    for (const [k, v] of Object.entries(extra)) {
+      if (v !== '') u.searchParams.set(k, v);
+    }
+  }
+  return u.toString();
+}
+
 export async function fetchBalancePrices(): Promise<unknown> {
-  return balanceGetJson(BALANCE_PRICES_URL);
+  return balanceGetJson(pricesUrlWithQuery());
+}
+
+/** Prices — query `Source` = ნომენკლატურის `uid` (Items ფიდიდან) */
+export async function fetchBalancePricesByUuid(uuid: string): Promise<unknown> {
+  return balanceGetJson(pricesUrlWithQuery({ Source: uuid }));
+}
+
+/** ნაშთები/რაოდენობები — `sm/a/Balance/7596/hs/Exchange/Stocks` (არა Items) */
+export const BALANCE_EXCHANGE_STOCKS_URL =
+  'https://cloud.balance.ge/sm/a/Balance/7596/hs/Exchange/Stocks';
+
+export type BalanceExchangeStocksQuery = {
+  uid?: string;
+  StartingPeriod?: string;
+  EndingPeriod?: string;
+  Source?: string;
+  /** დოკუმენტაცია: Total (boolean), მაგ. `false` დეტალური ხაზებისთვის */
+  Total?: boolean;
+  /**
+   * `true` → დოკუმენტაციის URL:
+   * `/Stocks?uid=&StartingPeriod=&EndingPeriod=&Source=&Total=false`
+   * (ცარიელი სტრიქონები, თუ ველი არ გადაეცა)
+   */
+  docTemplate?: boolean;
+};
+
+export function buildBalanceExchangeStocksUrl(
+  query?: BalanceExchangeStocksQuery
+): string {
+  const u = new URL(BALANCE_EXCHANGE_STOCKS_URL);
+  const q = query ?? {};
+
+  if (q.docTemplate) {
+    u.searchParams.set('uid', q.uid ?? '');
+    u.searchParams.set('StartingPeriod', q.StartingPeriod ?? '');
+    u.searchParams.set('EndingPeriod', q.EndingPeriod ?? '');
+    u.searchParams.set('Source', q.Source ?? '');
+    u.searchParams.set(
+      'Total',
+      q.Total === undefined ? 'false' : q.Total ? 'true' : 'false'
+    );
+    return u.toString();
+  }
+
+  u.searchParams.set('uid', (q.uid ?? BALANCE_EXCHANGE_UID).trim());
+  if (q.StartingPeriod) u.searchParams.set('StartingPeriod', q.StartingPeriod);
+  if (q.EndingPeriod) u.searchParams.set('EndingPeriod', q.EndingPeriod);
+  if (q.Source) u.searchParams.set('Source', q.Source);
+  u.searchParams.set(
+    'Total',
+    q.Total === undefined ? 'false' : q.Total ? 'true' : 'false'
+  );
+  return u.toString();
+}
+
+export async function fetchBalanceExchangeStocks(
+  query?: BalanceExchangeStocksQuery
+): Promise<unknown> {
+  return balanceGetJson(buildBalanceExchangeStocksUrl(query));
 }

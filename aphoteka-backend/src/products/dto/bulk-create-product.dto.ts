@@ -1,10 +1,14 @@
+import { Type } from 'class-transformer';
 import {
   IsString,
   IsNumber,
   IsOptional,
   IsBoolean,
   Min,
+  IsArray,
+  ValidateNested,
 } from 'class-validator';
+import { BalanceStockBreakdownLineDto } from './balance-stock-breakdown-line.dto';
 
 export class BulkCreateProductDto {
   @IsOptional()
@@ -77,6 +81,16 @@ export class BulkCreateProductDto {
   @IsNumber()
   @IsOptional()
   quantity?: number;
+
+  @IsNumber()
+  @IsOptional()
+  reservedQuantity?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BalanceStockBreakdownLineDto)
+  balanceStockBreakdown?: BalanceStockBreakdownLineDto[];
 
   @IsNumber()
   @IsOptional()

@@ -120,6 +120,17 @@ export interface Product {
   // Additional catalog fields
   productCode?: string; // საქონლის კოდი
   quantity?: number; // რაოდენობა
+  /** Balance Exchange/Stocks Reserve ჯამი */
+  reservedQuantity?: number;
+  /** საწყობების მიხედვით დაშლილი ნაშთი (Balance) */
+  balanceStockBreakdown?: Array<{
+    balanceWarehouseUuid: string;
+    balanceBranchUuid?: string;
+    balanceWarehouseName?: string;
+    quantity: number;
+    reserve: number;
+    seriesUuid?: string;
+  }>;
   totalPrice?: number; // საქონლის ფასი (quantity * price)
   taxation?: string; // დაბეგვრა
   invoiceNumber?: string; // ზედნადების ნომერი

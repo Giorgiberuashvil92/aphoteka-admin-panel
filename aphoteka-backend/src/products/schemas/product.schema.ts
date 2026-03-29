@@ -132,7 +132,31 @@ export class Product {
   productCode?: string; // საქონლის კოდი
 
   @Prop({ type: Number })
-  quantity?: number; // რაოდენობა
+  quantity?: number; // რაოდენობა (Balance Exchange/Stocks ჯამი)
+
+  @Prop({ type: Number })
+  reservedQuantity?: number; // დარეზერვებული (Balance Reserve ჯამი)
+
+  @Prop({
+    type: [
+      {
+        balanceWarehouseUuid: { type: String, required: true },
+        balanceBranchUuid: { type: String },
+        balanceWarehouseName: { type: String },
+        quantity: { type: Number, required: true },
+        reserve: { type: Number, required: true },
+        seriesUuid: { type: String },
+      },
+    ],
+  })
+  balanceStockBreakdown?: Array<{
+    balanceWarehouseUuid: string;
+    balanceBranchUuid?: string;
+    balanceWarehouseName?: string;
+    quantity: number;
+    reserve: number;
+    seriesUuid?: string;
+  }>;
 
   @Prop({ type: Number })
   totalPrice?: number; // საქონლის ფასი (quantity * price)

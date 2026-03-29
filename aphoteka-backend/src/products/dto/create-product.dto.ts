@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   IsString,
   IsNumber,
@@ -5,7 +6,10 @@ import {
   IsBoolean,
   IsUUID,
   Min,
+  IsArray,
+  ValidateNested,
 } from 'class-validator';
+import { BalanceStockBreakdownLineDto } from './balance-stock-breakdown-line.dto';
 
 export class CreateProductDto {
   @IsUUID()
@@ -79,6 +83,16 @@ export class CreateProductDto {
   @IsNumber()
   @IsOptional()
   quantity?: number;
+
+  @IsNumber()
+  @IsOptional()
+  reservedQuantity?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BalanceStockBreakdownLineDto)
+  balanceStockBreakdown?: BalanceStockBreakdownLineDto[];
 
   @IsNumber()
   @IsOptional()

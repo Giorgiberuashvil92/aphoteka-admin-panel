@@ -1,6 +1,6 @@
 import type { Product } from '@/types';
 
-/** Balance პასუხიდან Items მასივის ამოღება (Items, value, Value ან root მასივი) */
+/** Balance პასუხიდან Items მასივის ამოღება (Items, value, Value, Source ან root მასივი) */
 export function getBalanceItems(data: unknown): Record<string, unknown>[] {
   if (Array.isArray(data)) return data as Record<string, unknown>[];
   if (data && typeof data === 'object') {
@@ -8,6 +8,8 @@ export function getBalanceItems(data: unknown): Record<string, unknown>[] {
     if (Array.isArray(o.Items)) return o.Items as Record<string, unknown>[];
     if (Array.isArray(o.value)) return o.value as Record<string, unknown>[];
     if (Array.isArray(o.Value)) return o.Value as Record<string, unknown>[];
+    /** Exchange/Prices დოკუმენტაცია: პასუხი ხშირად `{ Source: [ { PriceType, Item, Currency, Price } ] }` */
+    if (Array.isArray(o.Source)) return o.Source as Record<string, unknown>[];
   }
   return [];
 }
@@ -17,8 +19,36 @@ export function getBalancePricesRows(data: unknown): Record<string, unknown>[] {
 }
 
 export function getItemUuid(item: Record<string, unknown>): string | undefined {
-  const v = getStr(item, 'Ref', 'UUID', 'Id', 'uuid', 'ref', 'ItemRef', 'NomenclatureRef', 'ProductRef');
+  const v = getStr(
+    item,
+    'uid',
+    'UID',
+    'Ref',
+    'UUID',
+    'Id',
+    'uuid',
+    'ref',
+    'ItemRef',
+    'NomenclatureRef',
+    'ProductRef',
+    /** ფასის ჩანაწერში ნომენკლატურის ბმა */
+    'Item'
+  );
   return v || undefined;
+}
+
+/** Items ფიდიდან: ნომენკლატურის `uid` → სახელი (Exchange/Stocks `Item` ველთან) */
+export function buildBalanceItemNameByUid(
+  itemRows: Record<string, unknown>[]
+): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const row of itemRows) {
+    const uid = getItemUuid(row);
+    if (!uid) continue;
+    const name = getStr(row, 'Name', 'FullName') || uid;
+    m.set(uid, name);
+  }
+  return m;
 }
 
 export function buildPriceByUuid(pricesRows: Record<string, unknown>[]): Map<string, number> {
@@ -61,9 +91,58 @@ function getDate(item: Record<string, unknown>, ...keys: string[]): string | und
   return undefined;
 }
 
+const NULL_GROUP_UID = '00000000-0000-0000-0000-000000000000';
+
+export function isBalanceGroupRow(row: Record<string, unknown>): boolean {
+  return String(row.IsGroup ?? '').toLowerCase() === 'true';
+}
+
+/**
+ * პროდუქტისთვის კატეგორია Balance-ის ხის მიხედვით:
+ * `Group` → ჯგუფის `uid` (შეიძლება იყოს ცარიელი root `0000...`).
+ * თუ ჯგუფები ჩანესტებულია, სახელები ` / `-ით იკრიბება (root → leaf).
+ */
+export function resolveBalanceCategoryForItem(
+  item: Record<string, unknown>,
+  allItems: Record<string, unknown>[]
+): string | undefined {
+  const explicit = getStr(item, 'Category', 'category');
+  if (explicit) return explicit;
+
+  const itemsByUid = new Map<string, Record<string, unknown>>();
+  const groupNameByUid = new Map<string, string>();
+  for (const row of allItems) {
+    const uid = getItemUuid(row);
+    if (!uid) continue;
+    itemsByUid.set(uid, row);
+    if (isBalanceGroupRow(row)) {
+      const n = getStr(row, 'Name', 'FullName');
+      if (n) groupNameByUid.set(uid, n);
+    }
+  }
+
+  let gid = getStr(item, 'Group', 'group', 'GroupRef');
+  if (!gid || gid === NULL_GROUP_UID) return undefined;
+
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  for (let depth = 0; depth < 20; depth++) {
+    if (!gid || gid === NULL_GROUP_UID) break;
+    if (seen.has(gid)) break;
+    seen.add(gid);
+    const name = groupNameByUid.get(gid);
+    if (name) parts.unshift(name);
+    const parentRow = itemsByUid.get(gid);
+    gid = parentRow ? getStr(parentRow, 'Group', 'group', 'GroupRef') : '';
+  }
+  if (parts.length === 0) return undefined;
+  return parts.join(' / ');
+}
+
 export function mapBalanceItemToProduct(
   item: Record<string, unknown>,
   index: number,
+  allItems: Record<string, unknown>[],
   priceByUuid?: Map<string, number>
 ): Partial<Product> {
   const sku =
@@ -96,7 +175,7 @@ export function mapBalanceItemToProduct(
     packSize: getStr(item, 'PackSize', 'packSize') || undefined,
     manufacturer: getStr(item, 'Manufacturer', 'manufacturer') || undefined,
     countryOfOrigin: getStr(item, 'CountryOfOrigin', 'countryOfOrigin') || undefined,
-    category: getStr(item, 'Category', 'category') || undefined,
+    category: resolveBalanceCategoryForItem(item, allItems) || undefined,
     packagingType: getStr(item, 'PackagingType', 'packagingType') || undefined,
     taxation: getStr(item, 'Taxation', 'taxation') || undefined,
     invoiceNumber: getStr(item, 'InvoiceNumber', 'invoiceNumber') || undefined,
@@ -109,4 +188,84 @@ export function mapBalanceItemToProduct(
     buyer: getStr(item, 'Buyer', 'buyer') || undefined,
     seller: getStr(item, 'Seller', 'seller') || undefined,
   };
+}
+
+export type BalanceStockBreakdownLine = {
+  balanceWarehouseUuid: string;
+  balanceBranchUuid?: string;
+  balanceWarehouseName?: string;
+  quantity: number;
+  reserve: number;
+  seriesUuid?: string;
+};
+
+export type AggregatedBalanceStockForItem = {
+  totalQuantity: number;
+  totalReserve: number;
+  lines: BalanceStockBreakdownLine[];
+};
+
+/** Exchange/Warehouses → საწყობის UUID → სახელი */
+export function buildBalanceWarehouseNameByUuid(warehousesData: unknown): Map<string, string> {
+  const rows = getBalanceItems(warehousesData);
+  const m = new Map<string, string>();
+  for (const row of rows) {
+    const uid = getItemUuid(row);
+    if (!uid) continue;
+    const name = getStr(row, 'Name', 'FullName', 'Description') || uid;
+    m.set(uid, name);
+  }
+  return m;
+}
+
+/** Items leaf: Code (sku) → ნომენკლატურის uid (Exchange/Stocks `Item`) */
+export function buildSkuToBalanceItemUid(
+  leafItems: Record<string, unknown>[]
+): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const row of leafItems) {
+    const sku = getStr(row, 'Code', 'code', 'SKU', 'sku');
+    const uid = getItemUuid(row);
+    if (sku && uid) m.set(sku, uid);
+  }
+  return m;
+}
+
+/** Exchange/Stocks ხაზების აგრეგაცია `Item` UUID-ით + საწყობის სახელი */
+export function aggregateExchangeStocksByItemUid(
+  stockRows: Record<string, unknown>[],
+  warehouseNameByUuid: Map<string, string>
+): Map<string, AggregatedBalanceStockForItem> {
+  const map = new Map<string, AggregatedBalanceStockForItem>();
+  for (const row of stockRows) {
+    const itemUid = String(row.Item ?? '').trim();
+    if (!itemUid) continue;
+    const w = String(row.Warehouse ?? '').trim();
+    const b = String(row.Branch ?? '').trim();
+    const qRaw = Number(row.Quantity ?? 0);
+    const qty = Number.isFinite(qRaw) ? qRaw : 0;
+    const rRaw = Number(row.Reserve ?? 0);
+    const res = Number.isFinite(rRaw) ? rRaw : 0;
+    const seriesRaw = String(row.Series ?? '').trim();
+    const seriesUuid =
+      seriesRaw && seriesRaw !== NULL_GROUP_UID ? seriesRaw : undefined;
+
+    const cur = map.get(itemUid) ?? {
+      totalQuantity: 0,
+      totalReserve: 0,
+      lines: [] as BalanceStockBreakdownLine[],
+    };
+    cur.totalQuantity += qty;
+    cur.totalReserve += res;
+    cur.lines.push({
+      balanceWarehouseUuid: w,
+      balanceBranchUuid: b && b !== NULL_GROUP_UID ? b : undefined,
+      balanceWarehouseName: w ? warehouseNameByUuid.get(w) : undefined,
+      quantity: qty,
+      reserve: res,
+      seriesUuid,
+    });
+    map.set(itemUid, cur);
+  }
+  return map;
 }

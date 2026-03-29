@@ -47,12 +47,18 @@ import { productsApi, warehousesApi, inventoryApi } from "@/lib/api";
 import {
   getBalanceStocks,
   getBalancePrices,
+  getBalanceItemPricing,
+  getBalanceExchangeStocks,
+  itemPricingRowsForDbProducts,
   rowsFromBalanceStocks,
   rowsFromBalancePrices,
+  rowsFromBalanceItemPricing,
+  rowsFromBalanceExchangeStocks,
 } from "@/lib/api/balanceStocks";
 import ProductFormModal from "@/components/products/ProductFormModal";
 import AddToWarehouseModal from "@/components/inventory/AddToWarehouseModal";
 import { getAuthToken } from "@/lib/authToken";
+import { buildBalanceItemNameByUid, isBalanceGroupRow } from "@/lib/api/balanceSync";
 
 function ProductsPageContent() {
   const searchParams = useSearchParams();
@@ -84,6 +90,15 @@ function ProductsPageContent() {
   const [balancePricesRaw, setBalancePricesRaw] = useState<unknown>(null);
   const [balancePricesLoading, setBalancePricesLoading] = useState(true);
   const [balancePricesError, setBalancePricesError] = useState<string | null>(null);
+  const [balanceItemPricingRaw, setBalanceItemPricingRaw] = useState<unknown>(null);
+  const [balanceItemPricingLoading, setBalanceItemPricingLoading] = useState(true);
+  const [balanceItemPricingError, setBalanceItemPricingError] = useState<string | null>(null);
+  const [balanceExchangeQtyRows, setBalanceExchangeQtyRows] = useState<
+    Record<string, unknown>[]
+  >([]);
+  const [balanceExchangeQtyRaw, setBalanceExchangeQtyRaw] = useState<unknown>(null);
+  const [balanceExchangeQtyLoading, setBalanceExchangeQtyLoading] = useState(true);
+  const [balanceExchangeQtyError, setBalanceExchangeQtyError] = useState<string | null>(null);
 
   // Debounce search term to avoid too many API calls
   useEffect(() => {
@@ -136,6 +151,47 @@ function ProductsPageContent() {
         );
       } finally {
         setBalancePricesLoading(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setBalanceItemPricingError(null);
+        const data = await getBalanceItemPricing();
+        setBalanceItemPricingRaw(data);
+      } catch (err) {
+        setBalanceItemPricingError(
+          err instanceof Error ? err.message : "Balance ItemPricing-ის ჩატვირთვა ვერ მოხერხდა"
+        );
+      } finally {
+        setBalanceItemPricingLoading(false);
+      }
+    })();
+  }, []);
+
+  /** Exchange/Stocks — რაოდენობები (`/Stocks?uid=&...&Total=false` docTemplate, თუ ვერ — სტანდარტული uid) */
+  useEffect(() => {
+    (async () => {
+      try {
+        setBalanceExchangeQtyError(null);
+        let data: unknown;
+        try {
+          data = await getBalanceExchangeStocks({ docTemplate: true });
+        } catch {
+          data = await getBalanceExchangeStocks({ Total: false });
+        }
+        setBalanceExchangeQtyRaw(data);
+        setBalanceExchangeQtyRows(rowsFromBalanceExchangeStocks(data));
+      } catch (err) {
+        setBalanceExchangeQtyError(
+          err instanceof Error
+            ? err.message
+            : "Balance Exchange/Stocks (რაოდენობები) ვერ ჩაიტვირთა"
+        );
+      } finally {
+        setBalanceExchangeQtyLoading(false);
       }
     })();
   }, []);
@@ -213,15 +269,46 @@ function ProductsPageContent() {
     return () => clearInterval(id);
   }, [execute]);
 
-  // Memoize products to avoid unnecessary re-renders
+  /** Balance-ში IsGroup=true ჩანაწერების Code — DB-ში ადრე როგორც „პროდუქტი“ შევიდა, სიაში აღარ ვაჩვენებთ */
+  const balanceGroupSkuSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const row of balanceStocksRows) {
+      if (!isBalanceGroupRow(row)) continue;
+      const code = String(row.Code ?? row.code ?? "").trim();
+      if (code) s.add(code);
+    }
+    return s;
+  }, [balanceStocksRows]);
+
   const products = useMemo(() => {
-    const prods = data?.data || [];
+    const prods = (data?.data || []).filter(
+      (p) => !balanceGroupSkuSet.has(String(p.sku ?? "").trim())
+    );
     if (prods.length > 0) {
       console.log('First product:', prods[0]);
       console.log('First product ID:', prods[0].id);
     }
     return prods;
-  }, [data?.data]);
+  }, [data?.data, balanceGroupSkuSet]);
+
+  /** ItemPricing — მხოლოდ იმ ჩანაწერები, რაც ემთხვევა ამ გვერდზე ჩატვირთულ პროდუქტებს (SKU + Balance Items) */
+  const balanceItemPricingRowsForProducts = useMemo(() => {
+    if (balanceItemPricingRaw == null) return [];
+    const all = rowsFromBalanceItemPricing(balanceItemPricingRaw);
+    return itemPricingRowsForDbProducts(all, products, balanceStocksRows);
+  }, [balanceItemPricingRaw, products, balanceStocksRows]);
+
+  /** Exchange/Stocks — Item UUID → სახელი Items ფიდიდან */
+  const balanceExchangeQtyDisplayRows = useMemo((): Record<string, unknown>[] => {
+    const nameByUid = buildBalanceItemNameByUid(balanceStocksRows);
+    return balanceExchangeQtyRows.map((row) => {
+      const itemUid = String(row.Item ?? "").trim();
+      return {
+        ItemName: nameByUid.get(itemUid) ?? "—",
+        ...row,
+      } as Record<string, unknown>;
+    });
+  }, [balanceExchangeQtyRows, balanceStocksRows]);
 
   // Filter products by warehouse if warehouseId is provided
   const filteredProducts = useMemo(() => {
@@ -458,6 +545,10 @@ function ProductsPageContent() {
             )}
           </div>
         )}
+        <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+          ზედა ცხრილი — <strong>Exchange/Items</strong> (ნომენკლატურა, კატეგორიები+საქონელი). ქვემოთ — ცალკე{" "}
+          <strong>Exchange/Stocks</strong> რაოდენობები (Item, Warehouse, Quantity, Reserve).
+        </p>
         {balanceStocksLoading && (
           <p className="text-sm text-gray-500 dark:text-gray-400">იტვირთება...</p>
         )}
@@ -511,6 +602,76 @@ function ProductsPageContent() {
               : JSON.stringify(balanceStocksRaw, null, 2)}
           </pre>
         )}
+
+        {/* Exchange/Stocks — რაოდენობები (ცალკე ენდფოინთი `/Stocks?uid=&StartingPeriod=&EndingPeriod=&Source=&Total=false`) */}
+        <div className="mt-6 border-t border-gray-200 pt-4 dark:border-gray-700">
+          <h3 className="mb-1 text-base font-semibold text-gray-900 dark:text-white">
+            რაოდენობები (Exchange/Stocks)
+          </h3>
+          <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+            დოკუმენტაციის query პარამეტრებით იტვირთება (შეუსაბამოდ — სტანდარტული uid). სახელი — Items-ის{" "}
+            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">uid</code> →{" "}
+            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">Item</code>.
+          </p>
+          {balanceExchangeQtyLoading && (
+            <p className="text-sm text-gray-500 dark:text-gray-400">იტვირთება...</p>
+          )}
+          {balanceExchangeQtyError && (
+            <p className="text-sm text-red-600 dark:text-red-400">{balanceExchangeQtyError}</p>
+          )}
+          {!balanceExchangeQtyLoading &&
+            !balanceExchangeQtyError &&
+            balanceExchangeQtyDisplayRows.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-gray-600">
+                      {Object.keys(balanceExchangeQtyDisplayRows[0]).map((key) => (
+                        <th
+                          key={key}
+                          className="whitespace-nowrap px-3 py-2 font-medium text-gray-700 dark:text-gray-300"
+                        >
+                          {key}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {balanceExchangeQtyDisplayRows.map((row, i) => (
+                      <tr
+                        key={i}
+                        className="border-b border-gray-100 dark:border-gray-700"
+                      >
+                        {Object.keys(balanceExchangeQtyDisplayRows[0]).map((key) => (
+                          <td
+                            key={key}
+                            className="max-w-xs truncate px-3 py-2 text-gray-800 dark:text-gray-200"
+                            title={String(row[key] ?? "")}
+                          >
+                            {row[key] === null || row[key] === undefined
+                              ? "—"
+                              : typeof row[key] === "object"
+                                ? JSON.stringify(row[key])
+                                : String(row[key])}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          {!balanceExchangeQtyLoading &&
+            !balanceExchangeQtyError &&
+            balanceExchangeQtyDisplayRows.length === 0 &&
+            balanceExchangeQtyRaw != null && (
+              <pre className="max-h-96 overflow-auto rounded bg-gray-50 p-3 text-xs dark:bg-gray-900 dark:text-gray-300">
+                {typeof balanceExchangeQtyRaw === "string"
+                  ? balanceExchangeQtyRaw
+                  : JSON.stringify(balanceExchangeQtyRaw, null, 2)}
+              </pre>
+            )}
+        </div>
 
         {/* Balance – ფასები (Prices) */}
         <div className="mt-6 border-t border-gray-200 pt-4 dark:border-gray-700">
@@ -571,6 +732,74 @@ function ProductsPageContent() {
             </pre>
           )}
         </div>
+
+        {/* Balance – ItemPricing (პროდუქტების მიხედვით გაფილტრული) */}
+        <div className="mt-6 border-t border-gray-200 pt-4 dark:border-gray-700">
+          <h3 className="mb-3 text-base font-semibold text-gray-900 dark:text-white">
+            ItemPricing (პროდუქტებიდან)
+          </h3>
+          {balanceItemPricingLoading && (
+            <p className="text-sm text-gray-500 dark:text-gray-400">იტვირთება...</p>
+          )}
+          {balanceItemPricingError && (
+            <p className="text-sm text-red-600 dark:text-red-400">{balanceItemPricingError}</p>
+          )}
+          {!balanceItemPricingLoading && !balanceItemPricingError && balanceItemPricingRowsForProducts.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 dark:border-gray-600">
+                    {Object.keys(balanceItemPricingRowsForProducts[0]).map((key) => (
+                      <th
+                        key={key}
+                        className="whitespace-nowrap px-3 py-2 font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {key}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {balanceItemPricingRowsForProducts.map((row, i) => (
+                    <tr
+                      key={i}
+                      className="border-b border-gray-100 dark:border-gray-700"
+                    >
+                      {Object.keys(balanceItemPricingRowsForProducts[0]).map((key) => (
+                        <td
+                          key={key}
+                          className="max-w-xs truncate px-3 py-2 text-gray-800 dark:text-gray-200"
+                          title={String(row[key] ?? "")}
+                        >
+                          {row[key] === null || row[key] === undefined
+                            ? "—"
+                            : typeof row[key] === "object"
+                              ? JSON.stringify(row[key])
+                              : String(row[key])}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {!balanceItemPricingLoading &&
+            !balanceItemPricingError &&
+            balanceItemPricingRowsForProducts.length === 0 &&
+            balanceItemPricingRaw != null && (
+              <div className="space-y-2">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  ფილტრით ჩანაწერი არ მოიძებნა (შეამოწმე SKU ↔ Balance Code ან ItemPricing ველების სახელები).
+                </p>
+                <pre className="max-h-48 overflow-auto rounded bg-gray-50 p-3 text-xs dark:bg-gray-900 dark:text-gray-300">
+                  {typeof balanceItemPricingRaw === "string"
+                    ? balanceItemPricingRaw
+                    : JSON.stringify(balanceItemPricingRaw, null, 2)}
+                </pre>
+              </div>
+            )}
+        </div>
         </div>
         )}
       </div>
@@ -592,6 +821,12 @@ function ProductsPageContent() {
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
                   რაოდ.
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                  რეზერვი
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                  Balance საწყობები
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
                   ერთეულის ფასი
@@ -670,7 +905,7 @@ function ProductsPageContent() {
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={28} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={30} className="px-6 py-8 text-center text-sm text-gray-500">
                     პროდუქტები არ მოიძებნა
                   </td>
                 </tr>
@@ -699,7 +934,33 @@ function ProductsPageContent() {
                     </td>
                     {/* რაოდ. */}
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.quantity || "-"}
+                      {product.quantity ?? "—"}
+                    </td>
+                    {/* რეზერვი (Balance) */}
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                      {product.reservedQuantity != null ? product.reservedQuantity : "—"}
+                    </td>
+                    {/* Balance საწყობები */}
+                    <td
+                      className="max-w-[14rem] truncate px-4 py-3 text-xs text-gray-500 dark:text-gray-400"
+                      title={
+                        product.balanceStockBreakdown?.length
+                          ? JSON.stringify(product.balanceStockBreakdown, null, 2)
+                          : ""
+                      }
+                    >
+                      {product.balanceStockBreakdown?.length
+                        ? product.balanceStockBreakdown
+                            .map((l) => {
+                              const label =
+                                l.balanceWarehouseName ||
+                                (l.balanceWarehouseUuid
+                                  ? `${l.balanceWarehouseUuid.slice(0, 8)}…`
+                                  : "—");
+                              return `${label}: ${l.quantity} (რ${l.reserve})`;
+                            })
+                            .join("; ")
+                        : "—"}
                     </td>
                     {/* ერთეულის ფასი */}
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
