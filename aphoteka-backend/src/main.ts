@@ -1,56 +1,42 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
-import type { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
 
-function getRequestOrigin(req: Request): string | undefined {
-  const raw = req.headers.origin;
-  if (typeof raw === 'string') return raw;
-  if (Array.isArray(raw)) return raw[0];
-  return undefined;
-}
-
 /**
- * CORS: არა `*` + credentials (ბრაუზერი უარს ამბობს).
- * თითო მოთხოვნაზე ვაბრუნებთ კონკრეტულ Origin-ს — preflight OPTIONS სრულად აქ.
+ * CORS — ბრაუზერი Vercel-იდან Railway API-ზე „განსხვავებული origin“-ია → სავალდებულია სწორი preflight (OPTIONS).
+ *
+ * `CORS_ORIGIN` — მძიმით გამოყოფილი სია (მკაცრი რეჟიმი). ცარიელი/არააქტიური → `origin: true`
+ * (თითო მოთხოვნაზე იგივე `Origin` ჰედერი ბრუნდება — credentials-თან თავსებადი).
  */
-function corsMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const origin = getRequestOrigin(req);
-
-  if (origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Vary', 'Origin');
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-
-  const reqHdrs = req.headers['access-control-request-headers'];
-  if (typeof reqHdrs === 'string' && reqHdrs.length > 0) {
-    res.setHeader('Access-Control-Allow-Headers', reqHdrs);
-  } else {
-    res.setHeader(
-      'Access-Control-Allow-Headers',
-      'Content-Type, Authorization, Accept, Origin, X-Requested-With',
-    );
-  }
-  res.setHeader(
-    'Access-Control-Allow-Methods',
-    'GET, HEAD, PUT, PATCH, POST, DELETE, OPTIONS',
-  );
-  res.setHeader('Access-Control-Max-Age', '86400');
-
-  if (req.method === 'OPTIONS') {
-    res.status(204).end();
-    return;
-  }
-  next();
+function resolveCorsOrigin(): boolean | string[] {
+  const raw = process.env.CORS_ORIGIN?.trim();
+  if (!raw) return true;
+  const list = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return list.length > 0 ? list : true;
 }
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.use(corsMiddleware);
+  app.enableCors({
+    origin: resolveCorsOrigin(),
+    credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'Origin',
+      'X-Requested-With',
+    ],
+    exposedHeaders: [],
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
+    maxAge: 86_400,
+  });
 
   app.setGlobalPrefix('api');
 
