@@ -220,7 +220,9 @@ export function buildBalanceExchangeStocksUrl(
   const q = query ?? {};
 
   if (q.docTemplate) {
-    u.searchParams.set('uid', q.uid ?? '');
+    /** ცარიელი uid ზოგიერ პუბლიკაციაზე Balance-ს 502/შეცდომა — იგივე სტანდარტული Exchange uid, რაც `Total=false`-ზე */
+    const uidForDoc = (q.uid?.trim() ? q.uid : BALANCE_EXCHANGE_UID).trim();
+    u.searchParams.set('uid', uidForDoc);
     u.searchParams.set('StartingPeriod', q.StartingPeriod ?? '');
     u.searchParams.set('EndingPeriod', q.EndingPeriod ?? '');
     u.searchParams.set('Source', q.Source ?? '');

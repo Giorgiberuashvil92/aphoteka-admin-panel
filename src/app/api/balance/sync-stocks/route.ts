@@ -6,7 +6,7 @@ import {
   fetchBalanceStocks,
   fetchBalanceWarehouses,
 } from '@/lib/api/balanceClient';
-import { getApiBaseUrl } from '@/lib/apiBaseUrl';
+import { getServerNestApiBaseUrl } from '@/lib/apiBaseUrl';
 import { fetchBalanceItemPricing } from '@/lib/api/balancePricing';
 import {
   aggregateExchangeStocksByItemUid,
@@ -29,7 +29,7 @@ import {
 } from '@/lib/api/balanceSync';
 import { NextRequest, NextResponse } from 'next/server';
 
-const API_BASE = getApiBaseUrl();
+const API_BASE = getServerNestApiBaseUrl();
 
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
