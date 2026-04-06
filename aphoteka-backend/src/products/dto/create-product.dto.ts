@@ -152,4 +152,26 @@ export class CreateProductDto {
   @IsString()
   @IsOptional()
   productNameBrand?: string;
+
+  @IsString()
+  @IsOptional()
+  activeIngredients?: string;
+
+  @IsString()
+  @IsOptional()
+  usage?: string;
+
+  @IsArray()
+  @IsOptional()
+  @IsString({ each: true })
+  sideEffects?: string[];
+
+  @IsArray()
+  @IsOptional()
+  @IsString({ each: true })
+  contraindications?: string[];
+
+  @IsString()
+  @IsOptional()
+  storageConditions?: string;
 }

@@ -1,34 +1,9 @@
-import Constants from 'expo-constants';
-import { Platform } from 'react-native';
-
 /**
- * იგივე Railway URL რაც admin: src/lib/apiBaseUrl.ts → RAILWAY_NEST_API_DEFAULT
- * Dev (__DEV__): ლოკალური Nest (იგივე პორტი რაც admin dev-ში — 3001, prefix /api).
- * Override: EXPO_PUBLIC_API_URL (.env) — ყოველთვის უპირატესია (მაგ. ტელეფონი სხვა IP-ზე).
+ * Default: ლოკალური Nest API.
+ * Dev (__DEV__): პირდაპირ localhost.
+ * Override: EXPO_PUBLIC_API_URL (.env) — ყოველთვის უპირატესია.
  */
-const RAILWAY_API_BASE =
-  'https://aphoteka-admin-panel-production.up.railway.app/api';
-
-const LOCAL_NEST_PORT = 3001;
-
-/** dev-ში API host (Expo Go-ზე ხშირად LAN IP მოდის hostUri-დან) */
-function getDevMachineHost(): string {
-  const hostUri = Constants.expoConfig?.hostUri;
-  const fromMetro = hostUri?.split(':')[0]?.trim();
-  if (
-    fromMetro &&
-    fromMetro !== '127.0.0.1' &&
-    fromMetro !== 'localhost'
-  ) {
-    return fromMetro;
-  }
-  return Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
-}
-
-function getLocalNestApiBase(): string {
-  const host = getDevMachineHost();
-  return `http://${host}:${LOCAL_NEST_PORT}/api`;
-}
+const LOCAL_API_BASE = 'http://localhost:3001/api';
 
 export function getApiBaseUrl(): string {
   const raw =
@@ -36,10 +11,10 @@ export function getApiBaseUrl(): string {
   if (raw) return raw.replace(/\/$/, '');
 
   if (typeof __DEV__ !== 'undefined' && __DEV__) {
-    return getLocalNestApiBase();
+    return LOCAL_API_BASE.replace(/\/$/, '');
   }
 
-  return RAILWAY_API_BASE.replace(/\/$/, '');
+  return LOCAL_API_BASE.replace(/\/$/, '');
 }
 
 export const API_CONFIG = {

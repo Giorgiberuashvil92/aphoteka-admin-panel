@@ -5,17 +5,59 @@ export type Product = Medicine;
 
 const USE_API = true;
 
+/** ადმინში დამალული Balance group-ის მსგავსი ჩანაწერების გამორიცხვა მობილურში */
+function isLikelyCategoryPlaceholder(p: any): boolean {
+  const hasStockBreakdown =
+    Array.isArray(p?.balanceStockBreakdown) && p.balanceStockBreakdown.length > 0;
+  const qty = Number(p?.quantity ?? 0);
+  const hasQty = Number.isFinite(qty) && qty > 0;
+
+  const hasDetails = Boolean(
+    p?.unitOfMeasure ||
+      p?.packSize ||
+      p?.dosageForm ||
+      p?.manufacturer ||
+      p?.productNameBrand ||
+      p?.activeIngredients ||
+      p?.countryOfOrigin
+  );
+
+  const price = Number(p?.price ?? 0);
+  const zeroPrice = Number.isFinite(price) && price === 0;
+
+  // Placeholder ჯგუფები ჩვეულებრივ მხოლოდ Code/Name-ით არიან
+  return !hasStockBreakdown && !hasQty && !hasDetails && zeroPrice;
+}
+
+function filterDisplayableProducts(rows: any[]): any[] {
+  return rows.filter((p) => !isLikelyCategoryPlaceholder(p));
+}
+
 function mapApiProductToMedicine(p: any): Product {
+  const sideEffects = Array.isArray(p.sideEffects)
+    ? p.sideEffects.filter((x: unknown): x is string => typeof x === 'string')
+    : [];
+  const contraindications = Array.isArray(p.contraindications)
+    ? p.contraindications.filter((x: unknown): x is string => typeof x === 'string')
+    : [];
   return {
     id: p.id,
     name: p.name,
+    genericName: typeof p.genericName === 'string' ? p.genericName.trim() : '',
+    strength: typeof p.strength === 'string' ? p.strength : '',
+    activeIngredients:
+      typeof p.activeIngredients === 'string' ? p.activeIngredients : '',
     nameGeo: p.name,
-    brand: p.manufacturer || p.genericName || '',
+    brand: p.manufacturer || p.productNameBrand || '',
     price: p.price ?? 0,
     thumbnail: p.imageUrl || 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=400',
     images: p.imageUrl ? [p.imageUrl] : [],
     description: p.description || '',
     descriptionGeo: p.description || '',
+    annotation: p.usage || '',
+    sideEffects,
+    contraindications,
+    storageConditions: p.storageConditions || '',
     category: p.category || '',
     dosageForm: p.dosageForm || '',
     packSize: p.packSize || undefined,
@@ -52,7 +94,9 @@ export class ProductServiceClass {
         const res = await fetch(url);
         if (!res.ok) return { data: [], total: 0 };
         const json = await res.json();
-        const data = (json.data || []).map(mapApiProductToMedicine);
+        const data = filterDisplayableProducts(json.data || []).map(
+          mapApiProductToMedicine
+        );
         return { data, total: json.total ?? data.length };
       } catch (e) {
         console.error('Error fetching products by category:', e);
@@ -86,7 +130,9 @@ export class ProductServiceClass {
       const res = await fetch(url);
       if (!res.ok) return { data: [], total: 0 };
       const json = await res.json();
-      const data = (json.data || []).map(mapApiProductToMedicine);
+      const data = filterDisplayableProducts(json.data || []).map(
+        mapApiProductToMedicine
+      );
       return { data, total: json.total ?? data.length };
     } catch (e) {
       console.error('Error fetching products:', e);
@@ -100,7 +146,9 @@ export class ProductServiceClass {
         const res = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.endpoints.products.list}?page=1&limit=${limit}`);
         if (!res.ok) return [];
         const json = await res.json();
-        return (json.data || []).map(mapApiProductToMedicine);
+        return filterDisplayableProducts(json.data || []).map(
+          mapApiProductToMedicine
+        );
       } catch (e) {
         console.error('Error fetching featured products:', e);
         return [];

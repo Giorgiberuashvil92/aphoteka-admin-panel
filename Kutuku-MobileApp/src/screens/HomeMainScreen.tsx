@@ -10,7 +10,6 @@ import { HeroSlider } from '@/src/components/common/HeroSlider';
 import { ProductsSlider } from '@/src/components/common/ProductsSlider';
 import { ProductCard } from '@/src/components/ui';
 import { useCart, useFavorites } from '@/src/contexts';
-import { MOCK_MEDICINES, type MockMedicine } from '@/src/data/mockMedicines';
 import { ProductService } from '@/src/services/product.service';
 import { PromotionService, mapPromotionToBrandSlide } from '@/src/services/promotion.service';
 import { FavoriteService } from '@/src/services/favorite.service';
@@ -20,6 +19,12 @@ import { theme } from '@/src/theme';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+/** კარტზე/სიაში: მხოლოდ genericName — ბრენდის/სრული name არ ჩანს */
+function productCardDisplayName(p: { genericName?: string }) {
+  const gen = (p.genericName ?? '').trim();
+  return { name: gen || '—', genericName: undefined };
+}
 
 type HomeMainScreenProps = {
   onSearch: () => void;
@@ -97,54 +102,25 @@ export function HomeMainScreen({ onSearch, onCategory, onProductPress, onNotific
     try {
       setLoading(true);
       const fromApi = await ProductService.getFeaturedProducts(8);
-      if (fromApi.length > 0) {
-        setProducts(fromApi.map((p) => ({
-          id: p.id,
-          title: p.name,
-          brand: p.manufacturer,
-          price: p.price,
-          oldPrice: undefined,
-          discountPercentage: undefined,
-          thumbnail: p.thumbnail,
-          rating: p.rating,
-          stock: p.stockQuantity,
-          description: p.description,
-          reviewCount: p.reviewCount,
-        })));
-      } else {
-        const medicines = MOCK_MEDICINES.slice(0, 8);
-        setProducts(medicines.map((med: MockMedicine) => ({
-          id: med.id,
-          title: med.name,
-          brand: med.manufacturer,
-          price: med.price,
-          oldPrice: med.oldPrice,
-          discountPercentage: med.discountPercentage,
-          thumbnail: med.imageUrl,
-          rating: med.rating,
-          stock: med.stockQuantity,
-          description: med.description,
-          reviewCount: med.reviewCount,
-        })));
-      }
+      setProducts(fromApi.map((p) => ({
+        id: p.id,
+        title: p.name,
+        genericName: p.genericName,
+        brand: p.manufacturer,
+        price: p.price,
+        oldPrice: undefined,
+        discountPercentage: undefined,
+        thumbnail: p.thumbnail,
+        rating: p.rating,
+        stock: p.stockQuantity,
+        description: p.description,
+        reviewCount: p.reviewCount,
+      })));
       const favorites = await FavoriteService.getFavorites();
       setFavoriteIds(new Set(favorites.map((fav) => fav.id)));
     } catch (error) {
       console.error('Error loading medicines:', error);
-      const medicines = MOCK_MEDICINES.slice(0, 8);
-      setProducts(medicines.map((med: MockMedicine) => ({
-        id: med.id,
-        title: med.name,
-        brand: med.manufacturer,
-        price: med.price,
-        oldPrice: med.oldPrice,
-        discountPercentage: med.discountPercentage,
-        thumbnail: med.imageUrl,
-        rating: med.rating,
-        stock: med.stockQuantity,
-        description: med.description,
-        reviewCount: med.reviewCount,
-      })));
+      setProducts([]);
     } finally {
       setLoading(false);
     }
@@ -274,26 +250,29 @@ export function HomeMainScreen({ onSearch, onCategory, onProductPress, onNotific
             </View>
           ) : (
             <View style={styles.productGrid}>
-              {products.map((product: any) => (
-                <View key={product.id} style={styles.productCardWrapper}>
-                  <ProductCard
-                    id={product.id.toString()}
-                    name={product.title}
-                    currentPrice={product.price}
-                    originalPrice={product.oldPrice || product.price * 1.2}
-                    discount={product.discountPercentage}
-                    image={product.thumbnail}
-                    rating={4.5}
-                    reviewCount={320}
-                    stock={product.stockQuantity || 10}
-                    description={product.description || product.descriptionGeo}
-                    onPress={() => onProductPress(product.id.toString())}
-                    onToggleWishlist={() => handleToggleFavorite(product, null)}
-                    isInWishlist={favoriteIds.has(product.id)}
-                    showQuickAdd={true}
-                  />
-                </View>
-              ))}
+              {products.map((product: any) => {
+                const { name } = productCardDisplayName(product);
+                return (
+                  <View key={product.id} style={styles.productCardWrapper}>
+                    <ProductCard
+                      id={product.id.toString()}
+                      name={name}
+                      currentPrice={product.price}
+                      originalPrice={product.oldPrice || product.price * 1.2}
+                      discount={product.discountPercentage}
+                      image={product.thumbnail}
+                      rating={4.5}
+                      reviewCount={320}
+                      stock={product.stock ?? 10}
+                      description={product.description || product.descriptionGeo}
+                      onPress={() => onProductPress(product.id.toString())}
+                      onToggleWishlist={() => handleToggleFavorite(product, null)}
+                      isInWishlist={favoriteIds.has(product.id)}
+                      showQuickAdd={true}
+                    />
+                  </View>
+                );
+              })}
             </View>
           )}
         </View>
@@ -304,6 +283,7 @@ export function HomeMainScreen({ onSearch, onCategory, onProductPress, onNotific
           products={products.slice(0, 6).map(p => ({
             id: p.id.toString(),
             name: p.title,
+            genericName: p.genericName,
             currentPrice: p.price,
             image: p.thumbnail,
             onAddToCart: () => {},
@@ -335,16 +315,19 @@ export function HomeMainScreen({ onSearch, onCategory, onProductPress, onNotific
         {/* You May Like Slider */}
         <ProductsSlider
           title="შეიძლება დაგაინტერესოს"
-          products={products.slice(0, 6).map(p => ({
-            id: p.id.toString(),
-            name: p.title,
-            currentPrice: p.price,
-            image: p.thumbnail,
-            onAddToCart: () => {},
-            onToggleWishlist: () => handleToggleFavorite(p, null),
-            isInWishlist: favoriteIds.has(p.id),
-            onPress: () => onProductPress(p.id.toString()),
-          }))}
+          products={products.slice(0, 6).map((p) => {
+            const { name } = productCardDisplayName(p);
+            return {
+              id: p.id.toString(),
+              name,
+              currentPrice: p.price,
+              image: p.thumbnail,
+              onAddToCart: () => {},
+              onToggleWishlist: () => handleToggleFavorite(p, null),
+              isInWishlist: favoriteIds.has(p.id),
+              onPress: () => onProductPress(p.id.toString()),
+            };
+          })}
           onProductPress={(product: any) => onProductPress(product.id)}
           onViewAllPress={onSeeAllPress}
         />

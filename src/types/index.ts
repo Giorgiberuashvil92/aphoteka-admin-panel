@@ -152,7 +152,13 @@ export interface Product {
   expiryDate?: Date | string; // ვარგისიანობის ვადა
   packagingType?: string; // შეფუთვის სახეობა
   productNameBrand?: string; // Product name (brand)
-  
+  /** აქტიური ნივთიერებები (ტექსტური სია) */
+  activeIngredients?: string;
+  usage?: string; // გამოყენება
+  sideEffects?: string[]; // გვერდითი მოვლენები
+  contraindications?: string[]; // უკუჩვენებები
+  storageConditions?: string; // შენახვის პირობები
+
   createdAt: Date;
   updatedAt: Date;
 }

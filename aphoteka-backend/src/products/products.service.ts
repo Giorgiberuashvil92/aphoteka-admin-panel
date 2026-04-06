@@ -100,7 +100,8 @@ export class ProductsService {
 
       return {
         ...productObj,
-        genericName: group?.genericName ?? productObj.genericName,
+        /** ადმინში პროდუქტზე ჩაწერილი genericName უპირატესია hierarchy-ზე */
+        genericName: productObj.genericName ?? group?.genericName,
         countryOfOrigin: variant?.countryOfOrigin ?? productObj.countryOfOrigin,
         manufacturer: variant?.manufacturer ?? productObj.manufacturer,
         strength: strength?.strength ?? productObj.strength,
@@ -157,7 +158,7 @@ export class ProductsService {
 
     return {
       ...productObj,
-      genericName: group?.genericName ?? productObj.genericName,
+      genericName: productObj.genericName ?? group?.genericName,
       countryOfOrigin: variant?.countryOfOrigin ?? productObj.countryOfOrigin,
       manufacturer: variant?.manufacturer ?? productObj.manufacturer,
       strength: strength?.strength ?? productObj.strength,
@@ -209,7 +210,7 @@ export class ProductsService {
 
     return {
       ...productObj,
-      genericName: group?.genericName || productObj.genericName,
+      genericName: productObj.genericName ?? group?.genericName,
       countryOfOrigin: variant?.countryOfOrigin || productObj.countryOfOrigin,
       manufacturer: variant?.manufacturer || productObj.manufacturer,
       strength: strength?.strength || productObj.strength,

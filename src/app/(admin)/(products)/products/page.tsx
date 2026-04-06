@@ -49,6 +49,7 @@ import {
   getBalancePrices,
   getBalanceItemPricing,
   getBalanceExchangeStocks,
+  getBalanceItemsSeries,
   itemPricingRowsForDbProducts,
   rowsFromBalanceStocks,
   rowsFromBalancePrices,
@@ -58,7 +59,35 @@ import {
 import ProductFormModal from "@/components/products/ProductFormModal";
 import AddToWarehouseModal from "@/components/inventory/AddToWarehouseModal";
 import { getAuthToken } from "@/lib/authToken";
-import { buildBalanceItemNameByUid, isBalanceGroupRow } from "@/lib/api/balanceSync";
+import {
+  buildBalanceItemNameByUid,
+  exchangeStockRowSeriesUid,
+  isBalanceGroupRow,
+  normalizeBalanceItemSeriesRows,
+  pickItemsSeriesLinesForExchangeStockRow,
+  summarizeItemsSeriesLinesForTable,
+  itemsSeriesNumbersForTable,
+  itemsSeriesValidUntilForTable,
+  uniqueExchangeStockNomenclatureItemUids,
+  nomenclatureUidForItemsSeriesFromBalanceItems,
+  buildTaxationByUuid,
+  getItemUuid,
+  vatRateRawFromBalanceItemRow,
+  productBalanceSerialDisplay,
+  productBalanceExpiryDisplay,
+  type BalanceItemSeriesLine,
+} from "@/lib/api/balanceSync";
+import { balanceUidForSku } from "@/lib/api/balancePricing";
+import { BALANCE_PUBLICATION_TARGET } from "@/lib/balancePublicationTarget";
+
+/**
+ * Balance ინტეგრაცია ამ გვერდზე: ბრაუზერი იძახის მხოლოდ `/api/balance/*` (არა პირდაპირ cloud.balance.ge).
+ * სერვერი `balanceClient`-ით აწყობს URL-ს `.../Balance/{ApplicationID}/hs/Exchange/...`;
+ * ნაგულისხმევი ApplicationID = `BALANCE_PUBLICATION_TARGET` (7596); env `BALANCE_PUBLICATION_ID` სერვერზე თუ დაყენებულია — იგი ჯობს.
+ * ItemsSeries: `?uid=` = ნომენკლატურის **Item** (არა Stocks **Series**).
+ */
+/** ერთ გვერდზე ItemsSeries მოთხოვნების ზედა ზღვარი (Balance სერვერი) */
+const MAX_EXCHANGE_ITEMS_SERIES_FETCH = 100;
 
 function ProductsPageContent() {
   const searchParams = useSearchParams();
@@ -99,6 +128,14 @@ function ProductsPageContent() {
   const [balanceExchangeQtyRaw, setBalanceExchangeQtyRaw] = useState<unknown>(null);
   const [balanceExchangeQtyLoading, setBalanceExchangeQtyLoading] = useState(true);
   const [balanceExchangeQtyError, setBalanceExchangeQtyError] = useState<string | null>(null);
+  /** Exchange/Stocks ნომენკლატურის `Item` → ItemsSeries პასუხის ხაზები (თითო Item ერთხელ იტვირთება) */
+  const [exchangeSeriesByUid, setExchangeSeriesByUid] = useState<
+    Record<
+      string,
+      { ok: true; lines: BalanceItemSeriesLine[] } | { ok: false; error: string }
+    >
+  >({});
+  const [exchangeSeriesLoading, setExchangeSeriesLoading] = useState(false);
   const [balanceStockDetailProduct, setBalanceStockDetailProduct] =
     useState<Product | null>(null);
 
@@ -197,6 +234,89 @@ function ProductsPageContent() {
       }
     })();
   }, []);
+
+  const exchangeSeriesPlan = useMemo(() => {
+    const all = uniqueExchangeStockNomenclatureItemUids(balanceExchangeQtyRows);
+    const truncated = Math.max(0, all.length - MAX_EXCHANGE_ITEMS_SERIES_FETCH);
+    const toFetch = all.slice(0, MAX_EXCHANGE_ITEMS_SERIES_FETCH);
+    const requestedSet = new Set(toFetch.map((u) => u.toLowerCase()));
+    const itemsSeriesUidByExchangeItem = new Map<string, string>();
+    for (const ex of all) {
+      const c = nomenclatureUidForItemsSeriesFromBalanceItems(
+        ex,
+        balanceStocksRows
+      );
+      itemsSeriesUidByExchangeItem.set(ex.toLowerCase(), c);
+    }
+    return {
+      all,
+      truncated,
+      toFetch,
+      requestedSet,
+      itemsSeriesUidByExchangeItem,
+    };
+  }, [balanceExchangeQtyRows, balanceStocksRows]);
+
+  /** თითოეული უნიკალური `Item` → GET items-series მხოლოდ `?uid=` (ნომენკლატურა) */
+  useEffect(() => {
+    if (balanceExchangeQtyLoading) return;
+
+    if (balanceExchangeQtyRows.length === 0) {
+      setExchangeSeriesByUid({});
+      setExchangeSeriesLoading(false);
+      return;
+    }
+
+    const { toFetch, itemsSeriesUidByExchangeItem } = exchangeSeriesPlan;
+    if (toFetch.length === 0) {
+      setExchangeSeriesByUid({});
+      setExchangeSeriesLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setExchangeSeriesLoading(true);
+    setExchangeSeriesByUid({});
+
+    (async () => {
+      const out: Record<
+        string,
+        { ok: true; lines: BalanceItemSeriesLine[] } | { ok: false; error: string }
+      > = {};
+      const concurrency = 4;
+      for (let i = 0; i < toFetch.length; i += concurrency) {
+        const chunk = toFetch.slice(i, i + concurrency);
+        await Promise.all(
+          chunk.map(async (uid) => {
+            try {
+              const balanceProductUid =
+                itemsSeriesUidByExchangeItem.get(uid.toLowerCase()) ?? uid;
+              const data = await getBalanceItemsSeries(balanceProductUid);
+              if (cancelled) return;
+              out[uid.toLowerCase()] = {
+                ok: true,
+                lines: normalizeBalanceItemSeriesRows(data),
+              };
+            } catch (e) {
+              if (cancelled) return;
+              out[uid.toLowerCase()] = {
+                ok: false,
+                error: e instanceof Error ? e.message : String(e),
+              };
+            }
+          })
+        );
+      }
+      if (!cancelled) {
+        setExchangeSeriesByUid(out);
+        setExchangeSeriesLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [balanceExchangeQtyLoading, balanceExchangeQtyRows, exchangeSeriesPlan]);
 
   useEffect(() => {
     if (!balanceStockDetailProduct) return;
@@ -314,17 +434,102 @@ function ProductsPageContent() {
     return itemPricingRowsForDbProducts(all, products, balanceStocksRows);
   }, [balanceItemPricingRaw, products, balanceStocksRows]);
 
-  /** Exchange/Stocks — Item UUID → სახელი Items ფიდიდან */
+  /** Exchange/Items — ნომენკლატურის `VATRate` როგორც მოდის (SKU → ტექსტი) */
+  const balanceVatRateBySku = useMemo(() => {
+    const byUid = new Map<string, string>();
+    for (const row of balanceStocksRows) {
+      if (isBalanceGroupRow(row)) continue;
+      const uid = getItemUuid(row);
+      if (!uid) continue;
+      const raw = vatRateRawFromBalanceItemRow(row);
+      if (raw != null) byUid.set(uid.toLowerCase(), raw);
+    }
+    const m = new Map<string, string>();
+    for (const p of products) {
+      const sku = p.sku?.trim();
+      if (!sku) continue;
+      const uid = balanceUidForSku(balanceStocksRows, sku);
+      if (!uid) continue;
+      const v = byUid.get(uid.toLowerCase());
+      if (v != null) m.set(sku, v);
+    }
+    return m;
+  }, [balanceStocksRows, products]);
+
+  /** Balance Prices + ItemPricing → SKU-ზე დაბეგვრა (ფოლბექი, თუ Items-ზე VATRate ცარიელია) */
+  const balanceTaxationBySku = useMemo(() => {
+    const byUuid = new Map<string, string>();
+    for (const [k, v] of buildTaxationByUuid(balancePricesRows)) byUuid.set(k, v);
+    for (const [k, v] of buildTaxationByUuid(balanceItemPricingRowsForProducts)) {
+      byUuid.set(k, v);
+    }
+    const m = new Map<string, string>();
+    for (const p of products) {
+      const sku = p.sku?.trim();
+      if (!sku) continue;
+      const uid = balanceUidForSku(balanceStocksRows, sku);
+      if (!uid) continue;
+      const t = byUuid.get(uid);
+      if (t) m.set(sku, t);
+    }
+    return m;
+  }, [balancePricesRows, balanceItemPricingRowsForProducts, products, balanceStocksRows]);
+
+  /** Exchange/Stocks — ItemName + ItemsSeries (ფილტრი Stocks `Series` ↔ ItemsSeries ჩანაწერის `uid`) */
   const balanceExchangeQtyDisplayRows = useMemo((): Record<string, unknown>[] => {
     const nameByUid = buildBalanceItemNameByUid(balanceStocksRows);
     return balanceExchangeQtyRows.map((row) => {
       const itemUid = String(row.Item ?? "").trim();
+      const itemKey = itemUid.toLowerCase();
+      const pack = itemKey ? exchangeSeriesByUid[itemKey] : undefined;
+      const stockSeriesUid = exchangeStockRowSeriesUid(row);
+
+      let itemsSeriesCell = "—";
+      let seriesNumberCell = "—";
+      let validUntilCell = "—";
+      if (pack?.ok) {
+        const picked = pickItemsSeriesLinesForExchangeStockRow(
+          pack.lines,
+          stockSeriesUid
+        );
+        itemsSeriesCell = summarizeItemsSeriesLinesForTable(picked);
+        seriesNumberCell = itemsSeriesNumbersForTable(picked);
+        validUntilCell = itemsSeriesValidUntilForTable(picked);
+      } else if (pack && !pack.ok) {
+        itemsSeriesCell = `⚠ ${pack.error}`;
+        seriesNumberCell = itemsSeriesCell;
+        validUntilCell = itemsSeriesCell;
+      } else if (itemUid && exchangeSeriesLoading) {
+        itemsSeriesCell = "…";
+        seriesNumberCell = "…";
+        validUntilCell = "…";
+      } else if (
+        itemUid &&
+        !exchangeSeriesLoading &&
+        !exchangeSeriesPlan.requestedSet.has(itemKey) &&
+        exchangeSeriesPlan.truncated > 0
+      ) {
+        itemsSeriesCell = "— (ლიმიტი)";
+        seriesNumberCell = itemsSeriesCell;
+        validUntilCell = itemsSeriesCell;
+      }
+
       return {
         ItemName: nameByUid.get(itemUid) ?? "—",
+        /** ItemsSeries API: `SeriesNumber` / `ValidUntil` (არ ერევა Exchange `Series` UUID-ს) */
+        ItemsSeriesNumber: seriesNumberCell,
+        ItemsSeriesValidUntil: validUntilCell,
+        ItemsSeries: itemsSeriesCell,
         ...row,
       } as Record<string, unknown>;
     });
-  }, [balanceExchangeQtyRows, balanceStocksRows]);
+  }, [
+    balanceExchangeQtyRows,
+    balanceStocksRows,
+    exchangeSeriesByUid,
+    exchangeSeriesLoading,
+    exchangeSeriesPlan,
+  ]);
 
   // Filter products by warehouse if warehouseId is provided
   const filteredProducts = useMemo(() => {
@@ -562,6 +767,14 @@ function ProductsPageContent() {
           </div>
         )}
         <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+          <span className="mr-1 rounded bg-gray-100 px-1 font-mono text-[11px] dark:bg-gray-900">
+            Balance/{BALANCE_PUBLICATION_TARGET}
+          </span>
+          — ყველა მოთხოვნა სერვერზე იგივე ApplicationID-ით (ნაგულისხმევი{" "}
+          <strong>{BALANCE_PUBLICATION_TARGET}</strong>
+          ); სრული URL ნახე API პასუხის <code className="text-[11px]">requestUrl</code> ან Network.
+        </p>
+        <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
           ზედა ცხრილი — <strong>Exchange/Items</strong> (ნომენკლატურა, კატეგორიები+საქონელი). ქვემოთ — ცალკე{" "}
           <strong>Exchange/Stocks</strong> რაოდენობები (Item, Warehouse, Quantity, Reserve).
         </p>
@@ -627,8 +840,21 @@ function ProductsPageContent() {
           <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
             დოკუმენტაციის query პარამეტრებით იტვირთება (შეუსაბამოდ — სტანდარტული uid). სახელი — Items-ის{" "}
             <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">uid</code> →{" "}
-            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">Item</code>.
+            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">Item</code>.             სვეტები{" "}
+            <strong>ItemsSeriesNumber</strong> / <strong>ItemsSeriesValidUntil</strong> — Balance ItemsSeries-ის{" "}
+            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">SeriesNumber</code> და{" "}
+            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">ValidUntil</code>;{" "}
+            <strong>ItemsSeries</strong> — მოკლე შეჯამება (№ · ვადა). მოთხოვნა იგზავნება{" "}
+            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">Item</code> (ნომენკლატურა) UUID-ით; ფილტრი{" "}
+            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">Series</code> → ItemsSeries ჩანაწერის{" "}
+            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">uid</code>.
           </p>
+          {exchangeSeriesPlan.truncated > 0 && (
+            <p className="mb-2 text-xs text-amber-700 dark:text-amber-400">
+              უნიკალური ნომენკლატურის Item-დან პირველი {MAX_EXCHANGE_ITEMS_SERIES_FETCH} იტვირთა; დანარჩენი{" "}
+              {exchangeSeriesPlan.truncated} ამ ჩართვაზე ItemsSeries-ით არ განახლდა (სვეტი „— (ლიმიტი)“).
+            </p>
+          )}
           {balanceExchangeQtyLoading && (
             <p className="text-sm text-gray-500 dark:text-gray-400">იტვირთება...</p>
           )}
@@ -875,6 +1101,9 @@ function ProductsPageContent() {
                   Product name (brand)
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                  აქტიური ნივთიერებები
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
                   Strength (e.g., 500 mg)
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
@@ -897,7 +1126,7 @@ function ProductsPageContent() {
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={22} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={23} className="px-6 py-8 text-center text-sm text-gray-500">
                     პროდუქტები არ მოიძებნა
                   </td>
                 </tr>
@@ -960,9 +1189,12 @@ function ProductsPageContent() {
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
                       {product.totalPrice ? `₾${product.totalPrice.toFixed(2)}` : `₾${product.price.toFixed(2)}`}
                     </td>
-                    {/* დაბეგვრა */}
+                    {/* დაბეგვრა — პირველ რიგში Balance Items `VATRate` როგორც მოდის */}
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.taxation || "-"}
+                      {balanceVatRateBySku.get(String(product.sku ?? "").trim()) ??
+                        product.taxation ??
+                        balanceTaxationBySku.get(String(product.sku ?? "").trim()) ??
+                        "—"}
                     </td>
                     {/* სტატუსი */}
                     <td className="px-4 py-3">
@@ -980,13 +1212,19 @@ function ProductsPageContent() {
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       {product.sku || "-"}
                     </td>
-                    {/* სერიის ნომერი */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.serialNumber || "-"}
+                    {/* სერიის ნომერი — № ან Balance Series ref (როცა ItemsSeries ცარიელია) */}
+                    <td
+                      className="max-w-40 truncate px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
+                      title={productBalanceSerialDisplay(product) || undefined}
+                    >
+                      {productBalanceSerialDisplay(product) || "—"}
                     </td>
                     {/* ვარგისიანობის ვადა */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.expiryDate ? new Date(product.expiryDate).toLocaleDateString('ka-GE') : "-"}
+                    <td
+                      className="max-w-40 truncate px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
+                      title={productBalanceExpiryDisplay(product) || undefined}
+                    >
+                      {productBalanceExpiryDisplay(product) || "—"}
                     </td>
                     {/* მწარმოებელი (ქვეყანა) */}
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
@@ -1004,6 +1242,12 @@ function ProductsPageContent() {
                     {/* Product name (brand) */}
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
                       {product.productNameBrand || product.name || "-"}
+                    </td>
+                    {/* აქტიური ნივთიერებები */}
+                    <td className="max-w-56 px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                      <span className="line-clamp-3" title={product.activeIngredients || undefined}>
+                        {product.activeIngredients || "-"}
+                      </span>
                     </td>
                     {/* Strength (e.g., 500 mg) */}
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">

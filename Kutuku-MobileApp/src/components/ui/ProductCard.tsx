@@ -21,6 +21,7 @@ function formatLari(value: number | string | undefined | null): string {
 export interface ProductCardProps {
   id: string;
   name: string;
+  genericName?: string;
   currentPrice?: number | string;
   originalPrice?: number | string;
   discount?: number;
@@ -40,6 +41,7 @@ export interface ProductCardProps {
 export function ProductCard({
   id,
   name,
+  genericName,
   currentPrice,
   originalPrice,
   discount,
@@ -173,6 +175,11 @@ export function ProductCard({
         <Text style={styles.productName} numberOfLines={2}>
           {name}
         </Text>
+        {genericName ? (
+          <Text style={styles.genericName} numberOfLines={1}>
+            {genericName}
+          </Text>
+        ) : null}
       </View>
 
       {/* Add to Cart Button */}
@@ -299,6 +306,12 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: theme.colors.text.primary,
     lineHeight: 22,
+  },
+  genericName: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: theme.colors.text.secondary,
+    lineHeight: 16,
   },
   addToCartButton: {
     width: '100%',

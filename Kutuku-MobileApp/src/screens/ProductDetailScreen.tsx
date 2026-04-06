@@ -1,7 +1,6 @@
 import { BottomNavigation } from '@/src/components/common/BottomNavigation';
 import { ProductsSlider } from '@/src/components/common/ProductsSlider';
 import { useCart, useFavorites } from '@/src/contexts';
-import { MOCK_MEDICINES, type MockMedicine } from '@/src/data/mockMedicines';
 import { ProductService } from '@/src/services/product.service';
 import type { Product } from '@/src/services/product.service';
 import { theme } from '@/src/theme';
@@ -11,7 +10,42 @@ import { ActivityIndicator, Dimensions, Image, SafeAreaView, ScrollView, StatusB
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const FORM_MAP: Record<string, MockMedicine['form']> = {
+type DisplayMedicineForm =
+  | 'აბი'
+  | 'კაფსულა'
+  | 'სიროფი'
+  | 'კრემი'
+  | 'წვეთები'
+  | 'ინექცია';
+
+type DisplayMedicine = {
+  id: string;
+  name: string;
+  genericName?: string;
+  category: string;
+  manufacturer: string;
+  price: number;
+  oldPrice?: number;
+  discountPercentage?: number;
+  description: string;
+  activeIngredient: string;
+  dosage: string;
+  form: DisplayMedicineForm;
+  packageSizes: string[];
+  prescriptionRequired: boolean;
+  stockQuantity: number;
+  imageUrl: string;
+  rating: number;
+  reviewCount: number;
+  usage: string;
+  sideEffects: string[];
+  contraindications: string[];
+  storageConditions: string;
+  expiryDate: string;
+  barcode: string;
+};
+
+const FORM_MAP: Record<string, DisplayMedicineForm> = {
   'აბი': 'აბი',
   'ტაბლეტი': 'აბი',
   'კაფსული': 'კაფსულა',
@@ -22,23 +56,26 @@ const FORM_MAP: Record<string, MockMedicine['form']> = {
   'ინექცია': 'ინექცია',
 };
 
-/** API-დან Product → MockMedicine (დეტალების გვერდის ფორმატი) */
-function mapApiProductToMockMedicine(p: Product): MockMedicine {
+/** API-დან Product → დეტალების ეკრანის ფორმატი */
+function mapApiProductToMockMedicine(p: Product): DisplayMedicine {
   const form = (p.dosageForm && FORM_MAP[p.dosageForm]) ? FORM_MAP[p.dosageForm] : 'აბი';
-  const packSize = (p as any).packSize;
+  const packSize = p.packSize;
   const packageSizes = packSize ? [packSize] : ['1 ცალი'];
+  const genericTrimmed = p.genericName?.trim() || '';
+  const activeFromApi =
+    p.activeIngredients?.trim() || p.strength?.trim() || '';
   return {
     id: p.id,
     name: p.name,
-    nameEn: p.name,
+    genericName: genericTrimmed || undefined,
     category: p.category || '',
     manufacturer: p.manufacturer || p.brand || '',
     price: p.price ?? 0,
     oldPrice: p.oldPrice,
     discountPercentage: p.discountPercentage,
     description: p.description || '',
-    activeIngredient: (p as any).strength || (p as any).genericName || '',
-    dosage: (p as any).strength || p.dosageForm || '',
+    activeIngredient: activeFromApi,
+    dosage: p.strength?.trim() || p.dosageForm || '',
     form,
     packageSizes,
     prescriptionRequired: p.prescriptionRequired ?? false,
@@ -47,9 +84,11 @@ function mapApiProductToMockMedicine(p: Product): MockMedicine {
     rating: p.rating ?? 4.5,
     reviewCount: p.reviewCount ?? 0,
     usage: (p as any).annotation || '',
-    sideEffects: [],
-    contraindications: [],
-    storageConditions: '',
+    sideEffects: Array.isArray((p as any).sideEffects) ? (p as any).sideEffects : [],
+    contraindications: Array.isArray((p as any).contraindications)
+      ? (p as any).contraindications
+      : [],
+    storageConditions: (p as any).storageConditions || '',
     expiryDate: '',
     barcode: (p as any).barcode || '',
   };
@@ -80,11 +119,11 @@ export function ProductDetailScreen({
 }: ProductDetailScreenProps) {
   const { addToCart, itemCount } = useCart();
   const { addToFavorites, removeFromFavorites, isFavorite, favoriteCount } = useFavorites();
-  const [product, setProduct] = useState<MockMedicine | null>(null);
+  const [product, setProduct] = useState<DisplayMedicine | null>(null);
   const [loading, setLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const [similarProducts, setSimilarProducts] = useState<MockMedicine[]>([]);
+  const [similarProducts, setSimilarProducts] = useState<DisplayMedicine[]>([]);
   const [selectedPackageSize, setSelectedPackageSize] = useState<string>('');
   const [selectedForm, setSelectedForm] = useState<string>('');
   const [expandedSections, setExpandedSections] = useState<{[key: string]: boolean}>({
@@ -115,16 +154,6 @@ export function ProductDetailScreen({
       console.error('Error loading product from API:', e);
     }
 
-    const foundProduct = MOCK_MEDICINES.find(med => med.id === productId);
-    if (foundProduct) {
-      setProduct(foundProduct);
-      setSelectedPackageSize(foundProduct.packageSizes[0]);
-      setSelectedForm(foundProduct.form);
-      const similar = MOCK_MEDICINES.filter(
-        med => med.category === foundProduct.category && med.id !== productId
-      ).slice(0, 5);
-      setSimilarProducts(similar);
-    }
     setLoading(false);
   }, [productId]);
 
@@ -214,6 +243,11 @@ export function ProductDetailScreen({
   const isInFavorites = isFavorite(product.id);
   const hasDiscount = product.discountPercentage && product.discountPercentage > 0;
 
+  const genericTitle = product.genericName?.trim() || '';
+  const detailHeadline = genericTitle || product.name;
+  const detailSubtitle =
+    genericTitle && product.name.trim() !== genericTitle ? product.name : null;
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={theme.colors.white} />
@@ -250,8 +284,8 @@ export function ProductDetailScreen({
 
         {/* Product Info */}
         <View style={styles.infoSection}>
-          <Text style={styles.productName}>{product.name}</Text>
-          <Text style={styles.productNameEn}>{product.nameEn}</Text>
+          <Text style={styles.productName}>{detailHeadline}</Text>
+          
           
           {/* Rating */}
           <View style={styles.ratingContainer}>
@@ -281,7 +315,9 @@ export function ProductDetailScreen({
               styles.stockText,
               { color: product.stockQuantity > 0 ? theme.colors.success : theme.colors.error }
             ]}>
-              {product.stockQuantity > 0 ? `მარაგშია (${product.stockQuantity})` : 'არ არის მარაგში'}
+              {product.stockQuantity > 0
+                ? 'მარაგშია · საშუალოდ ბევრი'
+                : 'არ არის მარაგში'}
             </Text>
           </View>
 
@@ -289,12 +325,6 @@ export function ProductDetailScreen({
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>მწარმოებელი:</Text>
             <Text style={styles.infoValue}>{product.manufacturer}</Text>
-          </View>
-
-          {/* Category */}
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>კატეგორია:</Text>
-            <Text style={styles.infoValue}>{product.category}</Text>
           </View>
 
           {/* Active Ingredient */}

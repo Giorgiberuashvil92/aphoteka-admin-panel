@@ -1,11 +1,14 @@
-import { balanceGetJson } from '@/lib/api/balanceClient';
+import {
+  balanceGetJson,
+  BALANCE_PUBLICATION_ID,
+} from '@/lib/api/balanceClient';
 import { getBalanceItems } from '@/lib/api/balanceSync';
 
 const BALANCE_EXCHANGE_UID = 'b067980d-7eb5-11ec-80d2-000c29409daa';
 
 export const BALANCE_PRICING_URL =
   process.env.BALANCE_PRICING_URL?.trim() ||
-  'https://cloud.balance.ge/sm/a/Balance/7596/hs/Exchange/ItemPricing';
+  `https://cloud.balance.ge/sm/a/Balance/${BALANCE_PUBLICATION_ID}/hs/Exchange/ItemPricing`;
 
 function itemPricingUrl(extra?: Record<string, string>): string {
   const u = new URL(BALANCE_PRICING_URL);

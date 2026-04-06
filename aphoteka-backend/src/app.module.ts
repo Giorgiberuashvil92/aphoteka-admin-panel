@@ -19,7 +19,7 @@ import { PrescriptionsModule } from './prescriptions/prescriptions.module';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
-      ignoreEnvFile: false, // Enable .env file reading
+      ignoreEnvFile: false,
     }),
     MongooseModule.forRoot(process.env.MONGODB_URI || DEFAULT_MONGODB_URI),
     ProductsModule,

@@ -1,5 +1,4 @@
 import { ProductCard } from '@/src/components/ui';
-import { type MockMedicine } from '@/src/data/mockMedicines';
 import { ProductService } from '@/src/services/product.service';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,9 +15,36 @@ type SearchResultsScreenProps = {
 
 type SortOption = 'ყველა' | 'ფასი: ზრდადობით' | 'ფასი: კლებადობით' | 'რეიტინგი' | 'სახელი';
 
+type DisplayMedicine = {
+  id: string;
+  name: string;
+  genericName?: string;
+  category: string;
+  manufacturer: string;
+  price: number;
+  oldPrice?: number;
+  discountPercentage?: number;
+  description: string;
+  activeIngredient: string;
+  dosage: string;
+  form: 'აბი' | 'კაფსულა' | 'სიროფი' | 'კრემი' | 'წვეთები' | 'ინექცია';
+  packageSizes: string[];
+  prescriptionRequired: boolean;
+  stockQuantity: number;
+  imageUrl: string;
+  rating: number;
+  reviewCount: number;
+  usage: string;
+  sideEffects: string[];
+  contraindications: string[];
+  storageConditions: string;
+  expiryDate: string;
+  barcode: string;
+};
+
 export function SearchResultsScreen({ searchQuery, initialCategory, onBack, onProductPress }: SearchResultsScreenProps) {
-  const [products, setProducts] = useState<MockMedicine[]>([]);
-  const [filteredProducts, setFilteredProducts] = useState<MockMedicine[]>([]);
+  const [products, setProducts] = useState<DisplayMedicine[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<DisplayMedicine[]>([]);
   const [loading, setLoading] = useState(true);
   const [showFilterModal, setShowFilterModal] = useState(false);
 
@@ -29,10 +55,10 @@ export function SearchResultsScreen({ searchQuery, initialCategory, onBack, onPr
   /** ფილტრის კატეგორიები API-დან */
   const [filterCategories, setFilterCategories] = useState<string[]>(['ყველა']);
 
-  const mapApiToDisplay = (p: import('@/src/services/product.service').Product): MockMedicine => ({
+  const mapApiToDisplay = (p: import('@/src/services/product.service').Product): DisplayMedicine => ({
     id: p.id,
     name: p.name,
-    nameEn: p.name,
+    genericName: p.genericName?.trim() || undefined,
     category: p.category || '',
     manufacturer: p.manufacturer || '',
     price: p.price ?? 0,
@@ -209,6 +235,7 @@ export function SearchResultsScreen({ searchQuery, initialCategory, onBack, onPr
               <ProductCard
                 id={item.id}
                 name={item.name}
+                genericName={item.genericName}
                 currentPrice={item.price}
                 originalPrice={item.oldPrice}
                 discount={item.discountPercentage}

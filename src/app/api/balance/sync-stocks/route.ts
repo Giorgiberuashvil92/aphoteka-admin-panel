@@ -7,11 +7,14 @@ import {
   fetchBalanceWarehouses,
 } from '@/lib/api/balanceClient';
 import { getApiBaseUrl } from '@/lib/apiBaseUrl';
+import { fetchBalanceItemPricing } from '@/lib/api/balancePricing';
 import {
   aggregateExchangeStocksByItemUid,
   buildBalanceWarehouseNameByUuid,
   buildPriceByUuid,
   buildSkuToBalanceItemUid,
+  buildTaxationByUuid,
+  earliestExpiryIsoFromSeriesLines,
   formatSerialSummaryForBalanceSeries,
   getBalanceItems,
   getBalancePricesRows,
@@ -58,9 +61,19 @@ export async function POST(request: NextRequest) {
     }
 
     const priceByUuid = buildPriceByUuid(pricesRows);
+    const taxationByUuid = buildTaxationByUuid(pricesRows);
+    try {
+      const itemPricingRaw = await fetchBalanceItemPricing();
+      const ipRows = getBalanceItems(itemPricingRaw);
+      for (const [uid, tax] of buildTaxationByUuid(ipRows)) {
+        taxationByUuid.set(uid, tax);
+      }
+    } catch {
+      /* ItemPricing ოფციონალური — VAT მხოლოდ Prices-იდან */
+    }
     const leafItems = items.filter((row) => !isBalanceGroupRow(row));
     const products = leafItems.map((item, i) =>
-      mapBalanceItemToProduct(item, i, items, priceByUuid)
+      mapBalanceItemToProduct(item, i, items, priceByUuid, taxationByUuid)
     );
     const withSku = products.filter((p) => p.sku);
 
@@ -86,10 +99,25 @@ export async function POST(request: NextRequest) {
     const seriesSettled = await Promise.allSettled(
       leafUuids.map((uid) => fetchBalanceItemsSeriesForItem(uid))
     );
+    const logSeries =
+      process.env.BALANCE_LOG_ITEMS_SERIES === '1' ||
+      process.env.NODE_ENV === 'development';
     leafUuids.forEach((uid, i) => {
       const r = seriesSettled[i];
       if (r.status === 'fulfilled') {
         seriesFetchOk.add(uid);
+        if (logSeries) {
+          try {
+            const raw = JSON.stringify(r.value, null, 2);
+            const max = 24_000;
+            console.log(
+              `[sync-stocks] ItemsSeries Balance JSON (ნომენკლატურის Item uid=${uid})\n`,
+              raw.length > max ? `${raw.slice(0, max)}… (${raw.length} chars)` : raw
+            );
+          } catch {
+            console.log('[sync-stocks] ItemsSeries raw', uid, r.value);
+          }
+        }
         seriesByItemUid.set(uid, normalizeBalanceItemSeriesRows(r.value));
       }
     });
@@ -156,6 +184,11 @@ export async function POST(request: NextRequest) {
                   ? formatSerialSummaryForBalanceSeries(mergedSeries) ??
                     product.serialNumber
                   : product.serialNumber,
+              expiryDate:
+                mergedSeries.length > 0
+                  ? earliestExpiryIsoFromSeriesLines(mergedSeries) ??
+                    product.expiryDate
+                  : product.expiryDate,
             }
           : {}),
         ...(agg

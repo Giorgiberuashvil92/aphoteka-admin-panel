@@ -215,6 +215,21 @@ export class Product {
 
   @Prop()
   productNameBrand?: string; // Product name (brand)
+
+  @Prop()
+  activeIngredients?: string; // აქტიური ნივთიერებები
+
+  @Prop()
+  usage?: string; // გამოყენება
+
+  @Prop({ type: [String], default: [] })
+  sideEffects?: string[]; // გვერდითი მოვლენები
+
+  @Prop({ type: [String], default: [] })
+  contraindications?: string[]; // უკუჩვენებები
+
+  @Prop()
+  storageConditions?: string; // შენახვის პირობები
 }
 
 export const ProductSchema = SchemaFactory.createForClass(Product);

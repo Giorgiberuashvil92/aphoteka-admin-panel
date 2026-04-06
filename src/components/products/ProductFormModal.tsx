@@ -26,14 +26,8 @@ export default function ProductFormModal({
     price: "",
     totalPrice: "",
     taxation: "",
-    invoiceNumber: "",
     active: true,
-    buyer: "",
-    seller: "",
-    activationDate: "",
-    transportStartDate: "",
-    certificateNumber: "",
-    documentNumber: "",
+    description: "",
     sku: "",
     serialNumber: "",
     expiryDate: "",
@@ -41,13 +35,16 @@ export default function ProductFormModal({
     countryOfOrigin: "",
     genericName: "",
     productNameBrand: "",
+    activeIngredients: "",
+    usage: "",
+    sideEffects: "",
+    contraindications: "",
+    storageConditions: "",
     strength: "",
     dosageForm: "",
     packSize: "",
-    barcode: "",
     packagingType: "",
     category: "",
-    description: "",
   };
 
   const [formData, setFormData] = useState(initialFormData);
@@ -79,14 +76,8 @@ export default function ProductFormModal({
         price: product.price?.toString() || "",
         totalPrice: product.totalPrice?.toString() || "",
         taxation: product.taxation || "",
-        invoiceNumber: product.invoiceNumber || "",
         active: product.active ?? true,
-        buyer: product.buyer || "",
-        seller: product.seller || "",
-        activationDate: formatDate(product.activationDate),
-        transportStartDate: formatDate(product.transportStartDate),
-        certificateNumber: product.certificateNumber || "",
-        documentNumber: product.documentNumber || "",
+        description: product.description || "",
         sku: product.sku || "",
         serialNumber: product.serialNumber || "",
         expiryDate: formatDate(product.expiryDate),
@@ -94,13 +85,20 @@ export default function ProductFormModal({
         countryOfOrigin: product.countryOfOrigin || "",
         genericName: product.genericName || "",
         productNameBrand: product.productNameBrand || "",
+        activeIngredients: product.activeIngredients || "",
+        usage: product.usage || "",
+        sideEffects: Array.isArray(product.sideEffects)
+          ? product.sideEffects.join(", ")
+          : "",
+        contraindications: Array.isArray(product.contraindications)
+          ? product.contraindications.join(", ")
+          : "",
+        storageConditions: product.storageConditions || "",
         strength: product.strength || "",
         dosageForm: product.dosageForm || "",
         packSize: product.packSize || "",
-        barcode: product.barcode || "",
         packagingType: product.packagingType || "",
         category: product.category || "",
-        description: product.description || "",
       });
     } else {
       setFormData({
@@ -111,14 +109,8 @@ export default function ProductFormModal({
         price: "",
         totalPrice: "",
         taxation: "",
-        invoiceNumber: "",
         active: true,
-        buyer: "",
-        seller: "",
-        activationDate: "",
-        transportStartDate: "",
-        certificateNumber: "",
-        documentNumber: "",
+        description: "",
         sku: "",
         serialNumber: "",
         expiryDate: "",
@@ -126,13 +118,16 @@ export default function ProductFormModal({
         countryOfOrigin: "",
         genericName: "",
         productNameBrand: "",
+        activeIngredients: "",
+        usage: "",
+        sideEffects: "",
+        contraindications: "",
+        storageConditions: "",
         strength: "",
         dosageForm: "",
         packSize: "",
-        barcode: "",
         packagingType: "",
         category: "",
-        description: "",
       });
     }
   }, [product]);
@@ -162,7 +157,6 @@ export default function ProductFormModal({
         category: formData.category || undefined,
         active: formData.active,
         sku: formData.sku || formData.productCode || `AUTO-${Date.now()}`,
-        barcode: formData.barcode || undefined,
         genericName: formData.genericName || undefined,
         strength: formData.strength || undefined,
         dosageForm: formData.dosageForm || undefined,
@@ -174,17 +168,25 @@ export default function ProductFormModal({
         quantity: formData.quantity ? parseFloat(formData.quantity) : undefined,
         totalPrice: formData.totalPrice ? parseFloat(formData.totalPrice) : undefined,
         taxation: formData.taxation || undefined,
-        invoiceNumber: formData.invoiceNumber || undefined,
-        buyer: formData.buyer || undefined,
-        seller: formData.seller || undefined,
-        activationDate: formData.activationDate || undefined,
-        transportStartDate: formData.transportStartDate || undefined,
-        certificateNumber: formData.certificateNumber || undefined,
-        documentNumber: formData.documentNumber || undefined,
         serialNumber: formData.serialNumber || undefined,
         expiryDate: formData.expiryDate || undefined,
         packagingType: formData.packagingType || undefined,
         productNameBrand: formData.productNameBrand || undefined,
+        activeIngredients: formData.activeIngredients || undefined,
+        usage: formData.usage || undefined,
+        sideEffects: formData.sideEffects
+          ? formData.sideEffects
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : undefined,
+        contraindications: formData.contraindications
+          ? formData.contraindications
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : undefined,
+        storageConditions: formData.storageConditions || undefined,
       };
 
       if (product && productId) {
@@ -327,7 +329,7 @@ export default function ProductFormModal({
               </div>
             </div>
 
-            {/* 7. დაბეგვრა & 8. ზედნადების ნომერი */}
+            {/* 7. დაბეგვრა */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -339,19 +341,6 @@ export default function ProductFormModal({
                   onChange={(e) => setFormData({ ...formData, taxation: e.target.value })}
                   className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   placeholder="დაბეგვრა"
-                />
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  ზედნადების ნომერი
-                </label>
-                <input
-                  type="text"
-                  value={formData.invoiceNumber}
-                  onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                  placeholder="ზედნადების ნომერი"
                 />
               </div>
             </div>
@@ -370,92 +359,7 @@ export default function ProductFormModal({
               </label>
             </div>
 
-            {/* 10. მყიდველი & 11. გამყიდველი */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  მყიდველი
-                </label>
-                <input
-                  type="text"
-                  value={formData.buyer}
-                  onChange={(e) => setFormData({ ...formData, buyer: e.target.value })}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                  placeholder="მყიდველი"
-                />
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  გამყიდველი
-                </label>
-                <input
-                  type="text"
-                  value={formData.seller}
-                  onChange={(e) => setFormData({ ...formData, seller: e.target.value })}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                  placeholder="გამყიდველი"
-                />
-              </div>
-            </div>
-
-            {/* 12. გააქტიურების თარიღი & 13. ტრანსპორტირების დაწყების თარიღი */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  გააქტიურების თარიღი
-                </label>
-                <input
-                  type="date"
-                  value={formData.activationDate}
-                  onChange={(e) => setFormData({ ...formData, activationDate: e.target.value })}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                />
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  ტრანსპორტირების დაწყების თარიღი
-                </label>
-                <input
-                  type="date"
-                  value={formData.transportStartDate}
-                  onChange={(e) => setFormData({ ...formData, transportStartDate: e.target.value })}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                />
-              </div>
-            </div>
-
-            {/* 14. ფირნიშის ან ცნობის ნომერი & 15. დოკუმენტის N */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  ფირნიშის ან ცნობის ნომერი
-                </label>
-                <input
-                  type="text"
-                  value={formData.certificateNumber}
-                  onChange={(e) => setFormData({ ...formData, certificateNumber: e.target.value })}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                  placeholder="ფირნიშის ნომერი"
-                />
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  დოკუმენტის N
-                </label>
-                <input
-                  type="text"
-                  value={formData.documentNumber}
-                  onChange={(e) => setFormData({ ...formData, documentNumber: e.target.value })}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                  placeholder="დოკუმენტის ნომერი"
-                />
-              </div>
-            </div>
-
-            {/* 16. SKU / internal product code & 17. სერიის ნომერი */}
+            {/* 10. SKU / internal product code & 11. სერიის ნომერი */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -484,7 +388,7 @@ export default function ProductFormModal({
               </div>
             </div>
 
-            {/* 18. ვარგისიანობის ვადა & 19. მწარმოებელი */}
+            {/* 12. ვარგისიანობის ვადა & 13. მწარმოებელი */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -512,7 +416,7 @@ export default function ProductFormModal({
               </div>
             </div>
 
-            {/* 20. ქვეყანა & 21. Generic name */}
+            {/* 14. ქვეყანა & 15. Generic name */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -541,8 +445,8 @@ export default function ProductFormModal({
               </div>
             </div>
 
-            {/* 22. Product name (brand) & 23. Strength */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {/* Product name (brand) · აქტიური ნივთიერებები · Strength */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Product name (brand)
@@ -553,6 +457,21 @@ export default function ProductFormModal({
                   onChange={(e) => setFormData({ ...formData, productNameBrand: e.target.value })}
                   className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   placeholder="Product name (brand)"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  აქტიური ნივთიერებები
+                </label>
+                <textarea
+                  rows={2}
+                  value={formData.activeIngredients}
+                  onChange={(e) =>
+                    setFormData({ ...formData, activeIngredients: e.target.value })
+                  }
+                  className="w-full resize-y rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  placeholder="მაგ: პარაცეტამოლი, ასკორბინის მჟავა"
                 />
               </div>
 
@@ -570,7 +489,7 @@ export default function ProductFormModal({
               </div>
             </div>
 
-            {/* 24. Dosage form & 25. Pack size */}
+            {/* 16. Dosage form & 17. Pack size */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -609,21 +528,8 @@ export default function ProductFormModal({
               </div>
             </div>
 
-            {/* 26. Barcode & 27. შეფუთვის სახეობა */}
+            {/* 18. შეფუთვის სახეობა */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Barcode (GTIN, if available)
-                </label>
-                <input
-                  type="text"
-                  value={formData.barcode}
-                  onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                  placeholder="Barcode"
-                />
-              </div>
-
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                   შეფუთვის სახეობა
@@ -638,41 +544,81 @@ export default function ProductFormModal({
               </div>
             </div>
 
-            {/* 28. კატეგორია (ადმინში შექმნილი კატეგორიებიდან) */}
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                კატეგორია
-              </label>
-              <select
-                value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">— არ არის არჩეული —</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.name}>
-                    {c.name} ({c.productCount} პროდუქტი)
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-gray-500">
-                კატეგორიების დამატება/რედაქტირება: კატეგორიები მენიუ
-              </p>
+            {/* აღწერა და ინსტრუქციები */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  აღწერა
+                </label>
+                <textarea
+                  rows={3}
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  className="w-full resize-y rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  placeholder="პროდუქტის აღწერა"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  გამოყენება
+                </label>
+                <textarea
+                  rows={3}
+                  value={formData.usage}
+                  onChange={(e) => setFormData({ ...formData, usage: e.target.value })}
+                  className="w-full resize-y rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  placeholder="გამოყენების ინსტრუქცია"
+                />
+              </div>
             </div>
 
-            {/* აღწერა (დამატებითი) */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  გვერდითი მოვლენები (მძიმით გამოყავი)
+                </label>
+                <textarea
+                  rows={2}
+                  value={formData.sideEffects}
+                  onChange={(e) => setFormData({ ...formData, sideEffects: e.target.value })}
+                  className="w-full resize-y rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  placeholder="მაგ: გულისრევა, თავბრუსხვევა"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  უკუჩვენებები (მძიმით გამოყავი)
+                </label>
+                <textarea
+                  rows={2}
+                  value={formData.contraindications}
+                  onChange={(e) =>
+                    setFormData({ ...formData, contraindications: e.target.value })
+                  }
+                  className="w-full resize-y rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  placeholder="მაგ: ორსულობა, ალერგია აქტიურ ნივთიერებაზე"
+                />
+              </div>
+            </div>
+
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                აღწერა
+                შენახვის პირობები
               </label>
               <textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 rows={2}
-                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                placeholder="პროდუქტის აღწერა"
+                value={formData.storageConditions}
+                onChange={(e) =>
+                  setFormData({ ...formData, storageConditions: e.target.value })
+                }
+                className="w-full resize-y rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                placeholder="მაგ: შეინახეთ 25°C-ზე დაბალ ტემპერატურაზე"
               />
             </div>
+
+            {/* 19. კატეგორია (ადმინში შექმნილი კატეგორიებიდან) */}
+           
+
           </div>
 
           {/* Footer Buttons */}

@@ -31,6 +31,17 @@ export function getBalanceItems(data: unknown): Record<string, unknown>[] {
         if (nested.length > 0) return nested;
       }
     }
+    /** ერთი ItemsSeries ჩანაწერი ობიექტად (არა მასივი) */
+    const u = getStr(o, 'uid', 'UID', 'UUID', 'Uuid');
+    if (
+      u &&
+      (o.Item != null ||
+        o.SeriesNumber != null ||
+        o.ValidUntil != null ||
+        (typeof o.Name === 'string' && o.Name.length > 0))
+    ) {
+      return [o];
+    }
   }
   return [];
 }
@@ -79,6 +90,71 @@ export function buildPriceByUuid(pricesRows: Record<string, unknown>[]): Map<str
     if (!uuid) continue;
     const price = getNum(row, 'Price', 'price', 'Value', 'Cost', 'UnitPrice');
     map.set(uuid, price);
+  }
+  return map;
+}
+
+/**
+ * ნომენკლატურის (Items) ხაზიდან `VATRate` — როგორც Balance აბრუნებს (არ ვაფორმატებთ % / ტექსტს).
+ */
+export function vatRateRawFromBalanceItemRow(
+  row: Record<string, unknown>
+): string | undefined {
+  for (const k of ['VATRate', 'vatRate', 'VatRate'] as const) {
+    const v = row[k];
+    if (v === null || v === undefined || v === '') continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return undefined;
+}
+
+/**
+ * Balance Prices / ItemPricing / Items ხაზიდან დაბეგვრის ტექსტი (`VATRate` და ტოლფასი ველები).
+ */
+export function taxationDisplayFromBalanceRow(
+  row: Record<string, unknown>
+): string | undefined {
+  const str = getStr(
+    row,
+    'VATRate',
+    'vatRate',
+    'VatRate',
+    'TaxRate',
+    'taxRate',
+    'Taxation',
+    'taxation',
+    'VAT',
+    'vat',
+    'დაბეგვრა'
+  );
+  if (str) return str;
+  for (const k of [
+    'VATRate',
+    'vatRate',
+    'VatRate',
+    'TaxRate',
+    'Percent',
+    'percent',
+  ] as const) {
+    const v = row[k];
+    if (v === null || v === undefined || v === '') continue;
+    const n = Number(v);
+    if (Number.isNaN(n) || n === 0) continue;
+    if (n > 0 && n <= 1) return `${Math.round(n * 100)}%`;
+    return `${n}%`;
+  }
+  return undefined;
+}
+
+/** ნომენკლატურის `uid` → დაბეგვრა (უკანასკნელი არაცარიელი ხაზი იგებს, როგორც `buildPriceByUuid`) */
+export function buildTaxationByUuid(rows: Record<string, unknown>[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    const uuid = getItemUuid(row);
+    if (!uuid) continue;
+    const t = taxationDisplayFromBalanceRow(row);
+    if (t) map.set(uuid, t);
   }
   return map;
 }
@@ -164,7 +240,8 @@ export function mapBalanceItemToProduct(
   item: Record<string, unknown>,
   index: number,
   allItems: Record<string, unknown>[],
-  priceByUuid?: Map<string, number>
+  priceByUuid?: Map<string, number>,
+  taxationByUuid?: Map<string, string>
 ): Partial<Product> {
   const sku =
     getStr(item, 'Code', 'SKU', 'ProductCode', 'sku', 'code', 'Article') ||
@@ -198,7 +275,11 @@ export function mapBalanceItemToProduct(
     countryOfOrigin: getStr(item, 'CountryOfOrigin', 'countryOfOrigin') || undefined,
     category: resolveBalanceCategoryForItem(item, allItems) || undefined,
     packagingType: getStr(item, 'PackagingType', 'packagingType') || undefined,
-    taxation: getStr(item, 'Taxation', 'taxation') || undefined,
+    taxation:
+      vatRateRawFromBalanceItemRow(item) ??
+      (taxationByUuid && uuid ? taxationByUuid.get(uuid) : undefined) ??
+      taxationDisplayFromBalanceRow(item) ??
+      (getStr(item, 'Taxation', 'taxation') || undefined),
     invoiceNumber: getStr(item, 'InvoiceNumber', 'invoiceNumber') || undefined,
     serialNumber: getStr(item, 'SerialNumber', 'serialNumber') || undefined,
     documentNumber: getStr(item, 'DocumentNumber', 'documentNumber') || undefined,
@@ -295,8 +376,110 @@ export function aggregateExchangeStocksByItemUid(
   return map;
 }
 
+const BALANCE_STOCK_SERIES_GUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Exchange/Stocks ხაზის სერიის ref (`Series` ველი) — ItemsSeries პასუხის ჩანაწერის `uid`-ს უნდა ემთხვეოდეს.
+ * ItemsSeries GET `?uid=` არის ნომენკლატურის ref (`Item`), არა ეს UUID.
+ */
+export function exchangeStockRowSeriesUid(
+  row: Record<string, unknown>
+): string | undefined {
+  const raw = String(
+    row.Series ?? row.series ?? row.SeriesUUID ?? row.SeriesRef ?? ""
+  ).trim();
+  if (!raw || raw === NULL_GROUP_UID) return undefined;
+  if (!BALANCE_STOCK_SERIES_GUID_RE.test(raw)) return undefined;
+  return raw;
+}
+
+/** Exchange/Stocks `Item` — ნომენკლატურა; ItemsSeries იძახება სწორედ ამით (`?uid=Item`) */
+export function exchangeStockRowNomenclatureItemUid(
+  row: Record<string, unknown>
+): string | undefined {
+  const raw = String(row.Item ?? row.item ?? "").trim();
+  if (!raw || raw === NULL_GROUP_UID) return undefined;
+  if (!BALANCE_STOCK_SERIES_GUID_RE.test(raw)) return undefined;
+  return raw;
+}
+
+/** უნიკალური სერიის uid-ები (პირველი გამოჩენის რეგისტრი) — max შეზღუდვა ოფციონალური */
+export function uniqueExchangeStockSeriesUids(
+  rows: Record<string, unknown>[],
+  max?: number
+): string[] {
+  const canon = new Map<string, string>();
+  for (const row of rows) {
+    const u = exchangeStockRowSeriesUid(row);
+    if (!u) continue;
+    const k = u.toLowerCase();
+    if (!canon.has(k)) canon.set(k, u);
+  }
+  const all = [...canon.values()];
+  if (max != null && max > 0 && all.length > max) return all.slice(0, max);
+  return all;
+}
+
+/** უნიკალური ნომენკლატურის Item — ItemsSeries ჩატვირთვისთვის */
+export function uniqueExchangeStockNomenclatureItemUids(
+  rows: Record<string, unknown>[],
+  max?: number
+): string[] {
+  const canon = new Map<string, string>();
+  for (const row of rows) {
+    const u = exchangeStockRowNomenclatureItemUid(row);
+    if (!u) continue;
+    const k = u.toLowerCase();
+    if (!canon.has(k)) canon.set(k, u);
+  }
+  const all = [...canon.values()];
+  if (max != null && max > 0 && all.length > max) return all.slice(0, max);
+  return all;
+}
+
+/**
+ * Exchange/Stocks `Item` (ან სხვა იგივე ref) → Balance **Exchange/Items** ფიდის leaf ხაზის `uid`
+ * (Balance-ის კატალოგიდან დაბრუნებული პროდუქტის UUID — ItemsSeries `?uid=` სწორედ ეს უნდა იყოს).
+ */
+export function nomenclatureUidForItemsSeriesFromBalanceItems(
+  exchangeOrRawItemUid: string,
+  balanceItemsRows: Record<string, unknown>[]
+): string {
+  const raw = exchangeOrRawItemUid.trim();
+  if (!raw) return raw;
+  const t = raw.toLowerCase();
+  for (const row of balanceItemsRows) {
+    if (isBalanceGroupRow(row)) continue;
+    const u = getItemUuid(row);
+    if (u && u.toLowerCase() === t) return u.trim();
+  }
+  return raw;
+}
+
+/**
+ * თითო ნომენკლატურის `Item` → პირველი არაცარიელი `Series` იმავე Exchange/Stocks ფიდიდან
+ * (საჭიროებისამებრ `seriesUuid` მხოლოდ მაშინ, როცა `uid` არაა — პასუხის `balanceQueryUid` = ნომენკლატურის `uid`).
+ */
+export function mapFirstStockSeriesUidByNomenclatureItem(
+  rows: Record<string, unknown>[]
+): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const row of rows) {
+    const iu = exchangeStockRowNomenclatureItemUid(row);
+    if (!iu) continue;
+    const k = iu.toLowerCase();
+    if (m.has(k)) continue;
+    const s = exchangeStockRowSeriesUid(row);
+    if (s) m.set(k, s);
+  }
+  return m;
+}
+
 export type BalanceItemSeriesLine = {
   seriesNumber?: string;
+  /** დასაკავშირებლად Stocks `Series`-თან — ჩვეულებრივ ItemsSeries ჩანაწერის `uid` */
+  seriesRowUid?: string;
   seriesUuid?: string;
   quantity?: number;
   expiryDate?: string;
@@ -334,14 +517,19 @@ function tryParseItemsSeriesDisplayName(name: string): {
   return { seriesNumber: left, expiryDate };
 }
 
-function balanceSeriesUuidKey(u: string | undefined | null): string | undefined {
-  if (!u || typeof u !== 'string') return undefined;
+export function balanceSeriesUuidKey(
+  u: string | undefined | null
+): string | undefined {
+  if (!u || typeof u !== "string") return undefined;
   const t = u.trim().toLowerCase();
   if (!t || t === NULL_GROUP_UID) return undefined;
   return t;
 }
 
-/** ItemsSeries (Balance): `SeriesNumber`, `ValidUntil`, `Item` (სერიის ref), ზოგადი `uid` = ნომენკლატურა */
+/**
+ * ItemsSeries ჩანაწერი: `uid` — სერიის კატალოგის ref (ხშირად Exchange/Stocks `Series`-თან ერთი);
+ * `Item` — ნომენკლატურა. GET ItemsSeries იძახება `Item`-ით.
+ */
 export function normalizeBalanceItemSeriesRows(data: unknown): BalanceItemSeriesLine[] {
   const rows = getBalanceItems(data);
   const out: BalanceItemSeriesLine[] = [];
@@ -360,17 +548,25 @@ export function normalizeBalanceItemSeriesRows(data: unknown): BalanceItemSeries
         ? tryParseItemsSeriesDisplayName(nameField)
         : {};
     if (!sn && fromName.seriesNumber) sn = fromName.seriesNumber;
-    const su = getStr(
+    const catalogSeriesUidRaw = getStr(row, 'uid', 'UID', 'UUID', 'Uuid');
+    const seriesRowUid =
+      catalogSeriesUidRaw && catalogSeriesUidRaw !== NULL_GROUP_UID
+        ? catalogSeriesUidRaw
+        : undefined;
+    const suFallback = getStr(
       row,
       'SeriesRef',
       'SeriesUUID',
-      'Item',
-      'item',
       'Series',
       'Ref',
-      'UUID'
+      'UUID',
+      'Item',
+      'item'
     );
-    const suClean = su && su !== NULL_GROUP_UID ? su : undefined;
+    const suClean =
+      (seriesRowUid ||
+        (suFallback && suFallback !== NULL_GROUP_UID ? suFallback : undefined)) ??
+      undefined;
     const qRaw = Number(row.Quantity ?? row.Qty ?? row.Amount);
     const qty = Number.isFinite(qRaw) ? qRaw : undefined;
     const wh = getStr(row, 'Warehouse', 'warehouse');
@@ -391,6 +587,7 @@ export function normalizeBalanceItemSeriesRows(data: unknown): BalanceItemSeries
     out.push({
       seriesNumber: sn || undefined,
       seriesUuid: suClean,
+      seriesRowUid,
       quantity: qty,
       expiryDate,
       warehouseUuid: wh || undefined,
@@ -399,21 +596,165 @@ export function normalizeBalanceItemSeriesRows(data: unknown): BalanceItemSeries
   return out;
 }
 
-export function formatSerialSummaryForBalanceSeries(
+/** Stocks `Series` → ItemsSeries ხაზებიდან შესაბამისი (თუ ცარიელია stockSeries — ყველა ხაზი) */
+export function pickItemsSeriesLinesForExchangeStockRow(
+  allLines: BalanceItemSeriesLine[],
+  stockSeriesUid: string | undefined
+): BalanceItemSeriesLine[] {
+  if (!stockSeriesUid?.trim()) return allLines;
+  const ks = balanceSeriesUuidKey(stockSeriesUid);
+  if (!ks) return allLines;
+  const matched = allLines.filter((l) => {
+    return (
+      balanceSeriesUuidKey(l.seriesRowUid) === ks ||
+      balanceSeriesUuidKey(l.seriesUuid) === ks
+    );
+  });
+  return matched.length > 0 ? matched : [];
+}
+
+/** ადმინის ცხრილის ერთი უჯრისთვის — № + ვადა */
+export function summarizeItemsSeriesLinesForTable(
   lines: BalanceItemSeriesLine[]
-): string | undefined {
-  const nums = [
-    ...new Set(lines.map((l) => l.seriesNumber).filter(Boolean) as string[]),
+): string {
+  if (lines.length === 0) return "—";
+  const parts = lines
+    .map((l) => {
+      const n = l.seriesNumber?.trim();
+      const d = l.expiryDate?.trim();
+      if (n && d) return `${n} · ${d}`;
+      return n || d || "";
+    })
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join("; ") : "—";
+}
+
+/** ცალკე სვეტი: Balance ItemsSeries `SeriesNumber` */
+export function itemsSeriesNumbersForTable(lines: BalanceItemSeriesLine[]): string {
+  if (lines.length === 0) return "—";
+  const parts = [
+    ...new Set(lines.map((l) => l.seriesNumber?.trim()).filter(Boolean) as string[]),
   ];
-  if (nums.length === 0) return undefined;
-  if (nums.length <= 3) return nums.join(', ');
-  return `${nums.slice(0, 3).join(', ')} +${nums.length - 3}`;
+  return parts.length > 0 ? parts.join("; ") : "—";
+}
+
+/** ცალკე სვეტი: Balance ItemsSeries `ValidUntil` → `expiryDate` */
+export function itemsSeriesValidUntilForTable(lines: BalanceItemSeriesLine[]): string {
+  if (lines.length === 0) return "—";
+  const parts = [
+    ...new Set(lines.map((l) => l.expiryDate?.trim()).filter(Boolean) as string[]),
+  ];
+  return parts.length > 0 ? parts.join("; ") : "—";
+}
+
+/** საჩვენებლად, როცა სერიული № არაა — Balance `Series` ref (ItemsSeries `uid`) */
+function shortSeriesRefForDisplay(uuid: string): string {
+  const t = uuid.trim();
+  if (t.length <= 13) return t;
+  return `${t.slice(0, 8)}…${t.slice(-4)}`;
 }
 
 /**
- * ItemsSeries (სერიის №, ვადა) + Exchange/Stocks ხაზები (`seriesUuid` = ItemsSeries `Item`).
+ * სერიის სვეტის ტექსტი: ჯერ `SeriesNumber`, თუ არა — მოკლე `Series` UUID (როცა ItemsSeries ცარიელია).
+ */
+export function formatSerialSummaryForBalanceSeries(
+  lines: BalanceItemSeriesLine[]
+): string | undefined {
+  const labels = lines
+    .map((l) => {
+      const n = l.seriesNumber?.trim();
+      if (n) return n;
+      const u = l.seriesUuid?.trim();
+      if (u && u !== NULL_GROUP_UID) return shortSeriesRefForDisplay(u);
+      return '';
+    })
+    .filter(Boolean);
+  const parts = [...new Set(labels)];
+  if (parts.length === 0) return undefined;
+  if (parts.length <= 3) return parts.join(', ');
+  return `${parts.slice(0, 3).join(', ')} +${parts.length - 3}`;
+}
+
+/** სინქი/PATCH: უადრესი ვადა ISO-ით */
+export function earliestExpiryIsoFromSeriesLines(
+  lines: BalanceItemSeriesLine[]
+): string | undefined {
+  const dates = lines.map((l) => l.expiryDate?.trim()).filter(Boolean) as string[];
+  if (dates.length === 0) return undefined;
+  let best: string | undefined;
+  let bestT = Infinity;
+  for (const iso of dates) {
+    const t = new Date(iso).getTime();
+    if (!Number.isNaN(t) && t < bestT) {
+      bestT = t;
+      best = iso;
+    }
+  }
+  return best ?? dates[0];
+}
+
+function syntheticSeriesLinesFromBreakdown(
+  breakdown?: Array<{ seriesUuid?: string }>
+): BalanceItemSeriesLine[] {
+  if (!breakdown?.length) return [];
+  const uuids = [
+    ...new Set(
+      breakdown
+        .map((l) => l.seriesUuid?.trim())
+        .filter((u): u is string => Boolean(u && u !== NULL_GROUP_UID))
+    ),
+  ];
+  return uuids.map((seriesUuid) => ({ seriesUuid }));
+}
+
+/**
+ * ცხრილი: სერიის ნომერი — DB `serialNumber` ან Balance `Series` ref (Stocks ხაზიდან / merge).
+ */
+export function productBalanceSerialDisplay(product: {
+  serialNumber?: string | null;
+  balanceItemSeries?: BalanceItemSeriesLine[];
+  balanceStockBreakdown?: Array<{ seriesUuid?: string }>;
+}): string {
+  const direct = product.serialNumber?.trim();
+  if (direct) return direct;
+  const lines =
+    product.balanceItemSeries && product.balanceItemSeries.length > 0
+      ? product.balanceItemSeries
+      : syntheticSeriesLinesFromBreakdown(product.balanceStockBreakdown);
+  return formatSerialSummaryForBalanceSeries(lines)?.trim() ?? '';
+}
+
+/**
+ * ცხრილი: ვადა — DB `expiryDate` ან ItemsSeries-იდან გაერთიანებული თარიღები.
+ */
+export function productBalanceExpiryDisplay(product: {
+  expiryDate?: Date | string | null;
+  balanceItemSeries?: BalanceItemSeriesLine[];
+}): string {
+  if (product.expiryDate != null && String(product.expiryDate).trim() !== '') {
+    const d =
+      product.expiryDate instanceof Date
+        ? product.expiryDate
+        : new Date(String(product.expiryDate));
+    if (!Number.isNaN(d.getTime())) return d.toLocaleDateString('ka-GE');
+  }
+  const lines = product.balanceItemSeries ?? [];
+  const dates = [
+    ...new Set(lines.map((l) => l.expiryDate?.trim()).filter(Boolean) as string[]),
+  ];
+  if (dates.length === 0) return '';
+  const formatted = dates.map((iso) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('ka-GE');
+  });
+  if (formatted.length <= 2) return formatted.join('; ');
+  return `${formatted.slice(0, 2).join('; ')} +${formatted.length - 2}`;
+}
+
+/**
+ * ItemsSeries (სერიის №, ვადა) + Exchange/Stocks ხაზები.
+ * `stockLines[].seriesUuid` = Stocks ხაზის `Series` (ემთხვევა ItemsSeries პასუხის ჩანაწერის `uid`-ს), არა ნომენკლატურის `Item`.
  * თუ API ცარიელია, მაინც ივსება საწყობის ხაზებიდან (მინიმუმ uuid + რაოდენობა + საწყობო).
- * ერთი ItemsSeries ჩანაწერი + ერთი სერია საწყობში → №/ვადა ივსება ზუსტი `Item` თუ არ ემთხვევა.
  */
 export function mergeBalanceItemSeriesFromStocks(
   itemsSeriesLines: BalanceItemSeriesLine[],
@@ -424,8 +765,10 @@ export function mergeBalanceItemSeriesFromStocks(
   );
   const metaBySeriesRef = new Map<string, BalanceItemSeriesLine>();
   for (const line of itemsSeriesLines) {
-    const key = balanceSeriesUuidKey(line.seriesUuid);
-    if (key) metaBySeriesRef.set(key, line);
+    const kRow = balanceSeriesUuidKey(line.seriesRowUid);
+    const kSu = balanceSeriesUuidKey(line.seriesUuid);
+    if (kRow) metaBySeriesRef.set(kRow, line);
+    if (kSu && kSu !== kRow) metaBySeriesRef.set(kSu, line);
   }
 
   const distinctStockSeries = new Set(
