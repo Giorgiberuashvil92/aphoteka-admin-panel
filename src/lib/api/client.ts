@@ -350,9 +350,12 @@ export async function apiRequest<T>(
     });
   }
   
-  const defaultHeaders: HeadersInit = {
-    'Content-Type': 'application/json',
-  };
+  /** GET/HEAD + Content-Type: application/json → ყოველთვის CORS preflight; Railway/ვერსელი ზოგჯერ იქ ჩავარდება */
+  const methodUpper = (options.method || 'GET').toUpperCase();
+  const defaultHeaders: HeadersInit = {};
+  if (methodUpper !== 'GET' && methodUpper !== 'HEAD') {
+    defaultHeaders['Content-Type'] = 'application/json';
+  }
 
   const token = getAuthToken();
   if (token) {

@@ -1,28 +1,66 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { AppModule } from './app.module';
 
-/**
- * CORS — ბრაუზერი Vercel-იდან Railway API-ზე „განსხვავებული origin“-ია → სავალდებულია სწორი preflight (OPTIONS).
- *
- * `CORS_ORIGIN` — მძიმით გამოყოფილი სია (მკაცრი რეჟიმი). ცარიელი/არააქტიური → `origin: true`
- * (თითო მოთხოვნაზე იგივე `Origin` ჰედერი ბრუნდება — credentials-თან თავსებადი).
- */
-function resolveCorsOrigin(): boolean | string[] {
-  const raw = process.env.CORS_ORIGIN?.trim();
-  if (!raw) return true;
-  const list = raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return list.length > 0 ? list : true;
+function normalizeOrigin(o: string): string {
+  return o.trim().replace(/\/+$/, '');
 }
 
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+/**
+ * CORS — Vercel → Railway.
+ * - `CORS_ORIGIN` ცარიელი → ნებისმიერი Origin იმეორება (`true`) — credentials-თან თავსებადი.
+ * - შევსებული → მძიმით გამოყოფილი whitelist (slash-ის ნორმალიზაციით) + პროდაქშენ Vercel ყოველთვის ჩართული.
+ */
+function buildCorsOptions(): CorsOptions {
+  const raw = process.env.CORS_ORIGIN?.trim();
+  const fromEnv = raw
+    ? raw
+        .split(',')
+        .map((s) => normalizeOrigin(s))
+        .filter(Boolean)
+    : [];
+  const always = new Set(
+    ['https://aphoteka-admin-panel.vercel.app', ...fromEnv].map(
+      normalizeOrigin,
+    ),
+  );
 
-  app.enableCors({
-    origin: resolveCorsOrigin(),
+  const origin: CorsOptions['origin'] =
+    fromEnv.length === 0
+      ? true
+      : (reqOrigin, cb) => {
+          if (!reqOrigin) {
+            cb(null, true);
+            return;
+          }
+          const o = normalizeOrigin(reqOrigin);
+          if (always.has(o)) {
+            cb(null, true);
+            return;
+          }
+          // Vercel preview: *--*.vercel.app ან aphoteka-admin-panel-*.vercel.app
+          if (/\.vercel\.app$/i.test(o)) {
+            if (
+              /^https:\/\/[\w-]+--[\w-]+\.vercel\.app$/i.test(o) ||
+              /^https:\/\/aphoteka-admin-panel[\w.-]*\.vercel\.app$/i.test(o)
+            ) {
+              cb(null, true);
+              return;
+            }
+          }
+          if (
+            o.startsWith('http://localhost:') ||
+            o.startsWith('http://127.0.0.1:')
+          ) {
+            cb(null, true);
+            return;
+          }
+          cb(null, false);
+        };
+
+  return {
+    origin,
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
@@ -36,6 +74,15 @@ async function bootstrap() {
     preflightContinue: false,
     optionsSuccessStatus: 204,
     maxAge: 86_400,
+  };
+}
+
+async function bootstrap() {
+  const cors = buildCorsOptions();
+
+  const app = await NestFactory.create(AppModule, {
+    cors,
+    logger: ['error', 'warn', 'log'],
   });
 
   app.setGlobalPrefix('api');
@@ -49,7 +96,14 @@ async function bootstrap() {
   );
 
   const port = Number(process.env.PORT) || 3000;
-  await app.listen(port);
-  console.log(`🚀 Application is running on: http://localhost:${port}/api`);
+  await app.listen(port, '0.0.0.0');
+  console.log(`🚀 Application is running on: http://0.0.0.0:${port}/api`);
+  if (process.env.CORS_ORIGIN?.trim()) {
+    console.log(`🌐 CORS whitelist: ${process.env.CORS_ORIGIN}`);
+  } else {
+    console.log(
+      '🌐 CORS: reflect request Origin (set CORS_ORIGIN for strict whitelist)',
+    );
+  }
 }
 void bootstrap();
