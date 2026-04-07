@@ -205,16 +205,26 @@ export function MyOrderScreen({
                   <View
                     style={[
                       styles.statusBadge,
-                      { backgroundColor: getOrderStatusColor(order.status) + '15' },
+                      {
+                        backgroundColor: (order.awaitingOnlinePayment
+                          ? '#E65100'
+                          : getOrderStatusColor(order.status)) + '15',
+                      },
                     ]}
                   >
                     <Text
                       style={[
                         styles.statusText,
-                        { color: getOrderStatusColor(order.status) },
+                        {
+                          color: order.awaitingOnlinePayment
+                            ? '#E65100'
+                            : getOrderStatusColor(order.status),
+                        },
                       ]}
                     >
-                      {getOrderStatusText(order.status)}
+                      {order.awaitingOnlinePayment
+                        ? 'გადახდა მელოდება'
+                        : getOrderStatusText(order.status)}
                     </Text>
                   </View>
                 </View>

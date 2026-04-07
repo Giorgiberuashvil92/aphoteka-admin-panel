@@ -23,6 +23,12 @@ export const BUILTIN_PAYMENT_METHODS: BuiltinPaymentMethodDef[] = [
     icon: 'cash-outline',
   },
   {
+    id: 'bog_online',
+    name: 'ონლაინ გადახდა',
+    subtitle: 'საქართველოს ბანკი (ბარათი / iBank)',
+    icon: 'card-outline',
+  },
+  {
     id: 'bank_transfer',
     name: 'ბანკის გადარიცხვა',
     subtitle: 'დეტალები შეკვეთის შემდეგ',

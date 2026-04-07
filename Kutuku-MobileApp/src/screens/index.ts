@@ -15,6 +15,7 @@ export { ProductDetailScreen } from './ProductDetailScreen';
 export { PromotionProductsScreen } from './PromotionProductsScreen';
 export { CartScreen } from './CartScreen';
 export { PaymentScreen } from './PaymentScreen';
+export type { PaymentOrderPlacedMeta } from './PaymentScreen';
 export { AddressScreen } from './AddressScreen';
 export { AddCardScreen } from './AddCardScreen';
 export { OrderSuccessScreen } from './OrderSuccessScreen';

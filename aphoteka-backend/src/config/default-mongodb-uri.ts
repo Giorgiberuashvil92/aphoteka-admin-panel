@@ -1,6 +1,6 @@
 /**
- * თუ MONGODB_URI env აკლია — იგივე ნაგულისხმევი რაც Mongoose-ს app.module-ში.
- * პროდაქშენში env ყოველთვის დააყენე; ეს მხოლოდ ლოკალური/dev სინქია seed-თან.
+ * მხოლოდ ლოკალური MongoDB (არა Atlas credentials რეპოში).
+ * Atlas / Railway: ყოველთვის `MONGODB_URI` (.env ან hosting Variables).
  */
 export const DEFAULT_MONGODB_URI =
-  'mongodb+srv://Giorgiberuashvili92:Berobero1@aphoteka.kitkuk2.mongodb.net/aphoteka_db?retryWrites=true&w=majority&appName=aphoteka';
+  'mongodb+srv://Giorgiberuashvili92:Berobero1@aphoteka.kitkuk2.mongodb.net/aphoteka_db?retryWrites=true&w=majority&appName=cluster0';

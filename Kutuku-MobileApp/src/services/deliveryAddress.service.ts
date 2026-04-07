@@ -17,6 +17,9 @@ export type DeliveryAddress = {
   note?: string;
   /** მიტანის ტელეფონი (+995 / 5XX…) */
   phone: string;
+  /** რუკაზე არჩეული წერტილი (WGS84) */
+  latitude?: number;
+  longitude?: number;
 };
 
 export const DELIVERY_LABEL_PRESETS = [
@@ -40,29 +43,38 @@ function normalizePhone(raw: string): string {
   return raw.replace(/\s/g, '').trim();
 }
 
+/** სწორი WGS84 წერტილი რუკიდან */
+export function hasValidDeliveryGps(a: DeliveryAddress | null | undefined): boolean {
+  if (!a) return false;
+  return (
+    typeof a.latitude === 'number' &&
+    Number.isFinite(a.latitude) &&
+    typeof a.longitude === 'number' &&
+    Number.isFinite(a.longitude)
+  );
+}
+
 /** ერთი სტრიქონი Nest `shippingAddress`-ისთვის (ადმინ პანელზე წასაკითხი) */
 export function formatShippingAddressLine(a: DeliveryAddress): string {
   const parts: string[] = [];
-  const streetLine = [a.street.trim(), a.building?.trim(), a.floor?.trim()]
+  const hasGps = hasValidDeliveryGps(a);
+  let streetLine = [a.street.trim(), a.building?.trim(), a.floor?.trim()]
     .filter(Boolean)
     .join(', ');
-  parts.push(`[${a.label.trim()}] ${streetLine}`);
+  if (!streetLine && hasGps) {
+    streetLine = 'რუკის წერტილი';
+  }
+  parts.push(`[${a.label.trim()}] ${streetLine || '—'}`);
   parts.push(a.city.trim());
   const phone = normalizePhone(a.phone);
   if (phone) parts.push(`ტელ: ${phone}`);
   if (a.note?.trim()) parts.push(`შენიშვნა: ${a.note.trim()}`);
+  if (hasGps) {
+    parts.push(
+      `GPS: ${Number(a.latitude).toFixed(6)}, ${Number(a.longitude).toFixed(6)}`,
+    );
+  }
   return parts.join(' | ');
-}
-
-export function isDeliveryAddressComplete(a: DeliveryAddress | null): a is DeliveryAddress {
-  if (!a) return false;
-  const phone = normalizePhone(a.phone);
-  return (
-    a.label.trim().length > 0 &&
-    a.street.trim().length >= 3 &&
-    a.city.trim().length >= 2 &&
-    phone.replace(/\D/g, '').length >= 9
-  );
 }
 
 class DeliveryAddressServiceClass {
@@ -72,6 +84,8 @@ class DeliveryAddressServiceClass {
       if (!raw) return null;
       const parsed = JSON.parse(raw) as Partial<DeliveryAddress>;
       if (!parsed || typeof parsed !== 'object') return null;
+      const lat = parsed.latitude;
+      const lng = parsed.longitude;
       return {
         label: String(parsed.label ?? 'სახლი'),
         street: String(parsed.street ?? ''),
@@ -80,6 +94,8 @@ class DeliveryAddressServiceClass {
         floor: parsed.floor ? String(parsed.floor) : undefined,
         note: parsed.note ? String(parsed.note) : undefined,
         phone: String(parsed.phone ?? ''),
+        latitude: typeof lat === 'number' && Number.isFinite(lat) ? lat : undefined,
+        longitude: typeof lng === 'number' && Number.isFinite(lng) ? lng : undefined,
       };
     } catch {
       return null;
@@ -95,6 +111,14 @@ class DeliveryAddressServiceClass {
       floor: address.floor?.trim() || undefined,
       note: address.note?.trim() || undefined,
       phone: normalizePhone(address.phone),
+      latitude:
+        typeof address.latitude === 'number' && Number.isFinite(address.latitude)
+          ? address.latitude
+          : undefined,
+      longitude:
+        typeof address.longitude === 'number' && Number.isFinite(address.longitude)
+          ? address.longitude
+          : undefined,
     };
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   }

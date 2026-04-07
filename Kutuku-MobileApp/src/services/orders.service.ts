@@ -26,6 +26,8 @@ export type ApiOrder = {
   comment?: string;
   createdAt?: string;
   updatedAt?: string;
+  bogOrderId?: string;
+  bogPaymentStatus?: string;
 };
 
 export type MyOrderListItem = {
@@ -43,6 +45,8 @@ export type MyOrderListItem = {
   }[];
   total: number;
   trackingNumber?: string;
+  /** BOG ონლაინი — გადახდა ჯერ არ არის დასრულებული (UI ტაიმლაინი) */
+  awaitingOnlinePayment?: boolean;
 };
 
 function normalizeId(raw: ApiOrder): string {
@@ -59,6 +63,21 @@ function normalizeStatus(s: string | undefined): OrderStatusUi {
     return v;
   }
   return 'pending';
+}
+
+/** შეკვეთა pending-ზეა, მაგრამ ონლაინ გადახდა (BOG) ჯერ არ დასრულებულა */
+function computeAwaitingOnlinePayment(raw: ApiOrder): boolean {
+  const status = (raw.status || '').toLowerCase();
+  if (status !== 'pending') return false;
+  const bogSt = (raw.bogPaymentStatus || '').toLowerCase();
+  if (['completed', 'success', 'paid', 'captured'].includes(bogSt)) return false;
+  if (['rejected', 'failed', 'cancelled', 'declined'].some((k) => bogSt.includes(k)))
+    return false;
+  if (raw.bogOrderId != null && String(raw.bogOrderId).trim() !== '') return true;
+  const c = (raw.comment || '').toLowerCase();
+  if (c.includes('საქართველოს ბანკი')) return true;
+  if (c.includes('ონლაინ') && c.includes('ბანკი')) return true;
+  return false;
 }
 
 function mapApiOrder(raw: ApiOrder): MyOrderListItem | null {
@@ -101,6 +120,7 @@ function mapApiOrder(raw: ApiOrder): MyOrderListItem | null {
     }),
     total: Number.isFinite(Number(raw.totalAmount)) ? Number(raw.totalAmount) : 0,
     trackingNumber: raw.comment?.trim() || undefined,
+    awaitingOnlinePayment: computeAwaitingOnlinePayment(raw),
   };
 }
 
@@ -136,6 +156,14 @@ export type CreateOrderResult =
   | { ok: true; orderId: string }
   | { ok: false; error: 'auth' | 'network' | 'validation' | 'unknown'; message?: string };
 
+export type InitBogPaymentResult =
+  | { ok: true; redirectUrl: string; bogOrderId: string }
+  | {
+      ok: false;
+      error: 'auth' | 'network' | 'validation' | 'unknown';
+      message?: string;
+    };
+
 function extractOrderIdFromCreateResponse(data: unknown): string | null {
   if (!data || typeof data !== 'object') return null;
   const o = data as Record<string, unknown>;
@@ -147,6 +175,17 @@ function extractOrderIdFromCreateResponse(data: unknown): string | null {
     return s || null;
   }
   return null;
+}
+
+/** Nest exception: message string | string[] */
+function nestApiErrorMessage(data: unknown, status: number): string {
+  if (data && typeof data === 'object' && 'message' in data) {
+    const m = (data as { message: unknown }).message;
+    if (typeof m === 'string' && m) return m;
+    if (Array.isArray(m) && m.length) return m.map(String).join('; ');
+  }
+  if (status === 400) return 'მოთხოვნის ვალიდაცია ვერ გავიდა';
+  return `HTTP ${status}`;
 }
 
 export const OrdersService = {
@@ -215,6 +254,70 @@ export const OrdersService = {
         return { ok: false, error: 'unknown', message: 'შეკვეთის ID ვერ მოვიდა' };
       }
       return { ok: true, orderId };
+    } catch (e) {
+      return {
+        ok: false,
+        error: 'network',
+        message: e instanceof Error ? e.message : undefined,
+      };
+    }
+  },
+
+  /** JWT — BOG გადახდის გვერდის URL */
+  async initBogPayment(
+    orderId: string,
+    options?: { successRedirectUrl?: string; failRedirectUrl?: string },
+  ): Promise<InitBogPaymentResult> {
+    const token = await UserService.getAccessToken();
+    if (!token) {
+      return { ok: false, error: 'auth', message: 'საჭიროა შესვლა' };
+    }
+    const id = orderId?.trim();
+    if (!id) {
+      return { ok: false, error: 'validation', message: 'შეკვეთის ID აკლია' };
+    }
+    try {
+      const url = `${API_CONFIG.BASE_URL}${API_CONFIG.endpoints.orders.bogPayment(id)}`;
+      const body: Record<string, string> = {};
+      if (options?.successRedirectUrl?.trim()) {
+        body.successRedirectUrl = options.successRedirectUrl.trim();
+      }
+      if (options?.failRedirectUrl?.trim()) {
+        body.failRedirectUrl = options.failRedirectUrl.trim();
+      }
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: getAuthHeaders(token),
+        body: JSON.stringify(body),
+      });
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, error: 'auth', message: 'სესია ვადაგასულია' };
+      }
+      let data: unknown;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+      if (!res.ok) {
+        const msg = nestApiErrorMessage(data, res.status);
+        return {
+          ok: false,
+          error: res.status === 400 ? 'validation' : 'unknown',
+          message: msg,
+        };
+      }
+      if (!data || typeof data !== 'object') {
+        return { ok: false, error: 'unknown', message: 'უცნობი პასუხი' };
+      }
+      const o = data as Record<string, unknown>;
+      const redirectUrl =
+        typeof o.redirectUrl === 'string' ? o.redirectUrl : '';
+      const bogOrderId = typeof o.bogOrderId === 'string' ? o.bogOrderId : '';
+      if (!redirectUrl) {
+        return { ok: false, error: 'unknown', message: 'redirectUrl აკლია' };
+      }
+      return { ok: true, redirectUrl, bogOrderId: bogOrderId || '' };
     } catch (e) {
       return {
         ok: false,
@@ -314,5 +417,31 @@ export const OrdersService = {
         message: e instanceof Error ? e.message : undefined,
       };
     }
+  },
+
+  /**
+   * BOG callback-ის მოლოდინი — სერვერზე სტატუსი იცვლება ბანკის POST /callback-ის შემდეგ.
+   */
+  async waitForOrderPaymentConfirmed(
+    orderId: string,
+    options?: { maxAttempts?: number; intervalMs?: number },
+  ): Promise<'confirmed' | 'timeout' | 'auth' | 'error'> {
+    const maxAttempts = options?.maxAttempts ?? 20;
+    const intervalMs = options?.intervalMs ?? 1500;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const r = await OrdersService.fetchOrderById(orderId);
+      if (!r.ok) {
+        if (r.error === 'auth') return 'auth';
+        return 'error';
+      }
+      const s = r.order.status;
+      if (s === 'confirmed' || s === 'shipped' || s === 'delivered') {
+        return 'confirmed';
+      }
+      if (attempt < maxAttempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+    }
+    return 'timeout';
   },
 };

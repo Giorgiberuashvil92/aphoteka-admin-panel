@@ -3,14 +3,12 @@ import {
   DELIVERY_LABEL_PRESETS,
   formatShippingAddressLine,
   GEORGIA_CITY_SUGGESTIONS,
-  isDeliveryAddressComplete,
   type DeliveryAddress,
 } from '@/src/services/deliveryAddress.service';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -22,10 +20,17 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import MapView, { Marker, type Region } from 'react-native-maps';
+
+const DEFAULT_MAP_REGION: Region = {
+  latitude: 41.7151,
+  longitude: 44.8271,
+  latitudeDelta: 0.08,
+  longitudeDelta: 0.08,
+};
 
 type AddressScreenProps = {
   onBack: () => void;
-  /** შენახვის შემდეგ (მაგ. router.back) */
   onSaved?: () => void;
 };
 
@@ -42,6 +47,7 @@ const emptyForm = (): DeliveryAddress => ({
 export function AddressScreen({ onBack, onSaved }: AddressScreenProps) {
   const [form, setForm] = useState<DeliveryAddress>(emptyForm);
   const [loaded, setLoaded] = useState(false);
+  const mapRef = useRef<MapView>(null);
 
   const loadSaved = useCallback(async () => {
     const saved = await DeliveryAddressService.get();
@@ -54,6 +60,8 @@ export function AddressScreen({ onBack, onSaved }: AddressScreenProps) {
         floor: saved.floor ?? '',
         note: saved.note ?? '',
         phone: saved.phone,
+        latitude: saved.latitude,
+        longitude: saved.longitude,
       });
     } else {
       setForm(emptyForm());
@@ -69,14 +77,46 @@ export function AddressScreen({ onBack, onSaved }: AddressScreenProps) {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleSave = async () => {
-    if (!isDeliveryAddressComplete(form)) {
-      Alert.alert(
-        'შეავსეთ ველები',
-        'საჭიროა: მისამართის ტიპი, ქუჩა/ნომერი (მინ. 3 სიმბოლო), ქალაქი და ტელეფონი (მინ. 9 ციფრი).',
-      );
-      return;
+  const mapLat = form.latitude;
+  const mapLng = form.longitude;
+  const initialMapRegion = useMemo((): Region => {
+    if (
+      typeof mapLat === 'number' &&
+      typeof mapLng === 'number' &&
+      Number.isFinite(mapLat) &&
+      Number.isFinite(mapLng)
+    ) {
+      return {
+        latitude: mapLat,
+        longitude: mapLng,
+        latitudeDelta: 0.012,
+        longitudeDelta: 0.012,
+      };
     }
+    return { ...DEFAULT_MAP_REGION };
+  }, [mapLat, mapLng]);
+
+  const handleMapPress = (e: {
+    nativeEvent: { coordinate: { latitude: number; longitude: number } };
+  }) => {
+    const { latitude, longitude } = e.nativeEvent.coordinate;
+    setForm((prev) => {
+      const next: DeliveryAddress = { ...prev, latitude, longitude };
+      void DeliveryAddressService.save(next);
+      return next;
+    });
+    mapRef.current?.animateToRegion(
+      {
+        latitude,
+        longitude,
+        latitudeDelta: 0.012,
+        longitudeDelta: 0.012,
+      },
+      280,
+    );
+  };
+
+  const handleSave = async () => {
     await DeliveryAddressService.save(form);
     if (onSaved) onSaved();
     else onBack();
@@ -122,6 +162,45 @@ export function AddressScreen({ onBack, onSaved }: AddressScreenProps) {
               მიუთითეთ სრული მისამართი საქართველოში. ეს ტექსტი გადაეცემა აფთიაქს კურიერისთვის და ჩანს შეკვეთის დეტალებში.
             </Text>
           </View>
+
+          <Text style={styles.fieldLabel}>ლოკაცია რუკაზე</Text>
+          <Text style={styles.mapHint}>
+            დააჭირეთ რუკას — წერტილი და კოორდინატები მაშინვე ინახება; სრული მისამართისთვის შეავსეთ ველები და დააჭირეთ „შენახვა“.
+          </Text>
+          {Platform.OS === 'web' ? (
+            <View style={styles.mapWebFallback}>
+              <Ionicons name="map-outline" size={28} color={theme.colors.gray[400]} />
+              <Text style={styles.mapWebFallbackText}>
+                ინტერაქტიული რუკა ხელმისაწვდომია iOS და Android აპში.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.mapWrap}>
+              <MapView
+                ref={mapRef}
+                style={styles.map}
+                initialRegion={initialMapRegion}
+                onPress={handleMapPress}
+                showsUserLocation={false}
+                mapType="standard"
+              >
+                {typeof form.latitude === 'number' &&
+                typeof form.longitude === 'number' &&
+                Number.isFinite(form.latitude) &&
+                Number.isFinite(form.longitude) ? (
+                  <Marker
+                    coordinate={{ latitude: form.latitude, longitude: form.longitude }}
+                    title="მიწოდება"
+                  />
+                ) : null}
+              </MapView>
+            </View>
+          )}
+          {form.latitude != null && form.longitude != null ? (
+            <Text style={styles.coordsText} selectable>
+              {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}
+            </Text>
+          ) : null}
 
           <Text style={styles.fieldLabel}>ტიპი</Text>
           <View style={styles.chipRow}>
@@ -218,9 +297,7 @@ export function AddressScreen({ onBack, onSaved }: AddressScreenProps) {
 
           <View style={styles.previewCard}>
             <Text style={styles.previewTitle}>შეჯამება</Text>
-            <Text style={styles.previewBody}>
-              {isDeliveryAddressComplete(form) ? formatShippingAddressLine(form) : 'შეავსეთ სავალდებულო ველები.'}
-            </Text>
+            <Text style={styles.previewBody}>{formatShippingAddressLine(form)}</Text>
           </View>
         </ScrollView>
 
@@ -290,6 +367,50 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
     color: theme.colors.text.secondary,
+  },
+  mapHint: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: theme.colors.text.secondary,
+    paddingHorizontal: 20,
+    marginBottom: 10,
+  },
+  mapWrap: {
+    marginHorizontal: 20,
+    height: 220,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: theme.colors.gray[200],
+  },
+  map: {
+    width: '100%',
+    height: '100%',
+  },
+  mapWebFallback: {
+    marginHorizontal: 20,
+    minHeight: 120,
+    padding: 20,
+    borderRadius: 12,
+    backgroundColor: theme.colors.gray[50],
+    borderWidth: 1,
+    borderColor: theme.colors.gray[200],
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  mapWebFallbackText: {
+    fontSize: 13,
+    color: theme.colors.text.secondary,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  coordsText: {
+    fontSize: 12,
+    color: theme.colors.text.tertiary,
+    paddingHorizontal: 20,
+    marginTop: 8,
+    fontVariant: ['tabular-nums'],
   },
   fieldLabel: {
     fontSize: 13,

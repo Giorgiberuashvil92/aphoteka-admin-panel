@@ -10,6 +10,7 @@ import { HeroSlider } from '@/src/components/common/HeroSlider';
 import { ProductsSlider } from '@/src/components/common/ProductsSlider';
 import { ProductCard } from '@/src/components/ui';
 import { useCart, useFavorites } from '@/src/contexts';
+import { useAccessToken } from '@/src/hooks/useAccessToken';
 import { ProductService } from '@/src/services/product.service';
 import { PromotionService, mapPromotionToBrandSlide } from '@/src/services/promotion.service';
 import { FavoriteService } from '@/src/services/favorite.service';
@@ -41,6 +42,8 @@ type HomeMainScreenProps = {
 export function HomeMainScreen({ onSearch, onCategory, onProductPress, onNotifications, onMyOrderPress, onSeeAllPress, onFavoritePress, onProfilePress, onCartPress }: HomeMainScreenProps) {
   const { itemCount } = useCart();
   const { favoriteCount } = useFavorites();
+  /** JWT მეხსიერებაში — შესვლის შემდეგ `UserService`-მა უკვე შეინახა AsyncStorage-ში */
+  const { accessToken, isLoggedIn } = useAccessToken();
   const [userName, setUserName] = useState("Guest");
   const location = "Let's go shopping";
 
@@ -146,6 +149,14 @@ export function HomeMainScreen({ onSearch, onCategory, onProductPress, onNotific
         onNotificationsPress={onNotifications}
         notificationsCount={unreadCount}
       />
+
+      {__DEV__ && (
+        <Text style={styles.devAuthHint} testID="dev-auth-token-hint">
+          {isLoggedIn
+            ? `Debug: JWT ჩატვირთული (${accessToken?.length ?? 0} სიმბოლო)`
+            : 'Debug: JWT არ არის (სტუმარი ან არ შეგინახავს)'}
+        </Text>
+      )}
 
       {/* Drawer Menu */}
       <DrawerMenu
@@ -381,6 +392,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.white,
+  },
+  devAuthHint: {
+    fontSize: 11,
+    color: theme.colors.text.secondary,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 4,
   },
   header: {
     flexDirection: 'row',

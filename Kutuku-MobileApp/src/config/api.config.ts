@@ -41,6 +41,8 @@ export const API_CONFIG = {
       create: '/orders',
       myOrders: '/orders',
       byId: (id: string) => `/orders/${id}`,
+      bogPayment: (id: string) =>
+        `/orders/${encodeURIComponent(id)}/payment/bog`,
     },
     users: {
       lookupByEmail: '/users/lookup-by-email',

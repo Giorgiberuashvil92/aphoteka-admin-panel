@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 
 function normalizeOrigin(o: string): string {
@@ -80,8 +81,9 @@ function buildCorsOptions(): CorsOptions {
 async function bootstrap() {
   const cors = buildCorsOptions();
 
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     cors,
+    rawBody: true,
     logger: ['error', 'warn', 'log'],
   });
 

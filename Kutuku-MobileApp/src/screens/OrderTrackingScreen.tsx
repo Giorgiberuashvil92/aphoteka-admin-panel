@@ -27,6 +27,12 @@ const STATUS_FLOW: Exclude<OrderStatusUi, 'cancelled' | 'processing'>[] = [
   'delivered',
 ];
 
+const POST_PAYMENT_FLOW: Exclude<OrderStatusUi, 'pending' | 'cancelled' | 'processing'>[] = [
+  'confirmed',
+  'shipped',
+  'delivered',
+];
+
 const STEP_META: Record<
   (typeof STATUS_FLOW)[number],
   { title: string; subtitle: string; icon: keyof typeof Ionicons.glyphMap }
@@ -53,7 +59,24 @@ const STEP_META: Record<
   },
 };
 
-function buildTimeline(status: OrderStatusUi) {
+type TimelineStep = {
+  key: string;
+  title: string;
+  subtitle: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  completed: boolean;
+  active: boolean;
+  muted: boolean;
+  /** ონლაინ გადახდის მოლოდინი — ნარინჯისფერი აქტიური ეტაპი */
+  tone?: 'warning';
+};
+
+const BADGE_AWAITING_PAYMENT = '#E65100';
+
+function buildTimeline(
+  status: OrderStatusUi,
+  opts?: { awaitingOnlinePayment?: boolean },
+): TimelineStep[] {
   const current = status === 'processing' ? 'confirmed' : status;
   if (current === 'cancelled') {
     return [
@@ -61,7 +84,7 @@ function buildTimeline(status: OrderStatusUi) {
         key: 'cancelled',
         title: 'გაუქმებულია',
         subtitle: 'ეს შეკვეთა გაუქმდა',
-        icon: 'close-circle-outline' as const,
+        icon: 'close-circle-outline',
         completed: true,
         active: true,
         muted: false,
@@ -69,12 +92,35 @@ function buildTimeline(status: OrderStatusUi) {
     ];
   }
 
+  if (opts?.awaitingOnlinePayment && current === 'pending') {
+    return [
+      {
+        key: 'await_bank_payment',
+        title: 'ონლაინ გადახდა',
+        subtitle:
+          'შეკვეთა დადასტურდება მხოლოდ წარმატებული გადახდის შემდეგ. გადახდა შეგიძლიათ „გადახდის“ ან „ჩემი შეკვეთების“ გვერდიდან.',
+        icon: 'card-outline',
+        completed: false,
+        active: true,
+        muted: false,
+        tone: 'warning',
+      },
+      ...POST_PAYMENT_FLOW.map((s) => ({
+        key: s,
+        ...STEP_META[s],
+        completed: false,
+        active: false,
+        muted: true,
+      })),
+    ];
+  }
+
   const flowIdx = STATUS_FLOW.indexOf(current as (typeof STATUS_FLOW)[number]);
   const idx = flowIdx >= 0 ? flowIdx : 0;
 
-  return STATUS_FLOW.map((status, i) => ({
-    key: status,
-    ...STEP_META[status],
+  return STATUS_FLOW.map((st, i) => ({
+    key: st,
+    ...STEP_META[st],
     completed: i <= idx,
     active: i === idx,
     muted: i > idx,
@@ -118,8 +164,21 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
 
   const steps = useMemo(() => {
     if (!order) return [];
-    return buildTimeline(order.status);
+    return buildTimeline(order.status, {
+      awaitingOnlinePayment: order.awaitingOnlinePayment,
+    });
   }, [order]);
+
+  const badgeLabel = order?.awaitingOnlinePayment
+    ? 'გადახდა მელოდება'
+    : order
+      ? getOrderStatusText(order.status)
+      : '';
+  const badgeColor = order?.awaitingOnlinePayment
+    ? BADGE_AWAITING_PAYMENT
+    : order
+      ? getOrderStatusColor(order.status)
+      : '#757575';
 
   if (loading && !order) {
     return (
@@ -187,11 +246,11 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
                 <View
                   style={[
                     styles.badge,
-                    { backgroundColor: getOrderStatusColor(order.status) + '18' },
+                    { backgroundColor: badgeColor + '22' },
                   ]}
                 >
-                  <Text style={[styles.badgeText, { color: getOrderStatusColor(order.status) }]}>
-                    {getOrderStatusText(order.status)}
+                  <Text style={[styles.badgeText, { color: badgeColor }]}>
+                    {badgeLabel}
                   </Text>
                 </View>
               </View>
@@ -215,7 +274,8 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
                     <View
                       style={[
                         styles.stepIcon,
-                        step.completed && styles.stepIconDone,
+                        step.tone === 'warning' && step.active && styles.stepIconWarning,
+                        step.completed && step.tone !== 'warning' && styles.stepIconDone,
                         step.muted && styles.stepIconMuted,
                       ]}
                     >
@@ -223,7 +283,11 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
                         name={step.icon}
                         size={22}
                         color={
-                          step.completed ? theme.colors.white : theme.colors.gray[400]
+                          step.tone === 'warning' && step.active
+                            ? theme.colors.white
+                            : step.completed
+                              ? theme.colors.white
+                              : theme.colors.gray[400]
                         }
                       />
                     </View>
@@ -231,7 +295,8 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
                       <View
                         style={[
                           styles.stepLine,
-                          step.completed && styles.stepLineDone,
+                          step.tone === 'warning' && step.active && styles.stepLineWarning,
+                          step.completed && step.tone !== 'warning' && styles.stepLineDone,
                         ]}
                       />
                     ) : null}
@@ -403,6 +468,9 @@ const styles = StyleSheet.create({
   stepIconDone: {
     backgroundColor: theme.colors.primary,
   },
+  stepIconWarning: {
+    backgroundColor: BADGE_AWAITING_PAYMENT,
+  },
   stepIconMuted: {
     opacity: 0.5,
   },
@@ -417,6 +485,10 @@ const styles = StyleSheet.create({
   stepLineDone: {
     backgroundColor: theme.colors.primary,
     opacity: 0.35,
+  },
+  stepLineWarning: {
+    backgroundColor: BADGE_AWAITING_PAYMENT,
+    opacity: 0.4,
   },
   stepBody: {
     flex: 1,

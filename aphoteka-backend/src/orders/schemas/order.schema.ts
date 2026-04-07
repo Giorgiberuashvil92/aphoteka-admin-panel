@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
 
 export type OrderDocument = HydratedDocument<Order>;
 
@@ -59,6 +59,25 @@ export class Order {
 
   @Prop()
   comment?: string;
+
+  /** საქართველოს ბანკის ონლაინ გადახდის order_id (UUID) */
+  @Prop()
+  bogOrderId?: string;
+
+  /** BOG receipt-ის order_status.key (მაგ. completed, rejected) */
+  @Prop()
+  bogPaymentStatus?: string;
+
+  /** ბოლო BOG server-to-server callback-ის დრო */
+  @Prop({ type: Date })
+  bogLastCallbackAt?: Date;
+
+  /**
+   * ბოლო callback-ის სრული JSON (event + body) — აუდიტი/დებაგი.
+   * redirect (ბრაუზერი) ცალკეა; ეს არის ბანკის POST callback.
+   */
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  bogLastCallbackRaw?: Record<string, unknown>;
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);

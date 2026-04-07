@@ -1,9 +1,12 @@
-import { DEFAULT_PAYMENT_METHOD_ID } from '@/src/config/paymentMethods.config';
+import { getApiBaseUrl } from '@/src/config/api.config';
+import {
+  DEFAULT_PAYMENT_METHOD_ID,
+  BUILTIN_PAYMENT_METHODS,
+} from '@/src/config/paymentMethods.config';
 import { useCart } from '@/src/contexts';
 import {
   DeliveryAddressService,
   formatShippingAddressLine,
-  isDeliveryAddressComplete,
   type DeliveryAddress,
 } from '@/src/services/deliveryAddress.service';
 import { OrdersService } from '@/src/services/orders.service';
@@ -15,11 +18,13 @@ import { UserService } from '@/src/services/user.service';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
+  Modal,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -29,6 +34,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { WebViewNavigation } from 'react-native-webview';
+import { WebView } from 'react-native-webview';
 
 const MONGO_OBJECT_ID_RE = /^[a-fA-F0-9]{24}$/;
 
@@ -39,22 +47,49 @@ function coerceUnitPrice(value: number | string | undefined | null): number {
   return Number.isFinite(n) ? n : NaN;
 }
 
+const BOG_ONLINE_PAYMENT_ID =
+  BUILTIN_PAYMENT_METHODS.find((m) => m.id === 'bog_online')?.id ?? 'bog_online';
+
+/** BOG ნაკადი — `onOrderPlaced`-ის მეორე არგუმენტი (არა წარმატების ეკრანი) */
+export type PaymentOrderPlacedMeta = {
+  bogOutcome: 'aborted' | 'failed' | 'init_failed' | 'paid_pending';
+};
+
+function bogReturnFromDeepLink(url: string): 'paid' | 'failed' | null {
+  try {
+    const d = decodeURIComponent(url);
+    if (/[?&]bogreturn=success(?:&|$)/i.test(d)) return 'paid';
+    if (/[?&]bogreturn=fail(?:&|$)/i.test(d)) return 'failed';
+  } catch {
+    /* ignore */
+  }
+  if (/[?&]bogreturn=success(?:&|$)/i.test(url)) return 'paid';
+  if (/[?&]bogreturn=fail(?:&|$)/i.test(url)) return 'failed';
+  return null;
+}
+
 function paymentNoteForOrder(
   selectedId: string,
   row: PaymentMethodRow | undefined,
 ): string {
   if (!row) return 'გადახდა: არჩეული მეთოდი';
   if (row.id === 'cod') return 'გადახდა: ნაღდი მიტანისას';
+  if (row.id === BOG_ONLINE_PAYMENT_ID) {
+    return 'გადახდა: ონლაინ (საქართველოს ბანკი)';
+  }
   if (row.kind === 'card') {
-    return `გადახდა: ბარათი — ${row.name}, ${row.number}`;
+    return `გადახდა: ბარათი (ლოკალური) — ${row.name}, ${row.number}`;
   }
   return `გადახდა: ${row.name} — ${row.number}`;
 }
 
 type PaymentScreenProps = {
   onBack: () => void;
-  /** შეკვეთა წარმატებით შეიქმნა სერვერზე */
-  onOrderPlaced: (orderId: string) => void;
+  /**
+   * შეკვეთა მზადაა / გადახდა დასრულებული.
+   * მეორე არგუმენტი მხოლოდ BOG-ის არაწარმატებული ან უსრული ნაკადისთვის.
+   */
+  onOrderPlaced: (orderId: string, meta?: PaymentOrderPlacedMeta) => void;
   /** JWT არ არის — გადასვლა შესვლაზე */
   onLoginRequired: () => void;
   onEditAddress: () => void;
@@ -68,6 +103,7 @@ export function PaymentScreen({
   onEditAddress,
   onAddPaymentMethod,
 }: PaymentScreenProps) {
+  const insets = useSafeAreaInsets();
   const { items: cartItems, totalPrice, clearCartSilently, itemCount } = useCart();
   const [selectedPayment, setSelectedPayment] = useState(DEFAULT_PAYMENT_METHOD_ID);
   const [promoCode, setPromoCode] = useState('');
@@ -75,6 +111,101 @@ export function PaymentScreen({
   const [paymentMethodsLoading, setPaymentMethodsLoading] = useState(true);
   const [placingOrder, setPlacingOrder] = useState(false);
   const [delivery, setDelivery] = useState<DeliveryAddress | null>(null);
+  /** BOG გადახდის გვერდი მოდალში (WebView) */
+  const [bogCheckoutUrl, setBogCheckoutUrl] = useState<string | null>(null);
+  const [bogWebLoading, setBogWebLoading] = useState(true);
+  const [bogVerifying, setBogVerifying] = useState(false);
+  /** BOG დადასტურების შემდეგ — ღილაკით გაგრძელება (order-success) */
+  const [bogSuccessOrderId, setBogSuccessOrderId] = useState<string | null>(null);
+  const bogOrderIdRef = useRef<string | null>(null);
+  /** ორმაგი navigation-ისგან დასაცავად */
+  const bogFinalizeOnceRef = useRef(false);
+
+  const takeBogSessionOnce = useCallback((): string | null => {
+    if (bogFinalizeOnceRef.current) return null;
+    bogFinalizeOnceRef.current = true;
+    const oid = bogOrderIdRef.current;
+    setBogCheckoutUrl(null);
+    bogOrderIdRef.current = null;
+    setBogWebLoading(true);
+    return oid;
+  }, []);
+
+  const finalizeBogAborted = useCallback(() => {
+    const oid = takeBogSessionOnce();
+    if (oid) onOrderPlaced(oid, { bogOutcome: 'aborted' });
+  }, [onOrderPlaced, takeBogSessionOnce]);
+
+  const finalizeBogFailed = useCallback(() => {
+    const oid = takeBogSessionOnce();
+    if (oid) onOrderPlaced(oid, { bogOutcome: 'failed' });
+  }, [onOrderPlaced, takeBogSessionOnce]);
+
+  const finalizeBogPaid = useCallback(async () => {
+    const oid = takeBogSessionOnce();
+    if (!oid) return;
+    setBogVerifying(true);
+    try {
+      const r = await OrdersService.waitForOrderPaymentConfirmed(oid);
+      if (r === 'confirmed') {
+        setBogSuccessOrderId(oid);
+      } else {
+        onOrderPlaced(oid, { bogOutcome: 'paid_pending' });
+      }
+    } finally {
+      setBogVerifying(false);
+    }
+  }, [onOrderPlaced, takeBogSessionOnce]);
+
+  const dismissBogSuccess = useCallback(() => {
+    const id = bogSuccessOrderId;
+    if (!id) return;
+    setBogSuccessOrderId(null);
+    onOrderPlaced(id);
+  }, [bogSuccessOrderId, onOrderPlaced]);
+
+  const handleBogUrlNavigation = useCallback(
+    (rawUrl: string) => {
+      const u = rawUrl.toLowerCase();
+      if (u.includes('/payments/bog/mobile-return/success')) {
+        void finalizeBogPaid();
+        return true;
+      }
+      if (u.includes('/payments/bog/mobile-return/fail')) {
+        finalizeBogFailed();
+        return true;
+      }
+      if (u.startsWith('kutuku://') || u.startsWith('kutuku:')) {
+        void Linking.openURL(rawUrl).catch(() => {});
+        const br = bogReturnFromDeepLink(rawUrl);
+        if (br === 'paid') void finalizeBogPaid();
+        else if (br === 'failed') finalizeBogFailed();
+        else finalizeBogAborted();
+        return true;
+      }
+      return false;
+    },
+    [finalizeBogAborted, finalizeBogFailed, finalizeBogPaid],
+  );
+
+  const onBogWebNavChange = useCallback(
+    (nav: WebViewNavigation) => {
+      const raw = nav.url ?? '';
+      handleBogUrlNavigation(raw);
+    },
+    [handleBogUrlNavigation],
+  );
+
+  const onBogShouldStartLoad = useCallback(
+    (req: { url: string }) => {
+      const raw = req.url ?? '';
+      if (handleBogUrlNavigation(raw)) {
+        return false;
+      }
+      return true;
+    },
+    [handleBogUrlNavigation],
+  );
 
   const subtotal = totalPrice;
   const shipping = 5.0;
@@ -134,20 +265,8 @@ export function PaymentScreen({
     }
 
     const latest = await DeliveryAddressService.get();
-    if (!latest || !isDeliveryAddressComplete(latest)) {
-      Alert.alert(
-        'მისამართი საჭიროა',
-        'გადახდამდე შეავსეთ მიწოდების მისამართი და ტელეფონი.',
-        [
-          { text: 'გაუქმება', style: 'cancel' },
-          { text: 'მისამართი', onPress: onEditAddress },
-        ],
-      );
-      return;
-    }
-
-    const line = formatShippingAddressLine(latest);
-    const phoneForOrder = latest.phone.replace(/\s/g, '').trim();
+    const line = latest ? formatShippingAddressLine(latest) : '';
+    const phoneForOrder = latest?.phone.replace(/\s/g, '').trim() ?? '';
 
     for (const item of cartItems) {
       if (!MONGO_OBJECT_ID_RE.test(String(item.id).trim())) {
@@ -196,14 +315,56 @@ export function PaymentScreen({
       }
 
       clearCartSilently();
-      onOrderPlaced(result.orderId);
+      const orderId = result.orderId;
+
+      if (selectedPayment === BOG_ONLINE_PAYMENT_ID) {
+        const apiBase = getApiBaseUrl();
+        const bogRedirects = apiBase.toLowerCase().startsWith('https://')
+          ? {
+              successRedirectUrl: `${apiBase}/payments/bog/mobile-return/success`,
+              failRedirectUrl: `${apiBase}/payments/bog/mobile-return/fail`,
+            }
+          : undefined;
+        const pay = await OrdersService.initBogPayment(orderId, bogRedirects);
+        if (!pay.ok) {
+          if (pay.error === 'auth') {
+            Alert.alert('სესია', pay.message ?? 'საჭიროა ხელახალი შესვლა', [
+              { text: 'გაუქმება', style: 'cancel' },
+              { text: 'შესვლა', onPress: onLoginRequired },
+            ]);
+          } else {
+            Alert.alert(
+              'გადახდა ვერ დაიწყო',
+              pay.message ??
+                'შეკვეთა შექმნილია. სცადეთ ხელახლა ან გადახდა „ჩემი შეკვეთებიდან“.',
+            );
+          }
+          onOrderPlaced(orderId, { bogOutcome: 'init_failed' });
+          return;
+        }
+        bogFinalizeOnceRef.current = false;
+        bogOrderIdRef.current = orderId;
+        setBogWebLoading(true);
+        setBogCheckoutUrl(pay.redirectUrl);
+        return;
+      }
+
+      onOrderPlaced(orderId);
     } finally {
       setPlacingOrder(false);
     }
   };
 
   return (
+    <>
     <SafeAreaView style={styles.container}>
+      {bogVerifying ? (
+        <View style={styles.bogVerifyOverlay} pointerEvents="auto">
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={styles.bogVerifyText}>გადახდის დადასტურება...</Text>
+          <Text style={styles.bogVerifyHint}>რამდენიმე წამი შეიძლება დასჭირდეს</Text>
+        </View>
+      ) : null}
       <StatusBar barStyle="dark-content" backgroundColor={theme.colors.background.secondary} />
 
       {/* Header */}
@@ -234,14 +395,14 @@ export function PaymentScreen({
           <View
             style={[
               styles.addressCard,
-              !isDeliveryAddressComplete(delivery) && styles.addressCardWarning,
+              !delivery && styles.addressCardWarning,
             ]}
           >
             <View style={styles.addressIcon}>
               <Ionicons name="home-outline" size={26} color={theme.colors.primary} />
             </View>
             <View style={styles.addressInfo}>
-              {delivery && isDeliveryAddressComplete(delivery) ? (
+              {delivery ? (
                 <>
                   <Text style={styles.addressType}>{delivery.label}</Text>
                   <Text style={styles.addressStreet}>{delivery.street}</Text>
@@ -254,8 +415,10 @@ export function PaymentScreen({
                 </>
               ) : (
                 <>
-                  <Text style={styles.addressType}>მისამართი არ არის შევსებული</Text>
-                  <Text style={styles.addressStreet}>დააჭირეთ „ცვლილება“ — მიუთითეთ ქუჩა, ქალაქი და ტელეფონი</Text>
+                  <Text style={styles.addressType}>მისამართი არ არის შენახული</Text>
+                  <Text style={styles.addressStreet}>
+                    დააჭირეთ „ცვლილება“ — შეავსეთ ან შეინახეთ მისამართი (არასავალდებულოა).
+                  </Text>
                 </>
               )}
             </View>
@@ -459,6 +622,88 @@ export function PaymentScreen({
         </TouchableOpacity>
       </View>
     </SafeAreaView>
+
+    <Modal
+      visible={!!bogCheckoutUrl}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={finalizeBogAborted}
+    >
+      <View style={[styles.bogModalRoot, { paddingTop: insets.top }]}>
+        <View style={styles.bogModalHeader}>
+          <Text style={styles.bogModalTitle}>საქართველოს ბანკი — გადახდა</Text>
+          <TouchableOpacity
+            onPress={finalizeBogAborted}
+            style={styles.bogModalCloseBtn}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityLabel="დახურვა"
+          >
+            <Ionicons name="close" size={28} color={theme.colors.text.primary} />
+          </TouchableOpacity>
+        </View>
+        {bogCheckoutUrl ? (
+          <View style={styles.bogWebWrap}>
+            {bogWebLoading ? (
+              <View style={styles.bogWebLoading}>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+                <Text style={styles.bogWebLoadingText}>იტვირთება...</Text>
+              </View>
+            ) : null}
+            <WebView
+              source={{ uri: bogCheckoutUrl }}
+              style={styles.bogWebView}
+              onLoadStart={() => setBogWebLoading(true)}
+              onLoadEnd={() => setBogWebLoading(false)}
+              onError={() => setBogWebLoading(false)}
+              onHttpError={() => setBogWebLoading(false)}
+              onNavigationStateChange={onBogWebNavChange}
+              onShouldStartLoadWithRequest={onBogShouldStartLoad}
+              javaScriptEnabled
+              domStorageEnabled
+              sharedCookiesEnabled
+              startInLoadingState
+              originWhitelist={['https://*', 'http://*']}
+              setSupportMultipleWindows={false}
+            />
+          </View>
+        ) : null}
+      </View>
+    </Modal>
+
+    <Modal
+      visible={!!bogSuccessOrderId}
+      animationType="fade"
+      transparent
+      onRequestClose={dismissBogSuccess}
+    >
+      <View
+        style={[
+          styles.bogSuccessBackdrop,
+          {
+            paddingTop: Math.max(insets.top, 24),
+            paddingBottom: Math.max(insets.bottom, 24),
+          },
+        ]}
+      >
+        <View style={styles.bogSuccessCard}>
+          <View style={styles.bogSuccessIconWrap}>
+            <Ionicons name="checkmark-circle" size={72} color={theme.colors.primary} />
+          </View>
+          <Text style={styles.bogSuccessTitle}>გადახდა წარმატებით დასრულდა</Text>
+          <Text style={styles.bogSuccessSubtitle}>
+            შეკვეთა დადასტურებულია. დააჭირეთ ღილაკს გასაგრძელებლად.
+          </Text>
+          <TouchableOpacity
+            style={styles.bogSuccessButton}
+            onPress={dismissBogSuccess}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.bogSuccessButtonText}>კარგი</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+    </>
   );
 }
 
@@ -808,6 +1053,117 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   checkoutButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.colors.white,
+  },
+  bogModalRoot: {
+    flex: 1,
+    backgroundColor: theme.colors.white,
+  },
+  bogModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.colors.gray[300],
+  },
+  bogModalTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    paddingRight: 8,
+  },
+  bogModalCloseBtn: {
+    padding: 4,
+  },
+  bogWebWrap: {
+    flex: 1,
+    position: 'relative',
+  },
+  bogWebView: {
+    flex: 1,
+    backgroundColor: theme.colors.white,
+  },
+  bogWebLoading: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    zIndex: 1,
+  },
+  bogWebLoadingText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: theme.colors.text.secondary,
+  },
+  bogVerifyOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    zIndex: 50,
+  },
+  bogVerifyText: {
+    marginTop: 16,
+    fontSize: 17,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    textAlign: 'center',
+  },
+  bogVerifyHint: {
+    marginTop: 8,
+    fontSize: 14,
+    color: theme.colors.text.secondary,
+    textAlign: 'center',
+  },
+  bogSuccessBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  bogSuccessCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: theme.colors.white,
+    borderRadius: theme.borderRadius.lg,
+    paddingVertical: 28,
+    paddingHorizontal: 22,
+    alignItems: 'center',
+    ...theme.shadows.md,
+  },
+  bogSuccessIconWrap: {
+    marginBottom: 4,
+  },
+  bogSuccessTitle: {
+    fontSize: 19,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  bogSuccessSubtitle: {
+    marginTop: 10,
+    fontSize: 14,
+    lineHeight: 20,
+    color: theme.colors.text.secondary,
+    textAlign: 'center',
+  },
+  bogSuccessButton: {
+    marginTop: 22,
+    alignSelf: 'stretch',
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 14,
+    borderRadius: theme.borderRadius.lg,
+    alignItems: 'center',
+  },
+  bogSuccessButtonText: {
     fontSize: 16,
     fontWeight: '700',
     color: theme.colors.white,
