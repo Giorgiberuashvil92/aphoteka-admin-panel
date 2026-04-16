@@ -52,4 +52,30 @@ export class PrescriptionsService {
 
     return doc.toObject();
   }
+
+  /** პაციენტისთვის — უახლესი დანიშნულებები (მთავარი გვერდი / აპი) */
+  async findForPatient(patientUserId: string) {
+    if (!Types.ObjectId.isValid(patientUserId)) {
+      return [];
+    }
+    const rows = await this.prescriptionModel
+      .find({ patientId: new Types.ObjectId(patientUserId) })
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean()
+      .exec();
+    return rows.map((doc) => {
+      const created = (doc as { createdAt?: Date }).createdAt;
+      return {
+      id: String(doc._id),
+      createdAt: created ? new Date(created).toISOString() : undefined,
+      items: (doc.items ?? []).map((it) => ({
+        productId: it.productId?.toString() ?? '',
+        productName: it.productName,
+        quantity: it.quantity,
+        notes: it.notes,
+      })),
+    };
+    });
+  }
 }

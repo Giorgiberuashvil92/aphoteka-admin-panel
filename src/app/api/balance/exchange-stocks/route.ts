@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 /**
  * Balance Exchange/Stocks — რაოდენობები (Item, Warehouse, Quantity, Reserve, …)
- * Basic Auth: BALANCE_USER_NAME / BALANCE_USER_PASSWORD
+ * Basic Auth: `balanceClient` (კოდში გაწერილი user/password)
  *
  * `docTemplate=1` → `?uid=&StartingPeriod=&EndingPeriod=&Source=&Total=false` (დოკუმენტაცია)
  * უსასათაუროდ: სტანდარტული uid + Total=false

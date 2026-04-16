@@ -65,6 +65,6 @@ export const productsApi = {
 
   // Toggle product status
   toggleStatus: async (id: string): Promise<ProductResponse> => {
-    return api.patch<ProductResponse>(`/products/${id}/toggle-status`);
+    return api.patch<ProductResponse>(`/products/${id}/toggle-status`);4
   },
 };

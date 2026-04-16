@@ -1,4 +1,4 @@
-import type { Product } from '@/types';
+import type { BalanceItemsSeriesApiRow, Product } from '@/types';
 
 /** Balance პასუხიდან Items მასივის ამოღება (Items, value, Value, Source, data, Rows ან root მასივი) */
 export function getBalanceItems(data: unknown): Record<string, unknown>[] {
@@ -44,6 +44,60 @@ export function getBalanceItems(data: unknown): Record<string, unknown>[] {
     }
   }
   return [];
+}
+
+/** ItemsSeries `ValidUntil` — სტრინგი უცვლელად; `Date` → ლოკალური `YYYY-MM-DDTHH:mm:ss` (არა `toISOString()` UTC). */
+function itemsSeriesValidUntilAsBalanceString(
+  row: Record<string, unknown>
+): string {
+  for (const k of [
+    'ValidUntil',
+    'ValidTo',
+    'validUntil',
+    'ShelfLifeEnd',
+  ] as const) {
+    const v = row[k];
+    if (v === null || v === undefined || v === '') continue;
+    if (typeof v === 'string') return v;
+    if (v instanceof Date) {
+      const d = v;
+      const p = (n: number) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+    }
+    return String(v);
+  }
+  return '';
+}
+
+/**
+ * ItemsSeries ნელი პასუხი → ერთიანი მასივი იმავე ველებით, რაც Balance JSON-შია (ყველა string).
+ * `ValidUntil` — იგივე ტექსტი რაც JSON-შია (მაგ. `2023-12-31T00:00:00`).
+ */
+export function normalizeBalanceItemsSeriesApiRows(
+  data: unknown
+): BalanceItemsSeriesApiRow[] {
+  const rows = getBalanceItems(data);
+  return rows.map((row) => ({
+    uid: getStr(row, 'uid', 'UID', 'UUID', 'Uuid'),
+    Item: getStr(row, 'Item', 'item'),
+    Name: getStr(row, 'Name', 'name', 'Presentation', 'Description'),
+    ValidUntil: itemsSeriesValidUntilAsBalanceString(row),
+    SeriesNumber: getStr(
+      row,
+      'SeriesNumber',
+      'SerialNumber',
+      'SerieNumber',
+      'SeriesName',
+      'Number'
+    ),
+    ExtCode: getStr(row, 'ExtCode', 'extCode'),
+    AdditionalRequisites1: getStr(
+      row,
+      'AdditionalRequisites1',
+      'additionalRequisites1',
+      'AdditionalRequisite1'
+    ),
+  }));
 }
 
 export function getBalancePricesRows(data: unknown): Record<string, unknown>[] {
@@ -381,7 +435,7 @@ const BALANCE_STOCK_SERIES_GUID_RE =
 
 /**
  * Exchange/Stocks ხაზის სერიის ref (`Series` ველი) — ItemsSeries პასუხის ჩანაწერის `uid`-ს უნდა ემთხვეოდეს.
- * ItemsSeries GET `?uid=` არის ნომენკლატურის ref (`Item`), არა ეს UUID.
+ * ItemsSeries GET query `Item` = ნომენკლატურის ref, არა Stocks `Series` UUID.
  */
 export function exchangeStockRowSeriesUid(
   row: Record<string, unknown>
@@ -394,7 +448,7 @@ export function exchangeStockRowSeriesUid(
   return raw;
 }
 
-/** Exchange/Stocks `Item` — ნომენკლატურა; ItemsSeries იძახება სწორედ ამით (`?uid=Item`) */
+/** Exchange/Stocks `Item` — ნომენკლატურა; ItemsSeries იძახება სწორედ ამით (`?Item=<Item_GUID>`) */
 export function exchangeStockRowNomenclatureItemUid(
   row: Record<string, unknown>
 ): string | undefined {
@@ -440,7 +494,7 @@ export function uniqueExchangeStockNomenclatureItemUids(
 
 /**
  * Exchange/Stocks `Item` (ან სხვა იგივე ref) → Balance **Exchange/Items** ფიდის leaf ხაზის `uid`
- * (Balance-ის კატალოგიდან დაბრუნებული პროდუქტის UUID — ItemsSeries `?uid=` სწორედ ეს უნდა იყოს).
+ * (Balance-ის კატალოგიდან დაბრუნებული პროდუქტის UUID — ItemsSeries query `Item` სწორედ ეს უნდა იყოს).
  */
 export function nomenclatureUidForItemsSeriesFromBalanceItems(
   exchangeOrRawItemUid: string,
@@ -594,6 +648,29 @@ export function normalizeBalanceItemSeriesRows(data: unknown): BalanceItemSeries
     });
   }
   return out;
+}
+
+/**
+ * სრული ItemsSeries პასუხი (მასივი) → ნომენკლატურის `Item` GUID-ით დაჯგუფებული ხაზები.
+ * Map key = `Item`.toLowerCase() — sync-ში lookup `itemUid.trim().toLowerCase()`-ით.
+ */
+export function groupItemsSeriesByNomenclatureItemUid(
+  data: unknown
+): Map<string, BalanceItemSeriesLine[]> {
+  const rows = getBalanceItems(data);
+  const map = new Map<string, BalanceItemSeriesLine[]>();
+  for (const row of rows) {
+    const itemUid = getStr(row, 'Item', 'item').trim();
+    if (!itemUid) continue;
+    const lines = normalizeBalanceItemSeriesRows([row]);
+    const line = lines[0];
+    if (!line) continue;
+    const k = itemUid.toLowerCase();
+    const bucket = map.get(k) ?? [];
+    bucket.push(line);
+    map.set(k, bucket);
+  }
+  return map;
 }
 
 /** Stocks `Series` → ItemsSeries ხაზებიდან შესაბამისი (თუ ცარიელია stockSeries — ყველა ხაზი) */

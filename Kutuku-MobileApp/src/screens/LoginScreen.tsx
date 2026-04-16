@@ -12,7 +12,6 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -52,15 +51,15 @@ export function LoginScreen({ onLogin, onRegisterPress, onForgotPassword }: Logi
     setLoading(true);
     try {
       const result = await UserService.login(emailOrPhone.trim(), password);
-      setLoading(false);
       if (!result.success) {
-        setErrors((e) => ({ ...e, password: result.message }));
+        setErrors((e) => ({ ...e, password: result.message || 'შესვლა ვერ მოხერხდა' }));
         return;
       }
       onLogin();
     } catch (err: unknown) {
-      setLoading(false);
       Alert.alert('შეცდომა', (err as Error)?.message || 'რაღაც არასწორად მოხდა');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -71,11 +70,11 @@ export function LoginScreen({ onLogin, onRegisterPress, onForgotPassword }: Logi
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
       >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <ScrollView
+        <ScrollView
             style={styles.scroll}
             contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
             showsVerticalScrollIndicator={false}
           >
             {/* Hero section with gradient-like background */}
@@ -92,6 +91,10 @@ export function LoginScreen({ onLogin, onRegisterPress, onForgotPassword }: Logi
                 <Text style={styles.brand}>Aphoteka</Text>
                 <Text style={styles.title}>კეთილი იყოს თქვენი დაბრუნება</Text>
                 <Text style={styles.subtitle}>შედით ანგარიშში</Text>
+                <Text style={styles.loginHint}>
+                  ტელეფონით შესვლა მუშაობს მაშინ, როცა რეგისტრაციისას მიუთითეთ იმავე ნომერი. ძველი ანგარიშით
+                  შედით ელფოსტით.
+                </Text>
               </View>
             </View>
 
@@ -107,7 +110,8 @@ export function LoginScreen({ onLogin, onRegisterPress, onForgotPassword }: Logi
                     setEmailOrPhone(text);
                     if (errors.emailOrPhone) setErrors((e) => ({ ...e, emailOrPhone: '' }));
                   }}
-                  keyboardType="email-address"
+                  keyboardType="default"
+                  textContentType="username"
                   autoCapitalize="none"
                   autoCorrect={false}
                   error={errors.emailOrPhone}
@@ -155,8 +159,7 @@ export function LoginScreen({ onLogin, onRegisterPress, onForgotPassword }: Logi
                 <Text style={styles.footerLink}>რეგისტრაცია</Text>
               </TouchableOpacity>
             </View>
-          </ScrollView>
-        </TouchableWithoutFeedback>
+        </ScrollView>
       </KeyboardAvoidingView>
     </View>
   );
@@ -251,6 +254,14 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 15,
     color: 'rgba(255,255,255,0.8)',
+    textAlign: 'center',
+  },
+  loginHint: {
+    marginTop: 14,
+    marginHorizontal: 12,
+    fontSize: 12,
+    lineHeight: 17,
+    color: 'rgba(255,255,255,0.75)',
     textAlign: 'center',
   },
   cardWrap: {

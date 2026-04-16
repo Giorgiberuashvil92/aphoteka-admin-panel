@@ -1,9 +1,13 @@
 import type { Warehouse } from '@/types';
+import { nextAppJson } from '@/lib/nextAppApi';
 
 /** კლიენტიდან – პროქსი სერვერზე (Basic auth Balance-ზე არ გამოდის ბრაუზერში) */
 export async function getBalanceWarehouses(): Promise<unknown> {
-  const res = await fetch('/api/balance/warehouses', { cache: 'no-store' });
-  const json = await res.json();
+  const json = await nextAppJson<{
+    ok?: boolean;
+    error?: string;
+    data?: unknown;
+  }>('/api/balance/warehouses');
   if (!json.ok) throw new Error(json.error || 'Balance API შეცდომა');
   return json.data;
 }
@@ -20,6 +24,8 @@ export function rowsFromBalanceWarehouses(data: unknown): Record<string, unknown
   if (Array.isArray(data)) return data as Record<string, unknown>[];
   if (data && typeof data === 'object') {
     const o = data as Record<string, unknown>;
+    /** Balance პასუხი: `{ ok: true, data: [...] }` */
+    if (Array.isArray(o.data)) return o.data as Record<string, unknown>[];
     if (Array.isArray(o.Items)) return o.Items as Record<string, unknown>[];
     if (Array.isArray(o.value)) return o.value as Record<string, unknown>[];
     if (Array.isArray(o.Value)) return o.Value as Record<string, unknown>[];
@@ -36,7 +42,16 @@ export function mapBalanceWarehouseToWarehouse(
     getStr(row, 'Name', 'Description', 'WarehouseName', 'Title', 'name', 'Type') || 'საწყობი';
   const name = city ? `${city} - ${warehousePart}` : warehousePart;
 
-  const addressRaw = getStr(row, 'Address', 'address', 'Location', 'Street', 'მისამართი');
+  /** Balance Exchange ველი `Adress` + სტანდარტული `Address` / სხვა */
+  const addressRaw = getStr(
+    row,
+    'Adress',
+    'Address',
+    'address',
+    'Location',
+    'Street',
+    'მისამართი',
+  );
   const address = addressRaw
     ? addressRaw.startsWith('ქ.')
       ? addressRaw

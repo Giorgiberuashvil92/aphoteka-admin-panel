@@ -1,3 +1,5 @@
+import { nextAppJson } from '@/lib/nextAppApi';
+
 const BALANCE_CLIENT_LOG_JSON =
   process.env.NODE_ENV === 'development' ||
   process.env.NEXT_PUBLIC_BALANCE_CLIENT_LOG_JSON === '1';
@@ -40,11 +42,11 @@ export async function getBalanceExchangeStocks(
   if (params?.Source !== undefined) sp.set('Source', params.Source);
   if (params?.Total !== undefined) sp.set('Total', params.Total ? 'true' : 'false');
   const qs = sp.toString();
-  const res = await fetch(
-    `/api/balance/exchange-stocks${qs ? `?${qs}` : ''}`,
-    { cache: 'no-store' }
-  );
-  const json = await res.json();
+  const json = await nextAppJson<{
+    ok?: boolean;
+    error?: string;
+    data?: unknown;
+  }>(`/api/balance/exchange-stocks${qs ? `?${qs}` : ''}`);
   logBalanceClientJson(
     `exchange-stocks ${qs ? `?${qs}` : ''}`,
     json
@@ -60,8 +62,11 @@ export function rowsFromBalanceExchangeStocks(data: unknown): Record<string, unk
 
 /** კლიენტიდან – ნაშთები Balance Exchange-იდან */
 export async function getBalanceStocks(): Promise<unknown> {
-  const res = await fetch('/api/balance/stocks', { cache: 'no-store' });
-  const json = await res.json();
+  const json = await nextAppJson<{
+    ok?: boolean;
+    error?: string;
+    data?: unknown;
+  }>('/api/balance/stocks');
   logBalanceClientJson('stocks /api/balance/stocks', json);
   if (!json.ok) throw new Error(json.error || 'Balance Stocks API შეცდომა');
   return json.data;
@@ -73,8 +78,11 @@ export function rowsFromBalanceStocks(data: unknown): Record<string, unknown>[] 
 
 /** კლიენტიდან – ფასები Balance Exchange-იდან */
 export async function getBalancePrices(): Promise<unknown> {
-  const res = await fetch('/api/balance/prices', { cache: 'no-store' });
-  const json = await res.json();
+  const json = await nextAppJson<{
+    ok?: boolean;
+    error?: string;
+    data?: unknown;
+  }>('/api/balance/prices');
   logBalanceClientJson('prices /api/balance/prices', json);
   if (!json.ok) throw new Error(json.error || 'Balance Prices API შეცდომა');
   return json.data;
@@ -82,15 +90,18 @@ export async function getBalancePrices(): Promise<unknown> {
 
 /** კლიენტიდან – ItemPricing (Exchange) */
 export async function getBalanceItemPricing(): Promise<unknown> {
-  const res = await fetch('/api/balance/item-pricing', { cache: 'no-store' });
-  const json = await res.json();
+  const json = await nextAppJson<{
+    ok?: boolean;
+    error?: string;
+    data?: unknown;
+  }>('/api/balance/item-pricing');
   logBalanceClientJson('item-pricing /api/balance/item-pricing', json);
   if (!json.ok) throw new Error(json.error || 'Balance ItemPricing API შეცდომა');
   return json.data;
 }
 
 /**
- * `itemUid` — ნომენკლატურის Item → მოთხოვნა მხოლოდ `?uid=...` (სტანდარტი).
+ * `itemUid` — ნომენკლატურის Item → `GET /api/balance/ItemSeries` პარამეტრი `Item` (ძველი: `item`).
  * მხოლოდ `stockSeriesUid` — `?seriesUuid=...` (სერვერი Item-ს Exchange/Stocks-იდან იპოვის).
  */
 export async function getBalanceItemsSeries(
@@ -104,7 +115,7 @@ export async function getBalanceItemsSeries(
   const sp = new URLSearchParams();
   const u = itemUid?.trim();
   const ser = opts?.stockSeriesUid?.trim();
-  if (u) sp.set('uid', u);
+  if (u) sp.set('Item', u);
   if (ser) sp.set('seriesUuid', ser);
   if (!u && !ser) {
     throw new Error(
@@ -115,15 +126,16 @@ export async function getBalanceItemsSeries(
   const e = opts?.endingPeriod?.trim();
   if (s) sp.set('StartingPeriod', s);
   if (e) sp.set('EndingPeriod', e);
-  const res = await fetch(`/api/balance/items-series?${sp.toString()}`, {
-    cache: 'no-store',
-  });
-  const json = await res.json();
+  const json = await nextAppJson<{
+    ok?: boolean;
+    error?: string;
+    data?: unknown;
+  }>(`/api/balance/ItemSeries?${sp.toString()}`);
   const logLabel = ser
     ? u
-      ? `items-series uid=${u}&seriesUuid=${ser}`
-      : `items-series ?seriesUuid=${ser}`
-    : `items-series ?uid=${u}`;
+      ? `ItemSeries Item ?Item=${u}&seriesUuid=${ser}`
+      : `ItemSeries ?seriesUuid=${ser}`
+    : `ItemSeries Item ?Item=${u}`;
   logBalanceClientJson(logLabel, json);
   if (!json.ok) throw new Error(json.error || 'Balance ItemsSeries API შეცდომა');
   return json.data;

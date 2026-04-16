@@ -1,5 +1,11 @@
 import { getApiBaseUrl } from '@/lib/apiBaseUrl';
-import { getAuthToken } from '@/lib/authToken';
+import { nextAppFetch, nextAppJson } from '@/lib/nextAppApi';
+import {
+  clearAuthToken,
+  ensureAuthTokenFromEnv,
+  getAuthToken,
+} from '@/lib/authToken';
+import { bootstrapAdminAuth } from '@/lib/bootstrapAdminAuth';
 
 // Mock მხოლოდ local dev-ში, როცა NEXT_PUBLIC_API_URL არ არის; production / Vercel → რეალური API
 const USE_MOCK_DATA =
@@ -18,7 +24,7 @@ export class ApiError extends Error {
 
 export async function apiRequest<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit & { _authRetry?: boolean } = {}
 ): Promise<T> {
   // Route to appropriate handler
   const path = endpoint.split('?')[0];
@@ -282,12 +288,16 @@ export async function apiRequest<T>(
       return mockApiResponses.warehouses.create(body) as T;
     }
     
-    if (path.startsWith('/warehouses/') && method === 'PUT') {
-      const id = path.split('/warehouses/')[1];
+    if (
+      path.startsWith('/warehouses/') &&
+      method === 'PATCH' &&
+      !path.includes('toggle-status')
+    ) {
+      const id = path.split('/warehouses/')[1].split('/')[0];
       const body = options.body ? JSON.parse(options.body as string) : {};
       return mockApiResponses.warehouses.update(id, body) as T;
     }
-    
+
     if (path.startsWith('/warehouses/') && method === 'PATCH' && path.includes('toggle-status')) {
       const id = path.split('/warehouses/')[1].split('/')[0];
       return mockApiResponses.warehouses.toggleStatus(id) as T;
@@ -337,13 +347,19 @@ export async function apiRequest<T>(
     return {} as T;
   }
 
+  const { _authRetry, ...restOptions } = options;
+
   const apiBase = getApiBaseUrl();
   const url = `${apiBase}${endpoint}`;
-  const requestBody = options.body ? (typeof options.body === 'string' ? JSON.parse(options.body) : options.body) : undefined;
+  const requestBody = restOptions.body
+    ? typeof restOptions.body === 'string'
+      ? JSON.parse(restOptions.body)
+      : restOptions.body
+    : undefined;
   if (process.env.NODE_ENV === 'development') {
     console.log('🔍 API Request:', {
       url,
-      method: options.method || 'GET',
+      method: restOptions.method || 'GET',
       apiBase,
       endpoint,
       body: requestBody,
@@ -351,10 +367,14 @@ export async function apiRequest<T>(
   }
   
   /** GET/HEAD + Content-Type: application/json → ყოველთვის CORS preflight; Railway/ვერსელი ზოგჯერ იქ ჩავარდება */
-  const methodUpper = (options.method || 'GET').toUpperCase();
+  const methodUpper = (restOptions.method || 'GET').toUpperCase();
   const defaultHeaders: HeadersInit = {};
   if (methodUpper !== 'GET' && methodUpper !== 'HEAD') {
     defaultHeaders['Content-Type'] = 'application/json';
+  }
+
+  if (typeof window !== 'undefined') {
+    ensureAuthTokenFromEnv();
   }
 
   const token = getAuthToken();
@@ -363,10 +383,10 @@ export async function apiRequest<T>(
   }
 
   const config: RequestInit = {
-    ...options,
+    ...restOptions,
     headers: {
       ...defaultHeaders,
-      ...options.headers,
+      ...restOptions.headers,
     },
   };
 
@@ -374,6 +394,24 @@ export async function apiRequest<T>(
     const response = await fetch(url, config);
 
     if (!response.ok) {
+      if (response.status === 401 && typeof window !== 'undefined') {
+        if (!_authRetry) {
+          await bootstrapAdminAuth();
+          ensureAuthTokenFromEnv();
+          if (getAuthToken()) {
+            return apiRequest<T>(endpoint, { ...options, _authRetry: true });
+          }
+        }
+        /** სესია აღარ მოქმედებს — გამოგდება შესვლაზე */
+        clearAuthToken();
+        const path =
+          `${window.location.pathname || '/'}${window.location.search || ''}`;
+        window.location.replace(
+          `/login?from=${encodeURIComponent(path)}`,
+        );
+        const errorData = await response.json().catch(() => ({}));
+        throw new ApiError(response.status, response.statusText, errorData);
+      }
       const errorData = await response.json().catch(() => ({}));
       throw new ApiError(response.status, response.statusText, errorData);
     }
@@ -421,4 +459,13 @@ export const api = {
 
   delete: <T>(endpoint: string, options?: RequestInit) =>
     apiRequest<T>(endpoint, { ...options, method: 'DELETE' }),
+
+  /**
+   * იმავე Next აპის Route Handlers (`/api/balance/...` და სხვა).
+   * Nest-ისთვის იყენებე `api.get` / `api.post` (`getApiBaseUrl`).
+   */
+  fetch: (path: string, init?: RequestInit) => nextAppFetch(path, init),
+
+  fetchJson: <T = unknown>(path: string, init?: RequestInit) =>
+    nextAppJson<T>(path, init),
 };

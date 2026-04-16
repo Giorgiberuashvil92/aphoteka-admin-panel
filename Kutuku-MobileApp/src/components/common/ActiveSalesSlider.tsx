@@ -177,41 +177,11 @@ export function ActiveSalesSlider({
 
   return (
     <View style={styles.container}>
-      <SectionHeader
-        title="აქტიური გაყიდვები"
-        currentIndex={currentIndex}
-        totalItems={maxScrollableIndex + 1}
-        onPrevious={handlePrevious}
-        onNext={handleNext}
-        showNavigation={sales.length > 1}
-      />
+      
 
-      <FlatList
-        ref={flatListRef}
-        data={sales}
-        renderItem={renderSale}
-        keyExtractor={(item) => item.id}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        ItemSeparatorComponent={renderSeparator}
-        contentContainerStyle={styles.listContent}
-        bounces={false}
-        onScroll={handleScroll}
-        pagingEnabled
-        snapToInterval={snapInterval}
-        decelerationRate="fast"
-        scrollEventThrottle={16}
-        disableIntervalMomentum
-        maxToRenderPerBatch={2}
-        windowSize={3}
-        removeClippedSubviews
-      />
+     
 
-      {onViewAll && (
-        <TouchableOpacity style={styles.viewAllButton} onPress={onViewAll}>
-          <Text style={styles.viewAllText}>ყველას ნახვა</Text>
-        </TouchableOpacity>
-      )}
+      
     </View>
   );
 }

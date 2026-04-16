@@ -4,6 +4,10 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Order, OrderStatus, PaymentStatus } from "@/types";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
+import {
+  BogOrderCallbackView,
+  hasBogDisplayData,
+} from "@/components/orders/BogOrderCallbackView";
 import { ordersApi } from "@/lib/api";
 import { ApiError } from "@/lib/api/client";
 
@@ -186,6 +190,12 @@ export default function OrderDetailPage() {
               მიტანის ინფორმაცია
             </h2>
             <div className="space-y-2 text-sm">
+              {order.comment ? (
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">შენიშვნა / გადახდა: </span>
+                  <span className="text-gray-900 dark:text-white">{order.comment}</span>
+                </div>
+              ) : null}
               <div>
                 <span className="text-gray-500 dark:text-gray-400">მისამართი: </span>
                 <span className="text-gray-900 dark:text-white">{order.deliveryAddress}</span>
@@ -204,6 +214,15 @@ export default function OrderDetailPage() {
               </div>
             </div>
           </div>
+
+          {hasBogDisplayData(order) ? (
+            <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+              <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
+                ონლაინ გადახდა (საქართველოს ბანკი / BOG)
+              </h2>
+              <BogOrderCallbackView order={order} />
+            </div>
+          ) : null}
         </div>
 
         <div className="space-y-6">
@@ -296,6 +315,14 @@ export default function OrderDetailPage() {
                   {paymentLabel(order.paymentStatus)}
                 </span>
               </div>
+              {order.bogPaymentStatus ? (
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">BOG სტატუსი: </span>
+                  <span className="font-mono text-xs text-gray-900 dark:text-white">
+                    {order.bogPaymentStatus}
+                  </span>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>

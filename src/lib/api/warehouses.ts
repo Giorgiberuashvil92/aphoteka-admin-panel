@@ -44,9 +44,9 @@ export const warehousesApi = {
     return api.post<WarehouseResponse>('/warehouses', warehouse);
   },
 
-  // Update warehouse
+  // Update warehouse (Nest: PATCH /warehouses/:id)
   update: async (id: string, warehouse: Partial<Warehouse>): Promise<WarehouseResponse> => {
-    return api.put<WarehouseResponse>(`/warehouses/${id}`, warehouse);
+    return api.patch<WarehouseResponse>(`/warehouses/${id}`, warehouse);
   },
 
   // Toggle warehouse status

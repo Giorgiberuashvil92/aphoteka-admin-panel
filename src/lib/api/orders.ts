@@ -43,7 +43,38 @@ type ApiOrder = {
   comment?: string;
   createdAt?: string | Date;
   updatedAt?: string | Date;
+  bogOrderId?: string;
+  bogPaymentStatus?: string;
+  bogLastCallbackAt?: string | Date;
+  bogLastCallbackRaw?: Record<string, unknown>;
 };
+
+function parseDate(raw: string | Date | undefined): Date | undefined {
+  if (raw == null) return undefined;
+  if (raw instanceof Date) return raw;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+/** გადახდის სტატუსი UI-სთვის — BOG + შეკვეთის სტატუსი */
+function derivePaymentStatus(raw: ApiOrder): PaymentStatus {
+  const bog = (raw.bogPaymentStatus || '').toLowerCase();
+  if (['completed', 'success', 'paid', 'captured'].includes(bog)) {
+    return PaymentStatus.COMPLETED;
+  }
+  if (
+    ['rejected', 'failed', 'cancelled', 'declined', 'canceled'].some((k) =>
+      bog.includes(k),
+    )
+  ) {
+    return PaymentStatus.FAILED;
+  }
+  const st = (raw.status || '').toLowerCase();
+  if (st === 'confirmed' || st === 'shipped' || st === 'delivered') {
+    return PaymentStatus.COMPLETED;
+  }
+  return PaymentStatus.PENDING;
+}
 
 function oid(raw: unknown): string {
   if (raw == null) return '';
@@ -206,11 +237,27 @@ export function normalizeOrderFromApi(raw: ApiOrder): Order {
     status: mapBackendOrderStatusToUi(raw.status),
     totalAmount: Number(raw.totalAmount) || 0,
     deliveryFee: 0,
-    paymentStatus: PaymentStatus.PENDING,
+    paymentStatus: derivePaymentStatus(raw),
     deliveryAddress: deliveryAddr,
     deliveryCity: cityGuess || '—',
     deliveryPhone: raw.phoneNumber?.trim() || populatedUser?.phoneNumber || '—',
     warehouseLocation: undefined,
+    comment: raw.comment?.trim() || undefined,
+    bogOrderId:
+      typeof raw.bogOrderId === 'string' && raw.bogOrderId.trim()
+        ? raw.bogOrderId.trim()
+        : undefined,
+    bogPaymentStatus:
+      typeof raw.bogPaymentStatus === 'string' && raw.bogPaymentStatus.trim()
+        ? raw.bogPaymentStatus.trim()
+        : undefined,
+    bogLastCallbackAt: parseDate(raw.bogLastCallbackAt),
+    bogLastCallbackRaw:
+      raw.bogLastCallbackRaw &&
+      typeof raw.bogLastCallbackRaw === 'object' &&
+      !Array.isArray(raw.bogLastCallbackRaw)
+        ? raw.bogLastCallbackRaw
+        : undefined,
     createdAt: raw.createdAt ? new Date(raw.createdAt) : new Date(),
     updatedAt: raw.updatedAt ? new Date(raw.updatedAt) : new Date(),
     items,

@@ -1,9 +1,18 @@
+import { Platform } from 'react-native';
+
 /**
- * Default: ლოკალური Nest API.
- * Dev (__DEV__): პირდაპირ localhost.
+ * Dev (__DEV__): ლოკალური Nest.
+ * Android ემულატორზე `localhost` თავად ემულატორს ეკუთვნის — მაკზე Nest-ისთვის გამოიყენე `10.0.2.2`.
+ * Production fallback: Railway (EAS-ში ხშირად EXPO_PUBLIC_API_URL იგივეა).
  * Override: EXPO_PUBLIC_API_URL (.env) — ყოველთვის უპირატესია.
  */
-const LOCAL_API_BASE = 'http://localhost:3001/api';
+const LOCAL_API_HOST =
+  typeof Platform !== 'undefined' && Platform.OS === 'android'
+    ? 'http://10.0.2.2:3001'
+    : 'http://localhost:3001';
+const LOCAL_API_BASE = `${LOCAL_API_HOST}/api`;
+const PRODUCTION_API_BASE =
+  'https://aphoteka-admin-panel-production.up.railway.app/api';
 
 export function getApiBaseUrl(): string {
   const raw =
@@ -14,7 +23,7 @@ export function getApiBaseUrl(): string {
     return LOCAL_API_BASE.replace(/\/$/, '');
   }
 
-  return LOCAL_API_BASE.replace(/\/$/, '');
+  return PRODUCTION_API_BASE.replace(/\/$/, '');
 }
 
 export const API_CONFIG = {
@@ -50,6 +59,7 @@ export const API_CONFIG = {
     },
     prescriptions: {
       create: '/prescriptions',
+      my: '/prescriptions/my',
     },
     promotions: {
       active: '/promotions/active',

@@ -1,6 +1,7 @@
 import {
+  BALANCE_ITEMS_SERIES_ITEM_QUERY_PARAM,
   BALANCE_PUBLICATION_ID,
-  balanceExchangeUrl,
+  balanceItemsSeriesCloudBaseUrl,
   balanceProbeGet,
 } from '@/lib/api/balanceClient';
 import { NextRequest, NextResponse } from 'next/server';
@@ -10,36 +11,32 @@ const BALANCE_GUID_UID_RE =
 
 /**
  * დებაგი: ItemsSeries ნედლი HTTP პასუხი (სტატუსი + body ტექსტი).
- * ბრაუზერიდან პირდაპირ cloud.balance.ge → CORS; ეს route სერვერზე იძახის იგივე URL-ს.
  *
- * - ნაგულისხმევად: Basic Auth (`BALANCE_USER_NAME` / `BALANCE_USER_PASSWORD`)
- * - `skipAuth=1` — უსათაუროდ (როგორც ცარიელი Authorization სნიპეტში); 401/403 სანახავად
- *
- * curl "http://localhost:3000/api/balance/items-series/probe?uid=4a686c46-ce32-11ed-80e0-000c29409daa"
- * curl "http://localhost:3000/api/balance/items-series/probe?uid=...&skipAuth=1"
+ * curl "http://localhost:3000/api/balance/ItemSeries/probe?Item=4a686c46-ce32-11ed-80e0-000c29409daa"
  */
 export async function GET(request: NextRequest) {
-  const uid = request.nextUrl.searchParams.get('uid')?.trim();
-  if (!uid || !BALANCE_GUID_UID_RE.test(uid)) {
+  const sp = request.nextUrl.searchParams;
+  const itemGuid =
+    sp.get('Item')?.trim() ||
+    sp.get('item')?.trim();
+  if (!itemGuid || !BALANCE_GUID_UID_RE.test(itemGuid)) {
     return NextResponse.json(
       {
         ok: false as const,
-        error: 'uid სავალდებულოა (GUID)',
-        example: `GET /api/balance/items-series/probe?uid=4a686c46-ce32-11ed-80e0-000c29409daa`,
+        error: 'Item სავალდებულოა: პარამეტრი `Item` (GUID; ძველი alias: `item`)',
+        example: `GET /api/balance/ItemSeries/probe?Item=4a686c46-ce32-11ed-80e0-000c29409daa`,
       },
       { status: 400 }
     );
   }
 
-  const mode =
-    request.nextUrl.searchParams.get('mode') === 'o' ? ('o' as const) : ('a' as const);
   const skipAuth = request.nextUrl.searchParams.get('skipAuth') === '1';
   const starting = request.nextUrl.searchParams.get('StartingPeriod')?.trim() ?? '';
   const ending = request.nextUrl.searchParams.get('EndingPeriod')?.trim() ?? '';
 
-  const base = balanceExchangeUrl(mode, 'ItemsSeries');
+  const base = balanceItemsSeriesCloudBaseUrl();
   const u = new URL(base);
-  u.searchParams.set('uid', uid);
+  u.searchParams.set(BALANCE_ITEMS_SERIES_ITEM_QUERY_PARAM, itemGuid);
   if (starting) u.searchParams.set('StartingPeriod', starting);
   if (ending) u.searchParams.set('EndingPeriod', ending);
   const url = u.toString();
@@ -49,7 +46,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true as const,
     balancePublicationId: BALANCE_PUBLICATION_ID,
-    mode,
+    mode: 'a' as const,
     note:
       'პირდაპირ browser fetch cloud.balance.ge-ზე ჩვეულებრივ CORS-ით ჩაიჭრება. აქ ნაჩვენებია რას აბრუნებს Balance (httpStatus + bodyText). GET-ზე body არ უნდა იყოს — სნიპეტში body საერთოდ არ გამოიყენო.',
     ...probe,

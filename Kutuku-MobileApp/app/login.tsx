@@ -6,7 +6,7 @@ export default function LoginPage() {
 
   return (
     <LoginScreen
-      onLogin={() => router.push('/home' as any)}
+      onLogin={() => router.replace('/home' as any)}
       onRegisterPress={() => router.push('/register' as any)}
       onForgotPassword={() => router.push('/forgot-password' as any)}
     />

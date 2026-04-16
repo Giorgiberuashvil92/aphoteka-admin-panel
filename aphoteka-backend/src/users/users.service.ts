@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import * as bcrypt from 'bcrypt';
 import { User, UserDocument } from './schemas/user.schema';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -14,15 +15,20 @@ export class UsersService {
   constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {}
 
   async create(createUserDto: CreateUserDto): Promise<User> {
-    const userData: any = {
-      ...createUserDto,
+    const { password: plainPassword, ...rest } = createUserDto;
+    const userData: Record<string, unknown> = {
+      ...rest,
     };
+
+    if (plainPassword?.trim()) {
+      userData.password = await bcrypt.hash(plainPassword.trim(), 10);
+    }
 
     if (createUserDto.warehouseId) {
       userData.warehouseId = new Types.ObjectId(createUserDto.warehouseId);
     }
 
-    const createdUser = new this.userModel(userData);
+    const createdUser = new this.userModel(userData as never);
     const savedUser = await createdUser.save();
 
     // Populate warehouse if warehouseId exists
@@ -92,14 +98,19 @@ export class UsersService {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
-    const updateData: any = { ...updateUserDto };
+    const { password: plainPassword, ...rest } = updateUserDto;
+    const updateData: Record<string, unknown> = { ...rest };
+
+    if (plainPassword?.trim()) {
+      updateData.password = await bcrypt.hash(plainPassword.trim(), 10);
+    }
 
     if (updateUserDto.warehouseId) {
       updateData.warehouseId = new Types.ObjectId(updateUserDto.warehouseId);
     }
 
     const user = await this.userModel
-      .findByIdAndUpdate(id, updateData, { new: true })
+      .findByIdAndUpdate(id, updateData as never, { new: true })
       .populate('warehouseId')
       .exec();
 

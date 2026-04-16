@@ -617,7 +617,26 @@ export default function ProductFormModal({
             </div>
 
             {/* 19. კატეგორია (ადმინში შექმნილი კატეგორიებიდან) */}
-           
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                კატეგორია
+              </label>
+              <select
+                value={formData.category}
+                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              >
+                <option value="">— არ არის არჩეული —</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.name}>
+                    {c.name} ({c.productCount} პროდუქტი)
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                კატეგორიების დამატება/რედაქტირება: კატეგორიები მენიუ
+              </p>
+            </div>
 
           </div>
 

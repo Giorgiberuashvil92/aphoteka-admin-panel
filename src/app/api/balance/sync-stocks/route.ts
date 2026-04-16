@@ -1,6 +1,7 @@
 import {
   fetchBalanceExchangeStocks,
   fetchBalanceItemsSeriesForItem,
+  fetchBalanceItemsSeriesFullList,
   fetchBalancePrices,
   fetchBalancePricesByUuid,
   fetchBalanceStocks,
@@ -19,6 +20,7 @@ import {
   getBalanceItems,
   getBalancePricesRows,
   getItemUuid,
+  groupItemsSeriesByNomenclatureItemUid,
   isBalanceGroupRow,
   mapBalanceItemToProduct,
   mergeBalanceItemSeriesFromStocks,
@@ -96,31 +98,72 @@ export async function POST(request: NextRequest) {
 
     const seriesByItemUid = new Map<string, BalanceItemSeriesLine[]>();
     const seriesFetchOk = new Set<string>();
-    const seriesSettled = await Promise.allSettled(
-      leafUuids.map((uid) => fetchBalanceItemsSeriesForItem(uid))
-    );
     const logSeries =
       process.env.BALANCE_LOG_ITEMS_SERIES === '1' ||
       process.env.NODE_ENV === 'development';
-    leafUuids.forEach((uid, i) => {
-      const r = seriesSettled[i];
-      if (r.status === 'fulfilled') {
+
+    let bulkGrouped = new Map<string, BalanceItemSeriesLine[]>();
+    try {
+      const fullList = await fetchBalanceItemsSeriesFullList();
+      bulkGrouped = groupItemsSeriesByNomenclatureItemUid(fullList);
+      if (logSeries && bulkGrouped.size > 0) {
+        let n = 0;
+        for (const lines of bulkGrouped.values()) n += lines.length;
+        console.log(
+          `[sync-stocks] ItemsSeries სრული სია: ${n} ხაზი, ${bulkGrouped.size} ნომენკლატურის Item`
+        );
+      }
+    } catch (e) {
+      if (logSeries) {
+        console.warn('[sync-stocks] ItemsSeries სრული სია ვერ ჩაიტვირთა, per-Item fallback', e);
+      }
+    }
+
+    for (const uid of leafUuids) {
+      const fromBulk = bulkGrouped.get(uid.trim().toLowerCase());
+      if (fromBulk && fromBulk.length > 0) {
+        seriesByItemUid.set(uid, fromBulk);
         seriesFetchOk.add(uid);
         if (logSeries) {
           try {
-            const raw = JSON.stringify(r.value, null, 2);
-            const max = 24_000;
+            const raw = JSON.stringify(fromBulk, null, 2);
+            const max = 12_000;
             console.log(
-              `[sync-stocks] ItemsSeries Balance JSON (ნომენკლატურის Item uid=${uid})\n`,
-              raw.length > max ? `${raw.slice(0, max)}… (${raw.length} chars)` : raw
+              `[sync-stocks] ItemsSeries bulk (Item=${uid})\n`,
+              raw.length > max ? `${raw.slice(0, max)}…` : raw
             );
           } catch {
-            console.log('[sync-stocks] ItemsSeries raw', uid, r.value);
+            console.log('[sync-stocks] ItemsSeries bulk', uid, fromBulk);
           }
         }
-        seriesByItemUid.set(uid, normalizeBalanceItemSeriesRows(r.value));
       }
-    });
+    }
+
+    const missingSeriesUids = leafUuids.filter((uid) => !seriesFetchOk.has(uid));
+    if (missingSeriesUids.length > 0) {
+      const seriesSettled = await Promise.allSettled(
+        missingSeriesUids.map((uid) => fetchBalanceItemsSeriesForItem(uid))
+      );
+      missingSeriesUids.forEach((uid, i) => {
+        const r = seriesSettled[i];
+        if (r.status === 'fulfilled') {
+          seriesFetchOk.add(uid);
+          if (logSeries) {
+            try {
+              const raw = JSON.stringify(r.value, null, 2);
+              const max = 24_000;
+              console.log(
+                `[sync-stocks] ItemsSeries per-Item (uid=${uid})\n`,
+                raw.length > max ? `${raw.slice(0, max)}… (${raw.length} chars)` : raw
+              );
+            } catch {
+              console.log('[sync-stocks] ItemsSeries raw', uid, r.value);
+            }
+          }
+          seriesByItemUid.set(uid, normalizeBalanceItemSeriesRows(r.value));
+        }
+      });
+    }
 
     if (withSku.length === 0) {
       return NextResponse.json({
@@ -228,12 +271,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    let itemsSeriesBulkLineCount = 0;
+    for (const lines of bulkGrouped.values()) itemsSeriesBulkLineCount += lines.length;
+
     return NextResponse.json({
       ok: true,
       created,
       updated,
       total: withSku.length,
       errors: errors.length ? errors : undefined,
+      itemsSeriesBulkUsed: bulkGrouped.size > 0,
+      itemsSeriesBulkLineCount:
+        bulkGrouped.size > 0 ? itemsSeriesBulkLineCount : undefined,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

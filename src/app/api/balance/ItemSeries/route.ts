@@ -12,6 +12,7 @@ import {
   exchangeStockRowSeriesUid,
   getBalanceItems,
   nomenclatureUidForItemsSeriesFromBalanceItems,
+  normalizeBalanceItemsSeriesApiRows,
 } from '@/lib/api/balanceSync';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -67,7 +68,7 @@ async function resolveItemUidFromExchangeStockSeries(
   return null;
 }
 
-/** ItemsSeries `uid` = Exchange/Items კატალოგის leaf `uid` (იგივე რაც Balance პროდუქტზეა) */
+/** ItemsSeries cloud: პარამეტრი `Item` = Exchange/Items კატალოგის Item (leaf `uid` ველის მნიშვნელობა). */
 async function canonicalNomenclatureUidForItemsSeries(
   itemUid: string
 ): Promise<string> {
@@ -82,11 +83,26 @@ async function canonicalNomenclatureUidForItemsSeries(
   }
 }
 
+/** სრული cloud URL JSON-ში — მხოლოდ ამით (არა ყოველთვის development-ში). */
+const ITEM_SERIES_DEBUG_URLS =
+  process.env.BALANCE_DEBUG_ITEMS_SERIES === '1';
+
+/** ერთადერთი proxy path: `/api/balance/ItemSeries` (არა `item-series`). */
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
-  /** სტანდარტი: `uid`. `nomenclatureItemUid` — მხოლოდ ძველი/ალტერნატიული სახელი (იგივე მნიშვნელობა). */
+  /** canonical: `item=` → `Item=` */
+  const legacyItemParam = sp.get('item')?.trim();
+  const canonicalItemParam = sp.get('Item')?.trim();
+  if (legacyItemParam !== undefined && legacyItemParam !== '' && !canonicalItemParam) {
+    const url = request.nextUrl.clone();
+    url.searchParams.delete('item');
+    url.searchParams.set('Item', legacyItemParam);
+    return NextResponse.redirect(url, 307);
+  }
+
   const uid =
-    sp.get('uid')?.trim() ||
+    sp.get('Item')?.trim() ||
+    sp.get('item')?.trim() ||
     sp.get('nomenclatureItemUid')?.trim() ||
     undefined;
   const stockSeriesUid = optionalStockSeriesGuid(sp);
@@ -108,7 +124,7 @@ export async function GET(request: NextRequest) {
       {
         ok: false as const,
         error:
-          'Item `uid` GUID არასწორია. ან გამოიყენე მხოლოდ `seriesUuid` — სერვერი იპოვის Item-ს Exchange/Stocks-იდან.',
+          'Item-ის GUID არასწორია (`Item` პარამეტრი). ან გამოიყენე მხოლოდ `seriesUuid` — სერვერი იპოვის Item-ს Exchange/Stocks-იდან.',
       },
       { status: 400 }
     );
@@ -119,9 +135,11 @@ export async function GET(request: NextRequest) {
       {
         ok: false as const,
         error:
-          'სავალდებულია `uid` (ნომენკლატურის Item) **ან** `seriesUuid` (საწყობის ხაზის Series — Item ავტომატურად).',
+          'სავალდებულია პარამეტრი `Item` (ნომენკლატურის Item, GUID) **ან** `seriesUuid` (საწყობის ხაზის Series — Item ავტომატურად).',
         example:
-          'curl -sS "http://localhost:3000/api/balance/items-series?seriesUuid=1196cf5d-1b18-11f1-b18c-005056b136db"',
+          'curl -sS "http://localhost:3000/api/balance/ItemSeries?seriesUuid=1196cf5d-1b18-11f1-b18c-005056b136db"',
+        exampleItem:
+          'curl -sS "http://localhost:3000/api/balance/ItemSeries?Item=3a160f3c-31f0-11f1-b18f-005056b136db"',
       },
       { status: 400 }
     );
@@ -139,7 +157,7 @@ export async function GET(request: NextRequest) {
           error:
             'ამ `seriesUuid`-ით ხაზი არ მოიძებნა Exchange/Stocks-ში — ვერ გამოვთვალე ნომენკლატურის Item.',
           balanceQueryUid: stockSeriesUid,
-          fix: 'გადაამოწმე seriesUuid ან გამოიყენე ?uid=<Item_UUID>',
+          fix: 'გადაამოწმე seriesUuid ან გამოიყენე ?Item=<Item_GUID>',
         },
         { status: 404 }
       );
@@ -171,12 +189,25 @@ export async function GET(request: NextRequest) {
       logItemsSeriesJson(`OK item=${itemUidForBalance}`, resolvedUrl, data);
     }
 
+    const itemsSeries = normalizeBalanceItemsSeriesApiRows(data);
+    const lineCount = itemsSeries.length;
+    const empty = lineCount === 0;
+
     return NextResponse.json({
       ok: true as const,
       data,
-      requestUrl: resolvedUrl,
+      itemsSeries,
+      lineCount,
+      empty,
+      ...(empty
+        ? {
+            emptyNote:
+              'Balance-მა სერიების ხაზები არ დააბრუნა — ნომენკლატურას შეიძლება სერია საერთოდ არ ჰქონდეს, ან სხვა Item GUID სჭირდებოდეს.',
+          }
+        : {}),
       balanceQueryUid: itemUidForBalance,
       nomenclatureItemUid: itemUidForBalance,
+      ...(ITEM_SERIES_DEBUG_URLS ? { requestUrl: resolvedUrl } : {}),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -189,26 +220,30 @@ export async function GET(request: NextRequest) {
     }
 
     const hintBase =
-      'Balance ItemsSeries `?uid=` = მხოლოდ ნომენკლატურის ref (Exchange/Stocks ხაზის `Item`). პასუხის თითო ჩანაწერს აქვს თავისი `uid` — ეს ემთხვევა იმავე ხაზის `Series`-ს (სერიული № / ვადა იქიდან).';
+      'Balance ItemsSeries: პარამეტრი `Item` = ნომენკლატურის Item ref. პასუხის თითო ჩანაწერს აქვს თავისი `uid` — ეს ემთხვევა იმავე ხაზის `Series`-ს (სერიული № / ვადა იქიდან).';
 
     return NextResponse.json(
       {
         ok: false as const,
         error: message,
-        requestUrl,
         balanceQueryUid: itemUidForBalance,
         nomenclatureItemUid: itemUidForBalance,
         balancePublicationId: BALANCE_PUBLICATION_ID,
-        triedUrls: getBalanceItemsSeriesCandidateUrls(itemUidForBalance, {
-          startingPeriod: starting,
-          endingPeriod: ending,
-        }),
         hint: hintBase,
         ...(looks404
           ? {
               hintPublication:
-                `URL-ში პუბლიკაცია: Balance/${BALANCE_PUBLICATION_ID} (პროექტისთვის ნაგულისხმევი 7596). 404 ჩვეულებრივ არასწორი \`uid\` (უნდა იყოს Item, არა Series), Basic Auth, ან ცარიელი სერიების კატალოგია.`,
-              fix: 'curl -sS "http://localhost:3000/api/balance/items-series?seriesUuid=<Stocks_Series>"',
+                `პუბლიკაცია Balance/${BALANCE_PUBLICATION_ID}. 404 ჩვეულებრივ არასწორი Item ref, Basic Auth, ან პუბლიკაციის ID.`,
+              fix: 'curl -sS "http://localhost:3000/api/balance/ItemSeries?seriesUuid=<Stocks_Series>" ან ?Item=<Item_GUID>',
+            }
+          : {}),
+        ...(ITEM_SERIES_DEBUG_URLS
+          ? {
+              requestUrl,
+              triedUrls: getBalanceItemsSeriesCandidateUrls(itemUidForBalance, {
+                startingPeriod: starting,
+                endingPeriod: ending,
+              }),
             }
           : {}),
       },

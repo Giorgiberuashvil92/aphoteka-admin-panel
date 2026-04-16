@@ -3,8 +3,16 @@ import https from 'node:https';
 import { BALANCE_PUBLICATION_TARGET } from '@/lib/balancePublicationTarget';
 import { getBalanceItems } from '@/lib/api/balanceSync';
 
-const BALANCE_USER_NAME = process.env.BALANCE_USER_NAME ?? 'Ntsulik@gmail.com';
-const BALANCE_USER_PASSWORD = process.env.BALANCE_USER_PASSWORD ?? '1985+Mai';
+/** Balance Basic Auth — სურვილისამებრ აქ შეცვალე. */
+const BALANCE_USER_NAME = 'Ntsulik@gmail.com';
+const BALANCE_USER_PASSWORD = '1985+Mai';
+
+/**
+ * ცარიელი → `Authorization: Basic …` (user/password ზემოთ).
+ * Postman-ში თუ მხოლოდ JWT/სხვა სქემა მუშაობს, აქ ჩასვი **მთელი** `Authorization` მნიშვნელობა
+ * (მაგ. `Bearer eyJhbG…` ან `accessToken=eyJhbG…` — რაც ჰედერში გაქვს).
+ */
+const BALANCE_AUTHORIZATION = '';
 
 /**
  * Cloud: `.../sm/{a|o}/Balance/{ApplicationID}/hs/Exchange/...`
@@ -25,20 +33,32 @@ export function balanceExchangeUrl(
   return `https://cloud.balance.ge/sm/${mode}/Balance/${publicationId}/hs/Exchange/${resource}`;
 }
 
+/**
+ * ItemsSeries — იგივე ბაზა რაც Balance/Postman: `sm/a/Balance/{id}/hs/Exchange/ItemsSeries`
+ * (არა `sm/o/balance/...` — იქ 403 იყო).
+ * `Item` / პერიოდის query — `buildBalanceItemsSeriesUrlForBase`.
+ */
+export function balanceItemsSeriesCloudBaseUrl(
+  publicationId: string = BALANCE_PUBLICATION_ID
+): string {
+  return balanceExchangeUrl('a', 'ItemsSeries', publicationId);
+}
+
 function getEncodedToken(): string {
   const token = `${BALANCE_USER_NAME}:${BALANCE_USER_PASSWORD}`;
   return Buffer.from(token).toString('base64');
 }
 
 export function getBalanceTokenInstance(): AxiosInstance {
-  const encodedToken = getEncodedToken();
+  const authorization = BALANCE_AUTHORIZATION.trim()
+    ? BALANCE_AUTHORIZATION.trim()
+    : 'Basic ' + getEncodedToken();
   return axios.create({
     httpsAgent: new https.Agent({
       rejectUnauthorized: false,
     }),
     headers: {
-      Authorization: 'Basic ' + encodedToken,
-      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: authorization,
     },
   });
 }
@@ -53,7 +73,8 @@ export const BALANCE_WAREHOUSES_URL =
 export async function balanceGetJson(url: string): Promise<unknown> {
   const client = getBalanceTokenInstance();
   const { data } = await client.get<string | unknown>(url, {
-    headers: { 'Content-Type': 'application/json' },
+    /** GET-ზე `Content-Type: application/json` ზოგიერთ სერვერზე/WAF-ზე უცნაურია და 403-ს იძლევა */
+    headers: { Accept: 'application/json' },
     transformResponse: [
       (raw) => {
         if (typeof raw !== 'string') return raw;
@@ -93,7 +114,7 @@ export async function balanceProbeGet(
 
   try {
     const res = await client.get<string>(url, {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { Accept: 'application/json' },
       validateStatus: () => true,
       responseType: 'text',
       transformResponse: [(d) => d],
@@ -250,19 +271,26 @@ export async function fetchBalanceExchangeStocks(
   return balanceGetJson(buildBalanceExchangeStocksUrl(query));
 }
 
-/** სრული ბაზის URL (მაგ. `…/Exchange/ItemsSeries` ბოლომდე). ცარიელი env → sm/o შემდეგ sm/a (404-ზე ფოლბექი) */
+/**
+ * ItemsSeries სრული სია — GET იმავე ბაზაზე `Item` query-ის გარეშე
+ * (`sm/a/Balance/.../ItemsSeries`), როგორც Postman-ში.
+ */
+export async function fetchBalanceItemsSeriesFullList(): Promise<unknown> {
+  return balanceGetJson(balanceItemsSeriesCloudBaseUrl());
+}
+
+/** ItemsSeries: ერთი ბაზა (`balanceItemsSeriesCloudBaseUrl`), ან სრული override `BALANCE_ITEMS_SERIES_URL`. */
 function balanceItemsSeriesPublicationBases(): string[] {
   const env = process.env.BALANCE_ITEMS_SERIES_URL?.trim();
   if (env) return [env];
-  /** doc ხშირად sm/a; sm/o ფოლბექი */
-  return [
-    balanceExchangeUrl('a', 'ItemsSeries'),
-    balanceExchangeUrl('o', 'ItemsSeries'),
-  ];
+  return [balanceItemsSeriesCloudBaseUrl()];
 }
 
 /** პირველი ბაზა (ლოგის/დოკისთვის) */
 export const BALANCE_ITEMS_SERIES_URL = balanceItemsSeriesPublicationBases()[0];
+
+/** Balance cloud ItemsSeries GET — query პარამეტრის სახელი (Theneo / პუბლიკაცია: `Item`, არა `item`). */
+export const BALANCE_ITEMS_SERIES_ITEM_QUERY_PARAM = 'Item';
 
 export function buildBalanceItemsSeriesUrlForBase(
   base: string,
@@ -270,7 +298,7 @@ export function buildBalanceItemsSeriesUrlForBase(
   opts?: { startingPeriod?: string; endingPeriod?: string }
 ): string {
   const u = new URL(base);
-  u.searchParams.set('uid', itemUid.trim());
+  u.searchParams.set(BALANCE_ITEMS_SERIES_ITEM_QUERY_PARAM, itemUid.trim());
   /** ცარიელი StartingPeriod/EndingPeriod ზოგიერთ პუბლიკაციაზე → 404 „Unknown parameter“ */
   const s = opts?.startingPeriod?.trim();
   const e = opts?.endingPeriod?.trim();
@@ -290,7 +318,7 @@ export function buildBalanceItemsSeriesUrl(
   );
 }
 
-/** დებაგი: რა URL-ებს ვცდით (sm/o → sm/a ან მხოლოდ env) */
+/** დებაგი: რა URL-ებს ვცდით (პარამეტრი `Item` + ერთი ბაზა, ან env) */
 export function getBalanceItemsSeriesCandidateUrls(
   itemUid: string,
   opts?: { startingPeriod?: string; endingPeriod?: string }
@@ -302,13 +330,12 @@ export function getBalanceItemsSeriesCandidateUrls(
 
 export type FetchBalanceItemsSeriesResult = {
   data: unknown;
-  /** რომელი URL-ის body დავაბრუნეთ (sm/a თუ sm/o ფოლბექი) */
+  /** რომელი სრული GET URL-ის body დავაბრუნეთ */
   resolvedUrl: string;
 };
 
 /**
- * ItemsSeries: ჯერ sm/a, შემდეგ sm/o (ან env ერთი ბაზა).
- * ცარიელ პასუხს (0 ხაზი `getBalanceItems`-ით) ვცდით შემდეგ ბაზაზე — ზოგჯერ ერთი მოდე აბრუნებს `[]`, მეორე — მონაცემს.
+ * ItemsSeries: ერთი ბაზის URL (`sm/a/Balance/.../ItemsSeries`) + query `Item` (ნომენკლატურის ref).
  */
 export async function fetchBalanceItemsSeriesForItemDetailed(
   itemUid: string,

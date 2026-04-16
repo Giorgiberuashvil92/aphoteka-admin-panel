@@ -163,6 +163,20 @@ export interface Product {
   updatedAt: Date;
 }
 
+/**
+ * Balance Exchange GET ItemsSeries — ერთი სერიის ჩანაწერი (ოფიციალური ნიმუშის ველები).
+ * ჩვენს API-ში ყველა ველი სტრინგია (ცარიელი სტრინგი თუ Balance null/არ არსებობს).
+ */
+export interface BalanceItemsSeriesApiRow {
+  uid: string;
+  Item: string;
+  Name: string;
+  ValidUntil: string;
+  SeriesNumber: string;
+  ExtCode: string;
+  AdditionalRequisites1: string;
+}
+
 // Inventory States
 export enum InventoryState {
   RECEIVED_BLOCKED = "received_blocked",
@@ -227,6 +241,16 @@ export interface Order {
   deliveryCity?: string;
   deliveryPhone?: string;
   warehouseLocation?: string;
+  /** აპიდან / სერვერიდან შენიშვნა (მაგ. გადახდის მეთოდი) */
+  comment?: string;
+  /** საქართველოს ბანკის გადახდის order_id (UUID) */
+  bogOrderId?: string;
+  /** BOG `order_status.key` (მაგ. created, completed) */
+  bogPaymentStatus?: string;
+  /** ბოლო server-to-server callback-ის დრო */
+  bogLastCallbackAt?: Date;
+  /** ბოლო callback-ის სრული payload (აუდიტი) */
+  bogLastCallbackRaw?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
   confirmedAt?: Date;

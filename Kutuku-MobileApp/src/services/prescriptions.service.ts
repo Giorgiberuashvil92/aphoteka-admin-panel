@@ -16,6 +16,27 @@ export type SubmitPrescriptionResult =
   | { ok: true }
   | { ok: false; error: 'auth' | 'validation' | 'network' | 'unknown'; message?: string };
 
+export type MyPrescriptionLine = {
+  productId: string;
+  productName: string;
+  quantity: number;
+  notes?: string;
+};
+
+export type MyPrescriptionRow = {
+  id: string;
+  createdAt?: string;
+  items: MyPrescriptionLine[];
+};
+
+export type GetMyPrescriptionsResult =
+  | { ok: true; prescriptions: MyPrescriptionRow[] }
+  | {
+      ok: false;
+      error: 'no_token' | 'unauthorized' | 'network' | 'unknown';
+      message?: string;
+    };
+
 async function authHeaders() {
   const token = await UserService.getAccessToken();
   if (!token) return null;
@@ -23,6 +44,31 @@ async function authHeaders() {
 }
 
 export const PrescriptionsApi = {
+  async getMyPrescriptions(): Promise<GetMyPrescriptionsResult> {
+    const token = await UserService.getAccessToken();
+    if (!token?.trim()) return { ok: false, error: 'no_token' };
+    const headers = getAuthHeaders(token.trim());
+    try {
+      const url = `${API_CONFIG.BASE_URL}${API_CONFIG.endpoints.prescriptions.my}`;
+      const res = await fetch(url, { method: 'GET', headers });
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, error: 'unauthorized' };
+      }
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        return { ok: false, error: 'unknown', message: text || `HTTP ${res.status}` };
+      }
+      const prescriptions = (await res.json()) as MyPrescriptionRow[];
+      return { ok: true, prescriptions: Array.isArray(prescriptions) ? prescriptions : [] };
+    } catch (e) {
+      return {
+        ok: false,
+        error: 'network',
+        message: e instanceof Error ? e.message : undefined,
+      };
+    }
+  },
+
   async lookupPatientByEmail(email: string): Promise<LookupPatientResult> {
     const headers = await authHeaders();
     if (!headers) return { ok: false, error: 'auth' };

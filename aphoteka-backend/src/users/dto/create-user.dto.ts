@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   IsString,
   IsOptional,
@@ -5,6 +6,7 @@ import {
   IsEnum,
   IsArray,
   IsMongoId,
+  MinLength,
 } from 'class-validator';
 import { UserRole, UserPermission } from '../schemas/user.schema';
 
@@ -35,4 +37,13 @@ export class CreateUserDto {
   @IsEnum(UserPermission, { each: true })
   @IsOptional()
   permissions?: UserPermission[];
+
+  /** ახალი პაროლი (შექმნისას ან ადმინის მიერ რედაქტირებისას) — ინახება ჰეშირებული */
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' && !value.trim() ? undefined : value,
+  )
+  @IsOptional()
+  @IsString()
+  @MinLength(8, { message: 'პაროლი მინიმუმ 8 სიმბოლო უნდა იყოს' })
+  password?: string;
 }

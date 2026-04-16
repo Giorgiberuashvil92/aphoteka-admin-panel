@@ -2,11 +2,7 @@
 
 import { ADMIN_PANEL_LOGIN } from "@/config/adminPanelLogin";
 import { getApiBaseUrl } from "@/lib/apiBaseUrl";
-import {
-  AUTH_TOKEN_STORAGE_KEY,
-  ensureAuthTokenFromEnv,
-  getAuthToken,
-} from "@/lib/authToken";
+import { ensureAuthTokenFromEnv, getAuthToken, setAuthToken } from "@/lib/authToken";
 
 /**
  * Env / JWT fallback → localStorage, შემდეგ თუ ტოკენი კიდევ არაა — POST /auth/login.
@@ -46,7 +42,7 @@ export async function bootstrapAdminAuth(): Promise<void> {
 
     const data = (await res.json()) as { accessToken?: string };
     if (data.accessToken?.trim()) {
-      localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, data.accessToken.trim());
+      setAuthToken(data.accessToken.trim());
     }
   } catch (e) {
     if (process.env.NODE_ENV === "development") {

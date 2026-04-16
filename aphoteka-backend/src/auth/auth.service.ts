@@ -18,6 +18,52 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UserRole } from '../users/schemas/user.schema';
 
+/** საქართველოს მობილური → E.164 (+9955XXXXXXXX) ან null */
+function normalizeGePhoneToE164(raw: string): string | null {
+  const t = raw.trim().replace(/[\s-]/g, '');
+  if (!t) return null;
+  const digits = t.replace(/\D/g, '');
+  if (digits.length === 9 && digits.startsWith('5')) return `+995${digits}`;
+  if (digits.length === 12 && digits.startsWith('995')) return `+${digits}`;
+  if (digits.length === 10 && digits.startsWith('05'))
+    return `+995${digits.slice(1)}`;
+  if (t.startsWith('+')) {
+    const d = t.slice(1).replace(/\D/g, '');
+    if (d.length === 12 && d.startsWith('995')) return `+${d}`;
+  }
+  return null;
+}
+
+/**
+ * მობილური შესვლა: რეგისტრაციაზე ხშირად `phoneNumber` = იგივე ელფოსტაა;
+ * ტელეფონი DB-ში შეიძლება იყოს +995..., 995..., ან 9 ციფრი.
+ */
+function buildLoginLookupFilter(emailOrPhone: string): Record<string, unknown> {
+  const raw = emailOrPhone.trim();
+  if (!raw) {
+    return { _id: { $exists: false } };
+  }
+  if (raw.includes('@')) {
+    const e = raw.toLowerCase();
+    return { $or: [{ email: e }, { phoneNumber: e }] };
+  }
+  const digits = raw.replace(/\D/g, '');
+  const variants = new Set<string>();
+  variants.add(raw);
+  if (digits.length === 9 && digits.startsWith('5')) {
+    variants.add(`+995${digits}`);
+    variants.add(`995${digits}`);
+    variants.add(digits);
+  } else if (digits.length === 12 && digits.startsWith('995')) {
+    variants.add(`+${digits}`);
+    variants.add(digits);
+    variants.add(digits.slice(3));
+  } else if (digits.length > 0) {
+    variants.add(digits);
+  }
+  return { $or: [...variants].map((phoneNumber) => ({ phoneNumber })) };
+}
+
 @Injectable()
 export class AuthService {
   // In-memory storage for reset codes (in production, use Redis or database)
@@ -140,13 +186,8 @@ export class AuthService {
 
   /** მობილური აპი: შესვლა ელფოსტით ან ტელეფონით */
   async loginMobile(dto: LoginMobileDto) {
-    const isEmail = dto.emailOrPhone.includes('@');
     const user = await this.userModel
-      .findOne(
-        isEmail
-          ? { email: dto.emailOrPhone.trim().toLowerCase() }
-          : { phoneNumber: dto.emailOrPhone.trim() },
-      )
+      .findOne(buildLoginLookupFilter(dto.emailOrPhone))
       .populate('warehouseId')
       .exec();
 
@@ -188,18 +229,37 @@ export class AuthService {
   /** მობილური აპი: რეგისტრაცია სახელით, გვარით, ელფოსტით */
   async registerMobile(dto: RegisterMobileDto) {
     const email = dto.email.trim().toLowerCase();
-    const existing = await this.userModel.findOne({
+    const phoneE164 = dto.phone?.trim()
+      ? normalizeGePhoneToE164(dto.phone)
+      : null;
+    if (dto.phone?.trim() && !phoneE164) {
+      throw new BadRequestException('არასწორი ტელეფონის ნომერი');
+    }
+
+    const existingEmail = await this.userModel.findOne({
       $or: [{ email }, { phoneNumber: email }],
     });
-    if (existing) {
+    if (existingEmail) {
       throw new BadRequestException('This email is already registered');
+    }
+    if (phoneE164) {
+      const existingPhone = await this.userModel
+        .findOne(buildLoginLookupFilter(phoneE164))
+        .exec();
+      if (existingPhone) {
+        throw new BadRequestException(
+          'This phone number is already registered',
+        );
+      }
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const fullName = `${dto.firstName.trim()} ${dto.lastName.trim()}`;
+    /** ტელეფონი მითითებულზე — `phoneNumber` = E.164 (შესვლა ნომრით); წინააღმდეგ შემთხვევაში = ელფოსტა */
+    const phoneNumber = phoneE164 ?? email;
     const createdUser = await this.userModel.create({
       role: UserRole.CONSUMER,
-      phoneNumber: email,
+      phoneNumber,
       email,
       fullName,
       password: hashedPassword,

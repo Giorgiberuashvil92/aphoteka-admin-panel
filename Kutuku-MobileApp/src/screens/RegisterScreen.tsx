@@ -15,6 +15,7 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [emailOrPhone, setEmailOrPhone] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -94,7 +95,13 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
       }
 
       // Register user
-      const registerResult = await UserService.register(firstName, lastName, emailOrPhone, password);
+      const registerResult = await UserService.register(
+        firstName,
+        lastName,
+        emailOrPhone,
+        password,
+        phone.trim() || undefined,
+      );
       
       if (!registerResult.success) {
         Alert.alert('რეგისტრაცია ვერ მოხერხდა', registerResult.message);
@@ -149,7 +156,6 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
           leftIcon={<Ionicons name="person-outline" size={20} color={theme.colors.gray[400]} />}
         />
 
-        {/* Last Name Input */}
         <InputWithIcon
           label="გვარი"
           placeholder="შეიყვანეთ თქვენი გვარი"
@@ -175,6 +181,20 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
           error={errors.emailOrPhone}
           leftIcon={<Ionicons name="mail-outline" size={20} color={theme.colors.gray[400]} />}
         />
+
+        <View>
+          <InputWithIcon
+            label="მობილური (არასავალდებულო)"
+            placeholder="მაგ. 557422634 ან +995557422634"
+            value={phone}
+            onChangeText={setPhone}
+            keyboardType="phone-pad"
+            leftIcon={<Ionicons name="call-outline" size={20} color={theme.colors.gray[400]} />}
+          />
+          <Text style={styles.phoneHint}>
+            თუ მიუთითებთ, შესვლა შეგიძლიათ ამ ნომრითაც (არა მხოლოდ ელფოსტით).
+          </Text>
+        </View>
 
         {/* Password Input */}
         <InputWithIcon
@@ -260,6 +280,12 @@ const styles = StyleSheet.create({
   },
   form: {
     gap: theme.spacing.lg,
+  },
+  phoneHint: {
+    fontSize: theme.typography.fontSize.sm,
+    color: theme.colors.text.secondary,
+    marginTop: -theme.spacing.sm,
+    lineHeight: theme.typography.fontSize.sm * theme.typography.lineHeight.relaxed,
   },
   divider: {
     flexDirection: 'row',

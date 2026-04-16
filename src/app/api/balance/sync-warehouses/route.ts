@@ -60,8 +60,9 @@ export async function POST(request: NextRequest) {
       const body = JSON.stringify(warehouse);
 
       if (id) {
+        /** Nest: `WarehousesController.update` — `@Patch(':id')` (არა PUT) */
         const res = await fetch(`${API_BASE}/warehouses/${id}`, {
-          method: 'PUT',
+          method: 'PATCH',
           headers,
           body,
         });

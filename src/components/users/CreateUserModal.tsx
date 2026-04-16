@@ -51,6 +51,8 @@ export default function CreateUserModal({
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const isEditMode = !!user;
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [formData, setFormData] = useState({
     role: UserRole.CONSUMER,
     phoneNumber: "",
@@ -85,6 +87,8 @@ export default function CreateUserModal({
           status: user.status || "active",
           permissions: user.permissions || [],
         });
+        setNewPassword("");
+        setConfirmPassword("");
       } else {
         // Reset form for create mode
         setFormData({
@@ -96,6 +100,8 @@ export default function CreateUserModal({
           status: "active",
           permissions: [],
         });
+        setNewPassword("");
+        setConfirmPassword("");
       }
     }
   }, [isOpen, user]);
@@ -105,6 +111,19 @@ export default function CreateUserModal({
     setLoading(true);
 
     try {
+      if (isEditMode && newPassword.trim()) {
+        if (newPassword !== confirmPassword) {
+          alert("პაროლები არ ემთხვევა.");
+          setLoading(false);
+          return;
+        }
+        if (newPassword.trim().length < 8) {
+          alert("პაროლი მინიმუმ 8 სიმბოლო უნდა იყოს.");
+          setLoading(false);
+          return;
+        }
+      }
+
       const userData: any = {
         role: formData.role,
         phoneNumber: formData.phoneNumber,
@@ -125,6 +144,10 @@ export default function CreateUserModal({
 
       if (formData.permissions.length > 0) {
         userData.permissions = formData.permissions;
+      }
+
+      if (isEditMode && newPassword.trim()) {
+        userData.password = newPassword.trim();
       }
 
       if (isEditMode && user?.id) {
@@ -225,6 +248,41 @@ export default function CreateUserModal({
             className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white"
           />
         </div>
+
+        {isEditMode && (
+          <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 dark:border-gray-600 dark:bg-gray-900/40">
+            <p className="mb-3 text-sm font-medium text-gray-800 dark:text-white/90">
+              პაროლის შეცვლა
+            </p>
+            <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+              დატოვეთ ცარიელი, თუ პაროლის განახლება არ გსურთ.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <Label>ახალი პაროლი</Label>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="მინიმუმ 8 სიმბოლო"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                />
+              </div>
+              <div>
+                <Label>გაიმეორეთ პაროლი</Label>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="გაიმეორეთ ახალი პაროლი"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Warehouse */}
         <div>
