@@ -6,6 +6,7 @@ import Button from "@/components/ui/button/Button";
 import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import { ADMIN_PANEL_LOGIN } from "@/config/adminPanelLogin";
 import { getAuthToken, setAuthToken } from "@/lib/authToken";
+import { normalizePhoneForAdminLogin } from "@/lib/phoneLoginNormalize";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import React, { useEffect, useState } from "react";
@@ -35,26 +36,29 @@ export default function AdminLoginForm() {
     setLoading(true);
     try {
       const base = getApiBaseUrl();
+      const normalizedPhone = normalizePhoneForAdminLogin(phoneNumber);
       const res = await fetch(`${base}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          phoneNumber: phoneNumber.trim(),
+          phoneNumber: normalizedPhone,
           password,
         }),
       });
 
       const data = (await res.json().catch(() => ({}))) as {
         accessToken?: string;
-        message?: string;
+        message?: string | string[];
       };
 
       if (!res.ok) {
-        setError(
-          typeof data.message === "string"
-            ? data.message
-            : `შეცდომა (${res.status})`
-        );
+        const msg = data.message;
+        const text = Array.isArray(msg)
+          ? msg.filter(Boolean).join(", ")
+          : typeof msg === "string"
+            ? msg
+            : "";
+        setError(text || `შეცდომა (${res.status})`);
         return;
       }
 

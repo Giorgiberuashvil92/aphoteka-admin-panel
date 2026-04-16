@@ -65,8 +65,11 @@ export function getAuthToken(): string | null {
 
   if (!onServer) {
     migrateLegacyAuthStorageKey();
+    /** ხელით შესვლის ტოკენი უნდა იყოს უპირატესი — წინააღმდეგ შემთხვევაში `NEXT_PUBLIC_ADMIN_JWT` იგნორირებდა login-ს */
+    const fromStorage = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)?.trim();
+    if (fromStorage) return fromStorage;
     if (envJwt) return envJwt;
-    return localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)?.trim() || null;
+    return null;
   }
 
   return envJwt || null;
@@ -78,14 +81,15 @@ export function getAuthToken(): string | null {
 export function ensureAuthTokenFromEnv(): void {
   if (typeof window === "undefined") return;
   migrateLegacyAuthStorageKey();
+  /** თუ უკვე არის სესია (შესვლის შემდეგ), არაფერი გადავწეროთ — წინა ლოგიკა env-ით ყოველთვის ხელახლა იწერდა localStorage-ს */
+  const existing = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)?.trim();
+  if (existing) return;
+
   const envJwt = process.env.NEXT_PUBLIC_ADMIN_JWT?.trim();
   if (envJwt) {
     localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, envJwt);
     return;
   }
-  /** არ გადავწეროთ login-ის ახალი accessToken ძველი embedded JWT-ით (ყოველ apiRequest-ზე ხდებოდა → მუდამ 401) */
-  const existing = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)?.trim();
-  if (existing) return;
   const embedded = ADMIN_PANEL_JWT_FALLBACK.trim();
   if (embedded) {
     localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, embedded);

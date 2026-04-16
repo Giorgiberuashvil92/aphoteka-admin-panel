@@ -8,8 +8,8 @@
  * `NEXT_PUBLIC_*` და ეს ფაილი ბრაუზერში ჩანს — მხოლოდ შიდო გამოყენებისთვის.
  */
 
-/** ცარიელია ნაგულისხმევად; ჩასვი ტოკენი თუ login არ გინდა */
-export const ADMIN_PANEL_JWT_FALLBACK = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2OWMwODkyZWVkMGRkNjRhMDU2MjkxNWYiLCJwaG9uZU51bWJlciI6Iis5OTU1NTUwMDAwMDAiLCJyb2xlIjoiYWRtaW4iLCJpYXQiOjE3NzQyMjU3MTUsImV4cCI6MTc3NDgzMDUxNX0.pr5AVhDRwl3RlQ395XlMhCrs4qnwIDiVLrMPUKilPQI`;
+/** ცარიელი ნაგულისხმევად — შედით `/login`-ით ან გამოიყენეთ `NEXT_PUBLIC_ADMIN_JWT` (მხოლოდ dev). არ ჩასვათ რეალური JWT რეპოში. */
+export const ADMIN_PANEL_JWT_FALLBACK = "";
 
 export const ADMIN_PANEL_LOGIN = {
   phoneNumber:

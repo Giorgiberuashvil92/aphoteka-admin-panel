@@ -1,12 +1,15 @@
 import React, { FC } from "react";
 
 interface InputProps {
-  type?: "text" | "number" | "email" | "password" | "date" | "time" | string;
+  type?: "text" | "number" | "email" | "password" | "date" | "time" | "tel" | string;
   id?: string;
   name?: string;
   placeholder?: string;
   defaultValue?: string | number;
+  value?: string | number;
   onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  required?: boolean;
+  autoComplete?: string;
   className?: string;
   min?: string;
   max?: string;
@@ -23,7 +26,10 @@ const Input: FC<InputProps> = ({
   name,
   placeholder,
   defaultValue,
+  value,
   onChange,
+  required,
+  autoComplete,
   className = "",
   min,
   max,
@@ -54,8 +60,11 @@ const Input: FC<InputProps> = ({
         id={id}
         name={name}
         placeholder={placeholder}
-        defaultValue={defaultValue}
-        onChange={onChange}
+        {...(value !== undefined
+          ? { value, onChange }
+          : { defaultValue, onChange })}
+        required={required}
+        autoComplete={autoComplete}
         min={min}
         max={max}
         step={step}

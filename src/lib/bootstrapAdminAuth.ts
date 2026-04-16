@@ -3,6 +3,7 @@
 import { ADMIN_PANEL_LOGIN } from "@/config/adminPanelLogin";
 import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import { ensureAuthTokenFromEnv, getAuthToken, setAuthToken } from "@/lib/authToken";
+import { normalizePhoneForAdminLogin } from "@/lib/phoneLoginNormalize";
 
 /**
  * Env / JWT fallback → localStorage, შემდეგ თუ ტოკენი კიდევ არაა — POST /auth/login.
@@ -18,13 +19,14 @@ export async function bootstrapAdminAuth(): Promise<void> {
   if (!phoneNumber?.trim() || !password?.trim()) return;
 
   const base = getApiBaseUrl();
+  const normalizedPhone = normalizePhoneForAdminLogin(phoneNumber);
 
   try {
     const res = await fetch(`${base}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        phoneNumber: phoneNumber.trim(),
+        phoneNumber: normalizedPhone,
         password,
       }),
     });
