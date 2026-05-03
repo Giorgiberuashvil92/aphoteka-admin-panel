@@ -1,3 +1,4 @@
+import { RequireAuth } from '@/src/components/auth/RequireAuth';
 import { SettingsScreen } from '@/src/screens';
 import { UserService } from '@/src/services/user.service';
 import { useRouter } from 'expo-router';
@@ -28,6 +29,7 @@ export default function Settings() {
   };
 
   return (
+    <RequireAuth>
     <SettingsScreen
       onBack={() => {
         console.log('Back pressed');
@@ -68,5 +70,6 @@ export default function Settings() {
       onDoctorPrescribe={() => router.push('/doctor-prescribe' as any)}
       onLogout={handleLogout}
     />
+    </RequireAuth>
   );
 }

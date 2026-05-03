@@ -31,9 +31,7 @@ export class PrescriptionsService {
         try {
           const p = await this.productsService.findOne(line.productId);
           productName = p.name;
-        } catch {
-          /* პროდუქტი არ მოიძებნა — ID მაინც ვინახავთ */
-        }
+        } catch {}
         return {
           productId: new Types.ObjectId(line.productId),
           productName,
@@ -53,7 +51,6 @@ export class PrescriptionsService {
     return doc.toObject();
   }
 
-  /** პაციენტისთვის — უახლესი დანიშნულებები (მთავარი გვერდი / აპი) */
   async findForPatient(patientUserId: string) {
     if (!Types.ObjectId.isValid(patientUserId)) {
       return [];
@@ -67,15 +64,15 @@ export class PrescriptionsService {
     return rows.map((doc) => {
       const created = (doc as { createdAt?: Date }).createdAt;
       return {
-      id: String(doc._id),
-      createdAt: created ? new Date(created).toISOString() : undefined,
-      items: (doc.items ?? []).map((it) => ({
-        productId: it.productId?.toString() ?? '',
-        productName: it.productName,
-        quantity: it.quantity,
-        notes: it.notes,
-      })),
-    };
+        id: String(doc._id),
+        createdAt: created ? new Date(created).toISOString() : undefined,
+        items: (doc.items ?? []).map((it) => ({
+          productId: it.productId?.toString() ?? '',
+          productName: it.productName,
+          quantity: it.quantity,
+          notes: it.notes,
+        })),
+      };
     });
   }
 }

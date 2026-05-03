@@ -6,7 +6,11 @@ export default function RegisterPage() {
 
   return (
     <RegisterScreen
-      onRegister={(email) => router.push(`/verification?email=${encodeURIComponent(email)}` as any)}
+      onRegister={(email, phone) =>
+        router.push(
+          `/verification?email=${encodeURIComponent(email)}&phone=${encodeURIComponent(phone)}` as any,
+        )
+      }
       onLoginPress={() => router.push('/login' as any)}
     />
   );

@@ -34,6 +34,13 @@ export class Warehouse {
 
   @Prop({ default: true })
   active: boolean;
+
+  /** საწყობის გეოწერტილი (მიტანის მისამართთან შესადარებლად) — ადმინში დააყენეთ */
+  @Prop({ type: Number })
+  latitude?: number;
+
+  @Prop({ type: Number })
+  longitude?: number;
 }
 
 export const WarehouseSchema = SchemaFactory.createForClass(Warehouse);

@@ -7,12 +7,22 @@ import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'reac
 
 type VerificationScreenProps = {
   email: string;
-  onVerify: () => void;
+  /** SMS OTP (Sender.ge) — ნომერი უნდა ემთხვეოდეს ბექენდის გაგზავნას */
+  phone?: string;
+  otpPurpose: 'register' | 'forgot';
+  onVerify: (ctx?: { resetToken?: string }) => void;
   onResend: () => void;
   onBack: () => void;
 };
 
-export function VerificationScreen({ email, onVerify, onResend, onBack }: VerificationScreenProps) {
+export function VerificationScreen({
+  email,
+  phone = '',
+  otpPurpose,
+  onVerify,
+  onResend,
+  onBack,
+}: VerificationScreenProps) {
   const [code, setCode] = useState(['', '', '', '']);
   const [loading, setLoading] = useState(false);
   const inputRefs = [
@@ -43,47 +53,61 @@ export function VerificationScreen({ email, onVerify, onResend, onBack }: Verifi
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const verificationCode = code.join('');
     if (verificationCode.length !== 4) {
-      Alert.alert('Error', 'Please enter the complete verification code');
+      Alert.alert('შეცდომა', 'შეიყვანეთ 4-ციფრიანი კოდი');
       return;
     }
 
     setLoading(true);
 
-    // Verify OTP
-    const result = EmailService.verifyOTP(email, verificationCode);
-    
+    const result = await EmailService.verifyOTP(email, verificationCode);
+
     if (!result.success) {
-      Alert.alert('Verification Failed', result.error || 'Invalid verification code');
-      // Clear code on error
+      Alert.alert('ვერიფიკაცია ვერ მოხერხდა', result.error || 'კოდი არასწორია');
       setCode(['', '', '', '']);
       inputRefs[0].current?.focus();
       setLoading(false);
       return;
     }
 
-    // Success
+    if (otpPurpose === 'forgot' && !result.resetToken) {
+      Alert.alert('შეცდომა', 'სესიის ტოკენი ვერ მოიძებნა. თავიდან სცადეთ.');
+      setLoading(false);
+      return;
+    }
+
     setLoading(false);
-    Alert.alert(
-      'Success',
-      'Your account has been verified!',
-      [{ text: 'OK', onPress: onVerify }]
-    );
+    const title = 'წარმატება';
+    const body =
+      otpPurpose === 'forgot'
+        ? 'კოდი დადასტურდა. შემდეგ ეკრანზე შეიყვანეთ ახალი პაროლი.'
+        : 'ანგარიში დადასტურდა!';
+    Alert.alert(title, body, [
+      {
+        text: 'კარგი',
+        onPress: () =>
+          otpPurpose === 'forgot' && result.resetToken
+            ? onVerify({ resetToken: result.resetToken })
+            : onVerify(),
+      },
+    ]);
   };
 
   const handleResend = async () => {
     setLoading(true);
-    
-    const result = await EmailService.sendOTP(email, 'register');
-    
+    onResend();
+    const result = await EmailService.sendOTP(email, otpPurpose, {
+      phone: phone.trim() || undefined,
+    });
+
     if (result.success) {
-      Alert.alert('Success', 'Verification code sent successfully!\n\nCheck your email inbox (and spam folder).');
+      Alert.alert('გაგზავნილია', 'ახალი კოდი გამოგიგზავნეთ SMS-ით.');
     } else {
-      Alert.alert('Error', result.error || 'Failed to resend code');
+      Alert.alert('შეცდომა', result.error || 'კოდის თავიდან გაგზავნა ვერ მოხერხდა');
     }
-    
+
     setLoading(false);
   };
 
@@ -111,8 +135,9 @@ export function VerificationScreen({ email, onVerify, onResend, onBack }: Verifi
         {/* Title and Description */}
         <Text style={styles.title}>Verification Code</Text>
         <Text style={styles.description}>
-          We have to sent the code verification to{'\n'}
-          <Text style={styles.email}>{email}</Text>
+          კოდი გამოგიგზავნეთ SMS-ით ნომერზე:
+          {'\n'}
+          <Text style={styles.email}>{phone.trim() || email}</Text>
         </Text>
 
         {/* OTP Input */}

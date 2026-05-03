@@ -15,8 +15,14 @@ import { LoginMobileDto } from './dto/login-mobile.dto';
 import { RegisterMobileDto } from './dto/register-mobile.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ResetPasswordWithTokenDto } from './dto/reset-password-with-token.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UserRole } from '../users/schemas/user.schema';
+import { BuyersService } from '../buyers/buyers.service';
+import { BalanceExchangeService } from '../balance/balance-exchange.service';
+import { SenderGeService } from '../sms/sender-ge.service';
+import { SendVerificationOtpDto } from './dto/send-verification-otp.dto';
+import { VerifyVerificationOtpDto } from './dto/verify-verification-otp.dto';
 
 /** საქართველოს მობილური → E.164 (+9955XXXXXXXX) ან null */
 function normalizeGePhoneToE164(raw: string): string | null {
@@ -69,9 +75,18 @@ export class AuthService {
   // In-memory storage for reset codes (in production, use Redis or database)
   private resetCodes = new Map<string, { code: string; expiresAt: Date }>();
 
+  /** რეგისტრაციის 4-ციფრიანი OTP — გასაღები: ელფოსტა (SMS Sender.ge-ზე იგზავნება) */
+  private verificationOtps = new Map<
+    string,
+    { code: string; expiresAt: number; purpose: string }
+  >();
+
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     private jwtService: JwtService,
+    private buyersService: BuyersService,
+    private balanceExchange: BalanceExchangeService,
+    private senderGe: SenderGeService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -216,23 +231,29 @@ export class AuthService {
     const userObject = user.toObject();
     delete userObject.password;
     const parts = (user.fullName || '').trim().split(/\s+/);
+    const buyer = await this.buyersService.findByUserId(user._id);
+    const balanceUid = buyer?.balanceBuyerUid?.trim();
     return {
       user: {
         ...userObject,
         firstName: parts[0] || user.fullName || '',
         lastName: parts.slice(1).join(' ') || '',
+        ...(buyer
+          ? {
+              buyerId: buyer._id.toString(),
+              ...(balanceUid ? { balanceBuyerUid: balanceUid } : {}),
+            }
+          : {}),
       },
       accessToken,
     };
   }
 
-  /** მობილური აპი: რეგისტრაცია სახელით, გვარით, ელფოსტით */
+  /** მობილური აპი: ფიზიკური ან იურიდიული პირის რეგისტრაცია */
   async registerMobile(dto: RegisterMobileDto) {
     const email = dto.email.trim().toLowerCase();
-    const phoneE164 = dto.phone?.trim()
-      ? normalizeGePhoneToE164(dto.phone)
-      : null;
-    if (dto.phone?.trim() && !phoneE164) {
+    const phoneE164 = normalizeGePhoneToE164(dto.phone);
+    if (!phoneE164) {
       throw new BadRequestException('არასწორი ტელეფონის ნომერი');
     }
 
@@ -242,29 +263,115 @@ export class AuthService {
     if (existingEmail) {
       throw new BadRequestException('This email is already registered');
     }
-    if (phoneE164) {
-      const existingPhone = await this.userModel
-        .findOne(buildLoginLookupFilter(phoneE164))
-        .exec();
-      if (existingPhone) {
-        throw new BadRequestException(
-          'This phone number is already registered',
-        );
-      }
+    const existingPhone = await this.userModel
+      .findOne(buildLoginLookupFilter(phoneE164))
+      .exec();
+    if (existingPhone) {
+      throw new BadRequestException('This phone number is already registered');
     }
 
+    let fullName: string;
+    let responseFirstName: string;
+    let responseLastName: string;
+    let buyerPayload: Parameters<BuyersService['createForConsumerUser']>[1];
+
+    if (dto.accountType === 'individual') {
+      const fn = dto.firstName!.trim();
+      const ln = dto.lastName!.trim();
+      fullName = `${fn} ${ln}`.trim();
+      responseFirstName = fn;
+      responseLastName = ln;
+      buyerPayload = {
+        kind: 'individual',
+        firstName: fn,
+        lastName: ln,
+        email,
+        phone: phoneE164,
+        personalId: dto.personalId!.trim(),
+        address: dto.address!.trim(),
+      };
+    } else {
+      const company = dto.companyName!.trim();
+      const rep = dto.representative?.trim();
+      const last = rep && rep.length > 0 ? rep : 'იურიდიული პირი';
+      fullName = company;
+      responseFirstName = company;
+      responseLastName = last;
+      buyerPayload = {
+        kind: 'legal',
+        firstName: company,
+        lastName: last,
+        email,
+        phone: phoneE164,
+        companyName: company,
+        legalId: dto.legalId!.trim(),
+        address: dto.address!.trim(),
+        representative: rep,
+      };
+    }
+
+    this.balanceExchange.requireBalanceConfiguredForMobileRegister();
+
+    const idCode =
+      dto.accountType === 'individual'
+        ? dto.personalId!.trim()
+        : dto.legalId!.trim();
+    let balanceName: string;
+    let balanceFullName: string;
+    let legalAddress: string | undefined;
+    if (dto.accountType === 'individual') {
+      const fn = dto.firstName!.trim();
+      const ln = dto.lastName!.trim();
+      balanceName = `${fn} ${ln}`.trim();
+      balanceFullName = balanceName;
+      legalAddress = dto.address!.trim();
+    } else {
+      const company = dto.companyName!.trim();
+      const rep = dto.representative?.trim();
+      balanceName = company;
+      balanceFullName = rep ? `${company}, ${rep}` : company;
+      legalAddress = dto.address!.trim();
+    }
+    const balanceUid = await this.balanceExchange.createBuyer({
+      accountType: dto.accountType,
+      name: balanceName,
+      fullName: balanceFullName,
+      idCode,
+      email,
+      phoneE164,
+      legalAddress,
+      ...(dto.country?.trim() ? { country: dto.country.trim() } : {}),
+      ...(dto.accountType === 'legal' && dto.representative?.trim()
+        ? { representative: dto.representative.trim() }
+        : {}),
+    });
+    buyerPayload = { ...buyerPayload, balanceBuyerUid: balanceUid };
+
     const hashedPassword = await bcrypt.hash(dto.password, 10);
-    const fullName = `${dto.firstName.trim()} ${dto.lastName.trim()}`;
-    /** ტელეფონი მითითებულზე — `phoneNumber` = E.164 (შესვლა ნომრით); წინააღმდეგ შემთხვევაში = ელფოსტა */
-    const phoneNumber = phoneE164 ?? email;
+
     const createdUser = await this.userModel.create({
       role: UserRole.CONSUMER,
-      phoneNumber,
+      phoneNumber: phoneE164,
       email,
       fullName,
       password: hashedPassword,
       status: 'active',
     });
+
+    let buyerId: string;
+    let balanceBuyerUid: string | undefined;
+    try {
+      const buyer = await this.buyersService.createForConsumerUser(
+        createdUser._id,
+        buyerPayload,
+      );
+      buyerId = buyer._id.toString();
+      const u = buyer.balanceBuyerUid?.trim();
+      balanceBuyerUid = u || undefined;
+    } catch (err) {
+      await this.userModel.deleteOne({ _id: createdUser._id }).exec();
+      throw err;
+    }
 
     const payload = {
       sub: createdUser._id.toString(),
@@ -277,48 +384,181 @@ export class AuthService {
     return {
       user: {
         ...userObject,
-        firstName: dto.firstName.trim(),
-        lastName: dto.lastName.trim(),
+        firstName: responseFirstName,
+        lastName: responseLastName,
+        buyerId,
+        ...(balanceBuyerUid ? { balanceBuyerUid } : {}),
       },
       accessToken,
     };
   }
 
-  async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
-    const user = await this.userModel.findOne({
-      phoneNumber: forgotPasswordDto.phoneNumber,
+  /**
+   * SMS OTP — [Sender.ge](https://sender.ge/docs/api.php), `SENDER_GE_API_KEY`.
+   * `register`: ახალი ანგარიში; `forgot`: არსებული ანგარიში (ელფოსტა + ტელეფონი უნდა ემთხვეოდეს).
+   */
+  async sendVerificationOtp(dto: SendVerificationOtpDto) {
+    if (!this.senderGe.isConfigured()) {
+      throw new BadRequestException(
+        'SMS (Sender.ge) არ არის ჩართული. დააყენეთ გარემოში SENDER_GE_API_KEY.',
+      );
+    }
+    const emailKey = dto.email.trim().toLowerCase();
+    const dest9 = this.senderGe.normalizeGeorgianMobile9(dto.phone);
+    if (!dest9) {
+      throw new BadRequestException(
+        'არასწორი ტელეფონის ნომერი (საჭიროა საქართველოს მობილური).',
+      );
+    }
+
+    if (dto.purpose === 'forgot') {
+      const user = await this.userModel
+        .findOne({
+          email: emailKey,
+          ...buildLoginLookupFilter(dto.phone),
+        })
+        .exec();
+      if (!user) {
+        throw new BadRequestException(
+          'ელფოსტა და ტელეფონი არ ემთხვევა არსებულ ანგარიშს.',
+        );
+      }
+    }
+
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000;
+    this.verificationOtps.set(emailKey, {
+      code,
+      expiresAt,
+      purpose: dto.purpose,
     });
 
+    const text = `Aphoteka/Kutuku: ვერიფიკაციის კოდი: ${code}. ვადა 10 წუთი.`;
+    const result = await this.senderGe.sendSms(dest9, text, 2, 0);
+
+    if (!result.ok) {
+      this.verificationOtps.delete(emailKey);
+      throw new BadRequestException(
+        `SMS ვერ გაიგზავნა (Sender.ge). ${result.raw.slice(0, 120)}`,
+      );
+    }
+
+    return { sent: true, channel: 'sms' as const };
+  }
+
+  async verifyVerificationOtp(dto: VerifyVerificationOtpDto) {
+    const emailKey = dto.email.trim().toLowerCase();
+    const stored = this.verificationOtps.get(emailKey);
+    if (!stored) {
+      throw new BadRequestException(
+        'კოდი არ მოიძებნა ან ვადაგასულია. თავიდან მოითხოვეთ.',
+      );
+    }
+    if (Date.now() > stored.expiresAt) {
+      this.verificationOtps.delete(emailKey);
+      throw new BadRequestException(
+        'კოდის ვადა გავიდა. თავიდან მოითხოვეთ ახალი კოდი.',
+      );
+    }
+    if (stored.code !== dto.code.trim()) {
+      throw new BadRequestException('კოდი არასწორია.');
+    }
+    const purpose = stored.purpose;
+    this.verificationOtps.delete(emailKey);
+
+    if (purpose === 'forgot') {
+      const user = await this.userModel.findOne({ email: emailKey }).exec();
+      if (!user) {
+        throw new BadRequestException('მომხმარებელი ვერ მოიძებნა.');
+      }
+      const resetToken = this.jwtService.sign(
+        {
+          sub: user._id.toString(),
+          typ: 'password_reset',
+        },
+        { expiresIn: '15m' },
+      );
+      return { verified: true as const, resetToken };
+    }
+
+    return { verified: true as const };
+  }
+
+  async resetPasswordWithToken(dto: ResetPasswordWithTokenDto) {
+    let sub: string;
+    try {
+      const payload = this.jwtService.verify<{ sub?: string; typ?: string }>(
+        dto.resetToken,
+      );
+      if (payload.typ !== 'password_reset' || !payload.sub) {
+        throw new UnauthorizedException('Invalid reset token');
+      }
+      sub = payload.sub;
+    } catch {
+      throw new UnauthorizedException('Invalid or expired reset token');
+    }
+    if (!Types.ObjectId.isValid(sub)) {
+      throw new BadRequestException('Invalid user');
+    }
+    const user = await this.userModel.findById(sub).exec();
     if (!user) {
-      // Don't reveal if user exists or not for security
+      throw new NotFoundException('User not found');
+    }
+    user.password = await bcrypt.hash(dto.newPassword, 10);
+    await user.save();
+    return { message: 'Password has been reset successfully' };
+  }
+
+  async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
+    const user = await this.userModel
+      .findOne(buildLoginLookupFilter(forgotPasswordDto.phoneNumber))
+      .exec();
+
+    if (!user) {
       return {
         message:
           'If a user with this phone number exists, a reset code has been sent.',
       };
     }
 
-    // Generate 6-digit reset code
-    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    if (!this.senderGe.isConfigured()) {
+      throw new BadRequestException(
+        'SMS (Sender.ge) არ არის ჩართული. დააყენეთ გარემოში SENDER_GE_API_KEY.',
+      );
+    }
 
-    // Store reset code (expires in 15 minutes)
+    const dest9 = this.senderGe.normalizeGeorgianMobile9(
+      forgotPasswordDto.phoneNumber,
+    );
+    if (!dest9) {
+      throw new BadRequestException(
+        'არასწორი ტელეფონის ნომერი (საჭიროა საქართველოს მობილური).',
+      );
+    }
+
+    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + 15);
 
-    this.resetCodes.set(forgotPasswordDto.phoneNumber, {
+    const phoneKey = user.phoneNumber;
+    this.resetCodes.set(phoneKey, {
       code: resetCode,
       expiresAt,
     });
 
-    // In production, send SMS with reset code
-    console.log(
-      `Reset code for ${forgotPasswordDto.phoneNumber}: ${resetCode}`,
-    );
+    const text = `Aphoteka/Kutuku: პაროლის აღდგენის კოდი: ${resetCode}. ვადა 15 წუთი.`;
+    const result = await this.senderGe.sendSms(dest9, text, 2, 0);
+
+    if (!result.ok) {
+      this.resetCodes.delete(phoneKey);
+      throw new BadRequestException(
+        `SMS ვერ გაიგზავნა (Sender.ge). ${result.raw.slice(0, 120)}`,
+      );
+    }
 
     return {
       message:
         'If a user with this phone number exists, a reset code has been sent.',
-      // In development, return code for testing
-      resetCode: process.env.NODE_ENV === 'development' ? resetCode : undefined,
     };
   }
 
@@ -403,6 +643,20 @@ export class AuthService {
 
     const userObject = user.toObject();
     delete userObject.password;
-    return userObject;
+    const parts = (user.fullName || '').trim().split(/\s+/);
+    const buyer = await this.buyersService.findByUserId(user._id);
+    const balanceUid = buyer?.balanceBuyerUid?.trim();
+    return {
+      ...userObject,
+      id: user._id.toString(),
+      firstName: parts[0] || user.fullName || '',
+      lastName: parts.slice(1).join(' ') || '',
+      ...(buyer
+        ? {
+            buyerId: buyer._id.toString(),
+            ...(balanceUid ? { balanceBuyerUid: balanceUid } : {}),
+          }
+        : {}),
+    };
   }
 }

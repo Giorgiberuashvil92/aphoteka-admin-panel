@@ -6,7 +6,11 @@ export default function ForgotPasswordPage() {
 
   return (
     <ForgotPasswordScreen
-      onSendCode={(email) => router.push(`/verification?email=${encodeURIComponent(email)}&type=forgot` as any)}
+      onSendCode={(email, phone) =>
+        router.push(
+          `/verification?email=${encodeURIComponent(email)}&phone=${encodeURIComponent(phone)}&type=forgot` as any,
+        )
+      }
       onBack={() => router.back()}
     />
   );

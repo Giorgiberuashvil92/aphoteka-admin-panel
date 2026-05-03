@@ -89,6 +89,47 @@ export class CreateProductDto {
   @IsOptional()
   reservedQuantity?: number;
 
+  /** Balance Items ნომენკლატურის ref (GUID) — რეალიზაციის `Item` */
+  @IsString()
+  @IsOptional()
+  balanceNomenclatureItemUid?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceInventoriesAccount?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceExpensesAccount?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceRevenuesAccount?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceVatPayableAccount?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceVatRateUid?: string;
+
+  @IsNumber()
+  @IsOptional()
+  balanceDiscountPercent?: number;
+
+  @IsNumber()
+  @IsOptional()
+  balanceDiscountAmount?: number;
+
+  @IsString()
+  @IsOptional()
+  balanceDiscountName?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceDiscountUid?: string;
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

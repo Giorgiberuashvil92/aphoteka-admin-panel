@@ -1,3 +1,4 @@
+import { RequireAuth } from '@/src/components/auth/RequireAuth';
 import { ChangePasswordScreen } from '@/src/screens';
 import { useRouter } from 'expo-router';
 
@@ -5,6 +6,7 @@ export default function ChangePassword() {
   const router = useRouter();
 
   return (
+    <RequireAuth>
     <ChangePasswordScreen
       onBack={() => {
         console.log('Back pressed');
@@ -18,5 +20,6 @@ export default function ChangePassword() {
         console.log('More options pressed');
       }}
     />
+    </RequireAuth>
   );
 }

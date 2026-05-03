@@ -15,7 +15,10 @@ import { LoginMobileDto } from './dto/login-mobile.dto';
 import { RegisterMobileDto } from './dto/register-mobile.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ResetPasswordWithTokenDto } from './dto/reset-password-with-token.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { SendVerificationOtpDto } from './dto/send-verification-otp.dto';
+import { VerifyVerificationOtpDto } from './dto/verify-verification-otp.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Controller('auth')
@@ -48,6 +51,19 @@ export class AuthController {
     return this.authService.registerMobile(dto);
   }
 
+  /** რეგისტრაციის OTP SMS-ით ([Sender.ge](https://sender.ge/docs/api.php)) */
+  @Post('send-verification-otp')
+  @HttpCode(HttpStatus.OK)
+  async sendVerificationOtp(@Body() dto: SendVerificationOtpDto) {
+    return this.authService.sendVerificationOtp(dto);
+  }
+
+  @Post('verify-verification-otp')
+  @HttpCode(HttpStatus.OK)
+  async verifyVerificationOtp(@Body() dto: VerifyVerificationOtpDto) {
+    return this.authService.verifyVerificationOtp(dto);
+  }
+
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
   async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
@@ -58,6 +74,13 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
     return this.authService.resetPassword(resetPasswordDto);
+  }
+
+  /** OTP-ის დადასტურების შემდეგ (forgot) — JWT `resetToken` + ახალი პაროლი */
+  @Post('reset-password-with-token')
+  @HttpCode(HttpStatus.OK)
+  async resetPasswordWithToken(@Body() dto: ResetPasswordWithTokenDto) {
+    return this.authService.resetPasswordWithToken(dto);
   }
 
   @Get('me')

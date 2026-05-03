@@ -1,25 +1,23 @@
 import axios, { type AxiosInstance, isAxiosError } from 'axios';
 import https from 'node:https';
+import {
+  BALANCE_DEV_DEFAULT_USER_NAME,
+  BALANCE_DEV_DEFAULT_USER_PASSWORD,
+} from '@/lib/balance-default-auth';
 import { BALANCE_PUBLICATION_TARGET } from '@/lib/balancePublicationTarget';
 import { getBalanceItems } from '@/lib/api/balanceSync';
 
-/** Balance Basic Auth — სურვილისამებრ აქ შეცვალე. */
-const BALANCE_USER_NAME = 'Ntsulik@gmail.com';
-const BALANCE_USER_PASSWORD = '1985+Mai';
+const BALANCE_USER_NAME =
+  process.env.BALANCE_USER_NAME?.trim() || BALANCE_DEV_DEFAULT_USER_NAME;
+const BALANCE_USER_PASSWORD =
+  process.env.BALANCE_USER_PASSWORD?.trim() || BALANCE_DEV_DEFAULT_USER_PASSWORD;
 
 /**
  * ცარიელი → `Authorization: Basic …` (user/password ზემოთ).
- * Postman-ში თუ მხოლოდ JWT/სხვა სქემა მუშაობს, აქ ჩასვი **მთელი** `Authorization` მნიშვნელობა
- * (მაგ. `Bearer eyJhbG…` ან `accessToken=eyJhbG…` — რაც ჰედერში გაქვს).
+ * სრული ჰედერი env-დან: `BALANCE_AUTHORIZATION` (მაგ. `Bearer …` — Postman-ის მიხედვით).
  */
-const BALANCE_AUTHORIZATION = '';
+const BALANCE_AUTHORIZATION = process.env.BALANCE_AUTHORIZATION?.trim() || '';
 
-/**
- * Cloud: `.../sm/{a|o}/Balance/{ApplicationID}/hs/Exchange/...`
- * ნაგულისხმევი ApplicationID — `BALANCE_PUBLICATION_TARGET` (`balancePublicationTarget.ts`).
- * დოკუმენტაციაში სხვა რიცხვი (მაგ. 1649) ზოგადი მაგალითია.
- * სხვა გარემოსთვის: `.env.local` → `BALANCE_PUBLICATION_ID=...`
- */
 export const BALANCE_PUBLICATION_ID =
   process.env.BALANCE_PUBLICATION_ID?.trim() || BALANCE_PUBLICATION_TARGET;
 
@@ -49,14 +47,77 @@ function getEncodedToken(): string {
   return Buffer.from(token).toString('base64');
 }
 
+/** პარალელური GET-ებისას ერთი აგენტი — keepAlive ნაკლებ connection reset-ს იძლევა */
+const balanceHttpsAgent = new https.Agent({
+  rejectUnauthorized: false,
+  keepAlive: true,
+  maxSockets: 64,
+});
+
+/**
+ * Balance cloud ხშირად უჭერს/აგდებს დროებით — რეტრაი + ტაიმაუტი.
+ * env: `BALANCE_HTTP_TIMEOUT_MS` (ნაგულისხმევი 120000), `BALANCE_HTTP_RETRIES` (ნაგულისხმევი 3)
+ */
+const BALANCE_HTTP_TIMEOUT_MS = (() => {
+  const n = Number(process.env.BALANCE_HTTP_TIMEOUT_MS);
+  return Number.isFinite(n) && n >= 5_000 ? n : 120_000;
+})();
+
+const BALANCE_HTTP_RETRIES = (() => {
+  const n = Number(process.env.BALANCE_HTTP_RETRIES);
+  return Number.isFinite(n) && n >= 1 ? Math.min(8, Math.floor(n)) : 3;
+})();
+
+function balanceRetryDelayMs(attemptIndex: number): number {
+  const base = 350 * (attemptIndex + 1);
+  const jitter = Math.floor(Math.random() * 250);
+  return base + jitter;
+}
+
+function isTransientBalanceFailure(e: unknown): boolean {
+  if (isAxiosError(e)) {
+    const s = e.response?.status;
+    if (s === 429 || s === 502 || s === 503 || s === 504) return true;
+    const code = e.code;
+    if (code) {
+      const transient = new Set([
+        'ECONNRESET',
+        'ETIMEDOUT',
+        'ECONNABORTED',
+        'ENOTFOUND',
+        'EAI_AGAIN',
+        'ECONNREFUSED',
+      ]);
+      if (transient.has(String(code))) return true;
+    }
+    if (!e.response && e.message) {
+      const m = e.message.toLowerCase();
+      if (m.includes('socket hang up')) return true;
+      if (m.includes('timeout')) return true;
+      if (m.includes('network')) return true;
+    }
+    return false;
+  }
+  if (e instanceof Error) {
+    const m = e.message.toLowerCase();
+    if (m.includes('timeout')) return true;
+    if (m.includes('socket')) return true;
+    if (m.includes('econnreset')) return true;
+  }
+  return false;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 export function getBalanceTokenInstance(): AxiosInstance {
   const authorization = BALANCE_AUTHORIZATION.trim()
     ? BALANCE_AUTHORIZATION.trim()
     : 'Basic ' + getEncodedToken();
   return axios.create({
-    httpsAgent: new https.Agent({
-      rejectUnauthorized: false,
-    }),
+    httpsAgent: balanceHttpsAgent,
+    timeout: BALANCE_HTTP_TIMEOUT_MS,
     headers: {
       Authorization: authorization,
     },
@@ -72,11 +133,12 @@ export const BALANCE_WAREHOUSES_URL =
 
 export async function balanceGetJson(url: string): Promise<unknown> {
   const client = getBalanceTokenInstance();
-  const { data } = await client.get<string | unknown>(url, {
+  const getOpts = {
     /** GET-ზე `Content-Type: application/json` ზოგიერთ სერვერზე/WAF-ზე უცნაურია და 403-ს იძლევა */
     headers: { Accept: 'application/json' },
+    timeout: BALANCE_HTTP_TIMEOUT_MS,
     transformResponse: [
-      (raw) => {
+      (raw: string | unknown) => {
         if (typeof raw !== 'string') return raw;
         try {
           return JSON.parse(raw);
@@ -85,8 +147,34 @@ export async function balanceGetJson(url: string): Promise<unknown> {
         }
       },
     ],
-  });
-  return data;
+  };
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < BALANCE_HTTP_RETRIES; attempt++) {
+    try {
+      const { data } = await client.get<string | unknown>(url, getOpts);
+      return data;
+    } catch (e) {
+      lastErr = e;
+      const retry = attempt < BALANCE_HTTP_RETRIES - 1 && isTransientBalanceFailure(e);
+      if (retry) {
+        if (process.env.BALANCE_HTTP_DEBUG === '1') {
+          const msg = isAxiosError(e)
+            ? `${e.code ?? ''} ${e.response?.status ?? ''} ${e.message}`
+            : e instanceof Error
+              ? e.message
+              : String(e);
+          console.warn(
+            `[Balance] GET retry ${attempt + 1}/${BALANCE_HTTP_RETRIES} ${url.slice(0, 80)}… — ${msg}`
+          );
+        }
+        await sleep(balanceRetryDelayMs(attempt));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
 }
 
 /** დებაგი: ნედლი HTTP პასუხი (4xx აღარ „აგდებს“ — ყველაფერი ჩანს bodyText-ში) */
@@ -114,6 +202,7 @@ export async function balanceProbeGet(
 
   try {
     const res = await client.get<string>(url, {
+      timeout: opts?.skipAuth ? 60_000 : BALANCE_HTTP_TIMEOUT_MS,
       headers: { Accept: 'application/json' },
       validateStatus: () => true,
       responseType: 'text',
@@ -190,6 +279,15 @@ export async function fetchBalanceItemsTest(uid?: string | null): Promise<unknow
 
 export const BALANCE_PRICES_URL =
   process.env.BALANCE_PRICES_URL ?? balanceExchangeUrl('a', 'Prices');
+
+/** Balance Exchange ფასდაკლებები — `sm/a/Balance/{id}/hs/Exchange/Discounts` */
+export const BALANCE_DISCOUNTS_URL =
+  process.env.BALANCE_DISCOUNTS_URL?.trim() ||
+  balanceExchangeUrl('a', 'Discounts');
+
+export async function fetchBalanceDiscounts(): Promise<unknown> {
+  return balanceGetJson(BALANCE_DISCOUNTS_URL);
+}
 
 /** Exchange საერთო `uid` — Prices / Stocks / სხვა */
 const BALANCE_EXCHANGE_UID = 'b067980d-7eb5-11ec-80d2-000c29409daa';

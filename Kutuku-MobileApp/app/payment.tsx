@@ -1,12 +1,14 @@
 import { PaymentScreen } from '@/src/screens';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Alert } from 'react-native';
 
 export default function Payment() {
   const router = useRouter();
+  const { bogDevSimulate } = useLocalSearchParams<{ bogDevSimulate?: string }>();
 
   return (
     <PaymentScreen
+      bogDevSimulate={bogDevSimulate === '1'}
       onBack={() => router.back()}
       onLoginRequired={() => router.push('/login' as any)}
       onOrderPlaced={(orderId, meta) => {

@@ -33,6 +33,13 @@
     "plugins": [
       "expo-router",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Norix იყენებს ლოკაციას მიტანის მისამართის არჩევისთვის რუკაზე.",
+          "locationAlwaysAndWhenInUsePermission": " Norix იყენებს ლოკაციას მიტანის მისამართის არჩევისთვის რუკაზე."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",

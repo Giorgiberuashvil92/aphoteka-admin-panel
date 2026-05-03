@@ -42,6 +42,30 @@ function productCardDisplayName(p: { genericName?: string }) {
   return { name: gen || '—', genericName: undefined };
 }
 
+/** `mapApiProductToMedicine` — `price` უკვე ფასდაკლებულია; `oldPrice` / `discountPercentage` Balance-იდან */
+function productCardBalanceDiscountProps(p: {
+  price: number;
+  oldPrice?: number;
+  discountPercentage?: number;
+}) {
+  const sale = Number(p.price);
+  const list = p.oldPrice != null ? Number(p.oldPrice) : NaN;
+  const pctRaw = p.discountPercentage;
+  const pct =
+    typeof pctRaw === 'number' &&
+    Number.isFinite(pctRaw) &&
+    pctRaw > 0 &&
+    Number.isFinite(list) &&
+    list > sale
+      ? Math.round(pctRaw)
+      : undefined;
+  return {
+    currentPrice: sale,
+    originalPrice: pct != null ? list : undefined,
+    discount: pct,
+  };
+}
+
 type PrescribedChip = { productId: string; productName: string; quantity: number };
 
 function mergePrescribedItems(rows: MyPrescriptionRow[]): PrescribedChip[] {
@@ -259,20 +283,22 @@ export function HomeMainScreen({ onSearch, onCategory, onProductPress, onNotific
     try {
       setLoading(true);
       const fromApi = await ProductService.getFeaturedProducts(8);
-      setProducts(fromApi.map((p) => ({
-        id: p.id,
-        title: p.name,
-        genericName: p.genericName,
-        brand: p.manufacturer,
-        price: p.price,
-        oldPrice: undefined,
-        discountPercentage: undefined,
-        thumbnail: p.thumbnail,
-        rating: p.rating,
-        stock: p.stockQuantity,
-        description: p.description,
-        reviewCount: p.reviewCount,
-      })));
+      setProducts(
+        fromApi.map((p) => ({
+          id: p.id,
+          title: p.name,
+          genericName: p.genericName,
+          brand: p.manufacturer,
+          price: p.price,
+          oldPrice: p.oldPrice,
+          discountPercentage: p.discountPercentage,
+          thumbnail: p.thumbnail,
+          rating: p.rating,
+          stock: p.stockQuantity,
+          description: p.description,
+          reviewCount: p.reviewCount,
+        }))
+      );
       const favorites = await FavoriteService.getFavorites();
       setFavoriteIds(new Set(favorites.map((fav) => fav.id)));
     } catch (error) {
@@ -583,14 +609,19 @@ export function HomeMainScreen({ onSearch, onCategory, onProductPress, onNotific
             <View style={styles.productGrid}>
               {products.map((product: any) => {
                 const { name } = productCardDisplayName(product);
+                const disc = productCardBalanceDiscountProps({
+                  price: Number(product.price) || 0,
+                  oldPrice: product.oldPrice,
+                  discountPercentage: product.discountPercentage,
+                });
                 return (
                   <View key={product.id} style={styles.productCardWrapper}>
                     <ProductCard
                       id={product.id.toString()}
                       name={name}
-                      currentPrice={product.price}
-                      originalPrice={product.oldPrice || product.price * 1.2}
-                      discount={product.discountPercentage}
+                      currentPrice={disc.currentPrice}
+                      originalPrice={disc.originalPrice}
+                      discount={disc.discount}
                       image={product.thumbnail}
                       rating={4.5}
                       reviewCount={320}
@@ -648,10 +679,17 @@ export function HomeMainScreen({ onSearch, onCategory, onProductPress, onNotific
           title="შეიძლება დაგაინტერესოს"
           products={products.slice(0, 6).map((p) => {
             const { name } = productCardDisplayName(p);
+            const disc = productCardBalanceDiscountProps({
+              price: Number(p.price) || 0,
+              oldPrice: p.oldPrice,
+              discountPercentage: p.discountPercentage,
+            });
             return {
               id: p.id.toString(),
               name,
-              currentPrice: p.price,
+              currentPrice: disc.currentPrice,
+              originalPrice: disc.originalPrice,
+              discount: disc.discount,
               image: p.thumbnail,
               onAddToCart: () => {},
               onToggleWishlist: () => handleToggleFavorite(p, null),
@@ -707,7 +745,6 @@ export function HomeMainScreen({ onSearch, onCategory, onProductPress, onNotific
     </SafeAreaView>
   );
 }
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1069,3 +1106,4 @@ const styles = StyleSheet.create({
     fontWeight: theme.typography.fontWeight.semibold,
   },
 });
+

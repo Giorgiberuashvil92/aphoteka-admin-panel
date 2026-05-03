@@ -5,6 +5,7 @@ import {
   IsOptional,
   ValidateNested,
   Min,
+  IsMongoId,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -30,6 +31,11 @@ export class CreateOrderItemDto {
   @IsOptional()
   @IsString()
   packSize?: string;
+
+  /** Balance Sale-ისთვის: მობილურიდან არჩეული სერიის UUID (სერიული ნომენკლატურისთვის) */
+  @IsOptional()
+  @IsString()
+  balanceSeriesUuid?: string;
 }
 
 export class CreateOrderDto {
@@ -49,4 +55,9 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   comment?: string;
+
+  /** Balance Sale-ისთვის: მომხმარებლის არჩეული საწყობი (Mongo Warehouse._id) */
+  @IsOptional()
+  @IsMongoId()
+  warehouseId?: string;
 }

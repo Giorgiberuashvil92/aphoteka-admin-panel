@@ -40,6 +40,9 @@ export const API_CONFIG = {
       changePassword: '/auth/change-password',
       forgotPassword: '/auth/forgot-password',
       resetPassword: '/auth/reset-password',
+      resetPasswordWithToken: '/auth/reset-password-with-token',
+      sendVerificationOtp: '/auth/send-verification-otp',
+      verifyVerificationOtp: '/auth/verify-verification-otp',
     },
     products: {
       list: '/products',
@@ -52,6 +55,9 @@ export const API_CONFIG = {
       byId: (id: string) => `/orders/${id}`,
       bogPayment: (id: string) =>
         `/orders/${encodeURIComponent(id)}/payment/bog`,
+      /** დევ: BOG callback-ის იმიტაცია (იგივე ჩართვა რაც ბექის testPut) */
+      bogDevSimulateCompleted: (id: string) =>
+        `/orders/${encodeURIComponent(id)}/payment/bog/dev-simulate-completed`,
     },
     users: {
       lookupByEmail: '/users/lookup-by-email',

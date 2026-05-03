@@ -23,10 +23,23 @@ export class ProductGroup {
 }
 
 export const ProductGroupSchema = SchemaFactory.createForClass(ProductGroup);
-ProductGroupSchema.set('toJSON', { transform: (doc: any, ret: any) => { ret.id = ret._id?.toString(); delete ret._id; delete ret.__v; return ret; } });
-ProductGroupSchema.set('toObject', { transform: (doc: any, ret: any) => { ret.id = ret._id?.toString(); delete ret._id; delete ret.__v; return ret; } });
+ProductGroupSchema.set('toJSON', {
+  transform: (doc: any, ret: any) => {
+    ret.id = ret._id?.toString();
+    delete ret._id;
+    delete ret.__v;
+    return ret;
+  },
+});
+ProductGroupSchema.set('toObject', {
+  transform: (doc: any, ret: any) => {
+    ret.id = ret._id?.toString();
+    delete ret._id;
+    delete ret.__v;
+    return ret;
+  },
+});
 
-// ProductVariant - იერარქიის მეორე დონე (Generic + Country)
 @Schema({ timestamps: true })
 export class ProductVariant {
   @Prop({ type: Types.ObjectId, ref: 'ProductGroup', required: true })
@@ -45,11 +58,25 @@ export class ProductVariant {
   active: boolean;
 }
 
-export const ProductVariantSchema = SchemaFactory.createForClass(ProductVariant);
-ProductVariantSchema.set('toJSON', { transform: (doc: any, ret: any) => { ret.id = ret._id?.toString(); delete ret._id; delete ret.__v; return ret; } });
-ProductVariantSchema.set('toObject', { transform: (doc: any, ret: any) => { ret.id = ret._id?.toString(); delete ret._id; delete ret.__v; return ret; } });
+export const ProductVariantSchema =
+  SchemaFactory.createForClass(ProductVariant);
+ProductVariantSchema.set('toJSON', {
+  transform: (doc: any, ret: any) => {
+    ret.id = ret._id?.toString();
+    delete ret._id;
+    delete ret.__v;
+    return ret;
+  },
+});
+ProductVariantSchema.set('toObject', {
+  transform: (doc: any, ret: any) => {
+    ret.id = ret._id?.toString();
+    delete ret._id;
+    delete ret.__v;
+    return ret;
+  },
+});
 
-// ProductStrength - იერარქიის მესამე დონე (Generic + Country + Strength)
 @Schema({ timestamps: true })
 export class ProductStrength {
   @Prop({ type: Types.ObjectId, ref: 'ProductVariant', required: true })
@@ -68,11 +95,25 @@ export class ProductStrength {
   active: boolean;
 }
 
-export const ProductStrengthSchema = SchemaFactory.createForClass(ProductStrength);
-ProductStrengthSchema.set('toJSON', { transform: (doc: any, ret: any) => { ret.id = ret._id?.toString(); delete ret._id; delete ret.__v; return ret; } });
-ProductStrengthSchema.set('toObject', { transform: (doc: any, ret: any) => { ret.id = ret._id?.toString(); delete ret._id; delete ret.__v; return ret; } });
+export const ProductStrengthSchema =
+  SchemaFactory.createForClass(ProductStrength);
+ProductStrengthSchema.set('toJSON', {
+  transform: (doc: any, ret: any) => {
+    ret.id = ret._id?.toString();
+    delete ret._id;
+    delete ret.__v;
+    return ret;
+  },
+});
+ProductStrengthSchema.set('toObject', {
+  transform: (doc: any, ret: any) => {
+    ret.id = ret._id?.toString();
+    delete ret._id;
+    delete ret.__v;
+    return ret;
+  },
+});
 
-// Product Entity - იერარქიის ქვედა დონე (კონკრეტული პროდუქტი)
 @Schema({ timestamps: true })
 export class Product {
   @Prop({ type: Types.ObjectId, ref: 'ProductStrength' })
@@ -111,7 +152,6 @@ export class Product {
   @Prop()
   unitOfMeasure?: string;
 
-  // Computed/denormalized fields for easy access (from hierarchy)
   @Prop()
   genericName?: string;
 
@@ -127,7 +167,6 @@ export class Product {
   @Prop()
   dosageForm?: string;
 
-  // Excel/Invoice additional fields
   @Prop()
   productCode?: string; // საქონლის კოდი
 
@@ -136,6 +175,39 @@ export class Product {
 
   @Prop({ type: Number })
   reservedQuantity?: number; // დარეზერვებული (Balance Reserve ჯამი)
+
+  /** Balance Exchange Items ნომენკლატურის `uid` — რეალიზაციის `Item`, ItemsSeries `Item` */
+  @Prop()
+  balanceNomenclatureItemUid?: string;
+
+  @Prop()
+  balanceInventoriesAccount?: string;
+
+  @Prop()
+  balanceExpensesAccount?: string;
+
+  @Prop()
+  balanceRevenuesAccount?: string;
+
+  @Prop()
+  balanceVatPayableAccount?: string;
+
+  @Prop()
+  balanceVatRateUid?: string;
+
+  /** Balance Exchange/Discounts — პროცენტი (მთლიანი რიცხვი, მაგ. 15) */
+  @Prop({ type: Number })
+  balanceDiscountPercent?: number;
+
+  /** Balance — ფიქსირებული ფასდაკლების თანხა (ერთეულზე, ვალუტა რაც Balance-შია) */
+  @Prop({ type: Number })
+  balanceDiscountAmount?: number;
+
+  @Prop()
+  balanceDiscountName?: string;
+
+  @Prop()
+  balanceDiscountUid?: string;
 
   @Prop({
     type: [

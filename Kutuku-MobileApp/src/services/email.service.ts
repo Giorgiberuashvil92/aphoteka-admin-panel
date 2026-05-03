@@ -1,155 +1,124 @@
-// Email Service using EmailJS (Free!)
-// Setup: https://www.emailjs.com/
+// OTP: მხოლოდ ბექენდი + [Sender.ge](https://sender.ge/docs/api.php) SMS — კოდი არ ჩანს აპის ეკრანზე.
 
-import { Alert } from 'react-native';
+import { API_CONFIG } from '@/src/config/api.config';
 
-// EmailJS Configuration
-// Get these from https://dashboard.emailjs.com/
-const EMAILJS_SERVICE_ID = 'service_4u25e5x'; // e.g., 'service_abc123'
-const EMAILJS_TEMPLATE_ID = 'template_rd5ddnt';
-const EMAILJS_PUBLIC_KEY = 'O7H_6kbnqZJLF0BVb'; 
-
-// Mock Mode for testing without EmailJS setup
-const MOCK_MODE = true; // 🔧 Temporarily enabled for debugging
+const SEND_OTP_PATH = '/auth/send-verification-otp';
+const VERIFY_OTP_PATH = '/auth/verify-verification-otp';
 
 export class EmailService {
-  // Generate 4-digit OTP
-  private static generateOTP(): string {
-    return Math.floor(1000 + Math.random() * 9000).toString();
+  /**
+   * `register` / `forgot`: SMS `phone`-ზე (`SENDER_GE_API_KEY` ბექენდზე). ლოკალური/ეკრანზე კოდის ჩვენება არ არის.
+   */
+  static async sendOTP(
+    email: string,
+    purpose: 'register' | 'forgot',
+    options?: { phone?: string },
+  ): Promise<{ success: boolean; error?: string; channel?: 'sms' }> {
+    const phone = options?.phone?.trim();
+    if (!phone) {
+      return {
+        success: false,
+        error:
+          purpose === 'forgot'
+            ? 'მიუთითეთ ტელეფონი (იგივე რაც ანგარიშზეა რეგისტრაციისას).'
+            : 'მიუთითეთ ტელეფონი SMS-ისთვის.',
+      };
+    }
+
+    const api = await this.trySendOtpViaBackend(
+      email.trim().toLowerCase(),
+      phone,
+      purpose,
+    );
+    if (api.ok) {
+      return { success: true, channel: 'sms' };
+    }
+    return {
+      success: false,
+      error: api.error || 'კოდის გაგზავნა ვერ მოხერხდა',
+    };
   }
 
-  // Store OTP temporarily (in-memory, for demo)
-  private static otpStore = new Map<string, { code: string; expiresAt: number }>();
-
-  // Send OTP to Email
-  static async sendOTP(email: string, purpose: 'register' | 'forgot'): Promise<{ success: boolean; error?: string }> {
+  private static async trySendOtpViaBackend(
+    email: string,
+    phone: string,
+    purpose: 'register' | 'forgot',
+  ): Promise<{ ok: boolean; error?: string }> {
     try {
-      // Generate OTP
-      const otp = this.generateOTP();
-      
-      // Store OTP with 10 minute expiration
-      this.otpStore.set(email, {
-        code: otp,
-        expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
-      });
-
-      // MOCK MODE - for testing without EmailJS
-      if (MOCK_MODE) {
-        console.log('='.repeat(60));
-        console.log('📧 MOCK EMAIL SENT');
-        console.log('='.repeat(60));
-        console.log('To:', email);
-        console.log('Purpose:', purpose === 'register' ? 'Registration' : 'Password Reset');
-        console.log('OTP Code:', otp);
-        console.log('Expires in: 10 minutes');
-        console.log('='.repeat(60));
-        
-        // Show OTP in alert for easy testing
-        setTimeout(() => {
-          Alert.alert(
-            '🔢 Test Mode - OTP Code',
-            `Email: ${email}\n\nYour verification code is:\n\n${otp}\n\n(This is test mode. In production, you'll receive this via email)`,
-            [{ text: 'OK' }]
-          );
-        }, 500);
-        
-        return { success: true };
-      }
-
-      // REAL MODE - EmailJS via REST API
-      const templateParams = {
-        service_id: EMAILJS_SERVICE_ID,
-        template_id: EMAILJS_TEMPLATE_ID,
-        user_id: EMAILJS_PUBLIC_KEY,
-        template_params: {
-          to_email: email,
-          otp_code: otp,
-          purpose: purpose === 'register' ? 'Registration' : 'Password Reset',
-          app_name: 'Kutuku',
-          expiry_time: '10 minutes',
-        }
-      };
-
-      console.log('Sending email with params:', templateParams);
-      
-      const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+      const url = `${API_CONFIG.BASE_URL}${SEND_OTP_PATH}`;
+      const res = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(templateParams),
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ email, phone, purpose }),
       });
-
-      console.log('Response status:', response.status);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('EmailJS Error Response:', errorText);
-        throw new Error(`EmailJS Error: ${errorText}`);
+      const data = (await res.json().catch(() => ({}))) as { message?: string | string[] };
+      if (res.ok) {
+        return { ok: true };
       }
-
-      console.log('Email sent successfully!');
-      return { success: true };
-    } catch (error: any) {
-      console.error('Email send error:', error);
-      return { 
-        success: false, 
-        error: error.text || 'Failed to send verification email' 
+      const msg = Array.isArray(data.message)
+        ? data.message.join(', ')
+        : typeof data.message === 'string'
+          ? data.message
+          : `HTTP ${res.status}`;
+      return { ok: false, error: msg };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : 'ქსელის შეცდომა',
       };
     }
   }
 
-  // Verify OTP
-  static verifyOTP(email: string, code: string): { success: boolean; error?: string } {
-    const stored = this.otpStore.get(email);
+  static async verifyOTP(
+    email: string,
+    code: string,
+  ): Promise<{ success: boolean; error?: string; resetToken?: string }> {
+    const emailKey = email.trim().toLowerCase();
+    const trimmed = code.trim();
 
-    if (!stored) {
-      return { 
-        success: false, 
-        error: 'No verification code found. Please request a new one.' 
+    const backend = await this.tryVerifyOtpViaBackend(emailKey, trimmed);
+    if (backend.verified) {
+      return {
+        success: true,
+        ...(backend.resetToken ? { resetToken: backend.resetToken } : {}),
       };
     }
-
-    // Check expiration
-    if (Date.now() > stored.expiresAt) {
-      this.otpStore.delete(email);
-      return { 
-        success: false, 
-        error: 'Verification code has expired. Please request a new one.' 
-      };
-    }
-
-    // Verify code
-    if (stored.code !== code) {
-      return { 
-        success: false, 
-        error: 'Invalid verification code. Please try again.' 
-      };
-    }
-
-    // Success - remove OTP
-    this.otpStore.delete(email);
-    return { success: true };
+    return { success: false, error: backend.error || 'ვერიფიკაცია ვერ მოხერხდა' };
   }
 
-  // Get stored OTP (for testing/debugging only)
-  static getStoredOTP(email: string): string | null {
-    const stored = this.otpStore.get(email);
-    return stored ? stored.code : null;
-  }
-
-  // Clear expired OTPs (cleanup)
-  static clearExpiredOTPs(): void {
-    const now = Date.now();
-    for (const [email, data] of this.otpStore.entries()) {
-      if (now > data.expiresAt) {
-        this.otpStore.delete(email);
+  private static async tryVerifyOtpViaBackend(
+    email: string,
+    code: string,
+  ): Promise<{ verified: boolean; error?: string; resetToken?: string }> {
+    try {
+      const url = `${API_CONFIG.BASE_URL}${VERIFY_OTP_PATH}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ email, code }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        message?: string | string[];
+        resetToken?: string;
+      };
+      if (res.ok) {
+        const resetToken =
+          typeof data.resetToken === 'string' && data.resetToken.length > 0
+            ? data.resetToken
+            : undefined;
+        return { verified: true, ...(resetToken ? { resetToken } : {}) };
       }
+      const msg = Array.isArray(data.message)
+        ? data.message.join(', ')
+        : typeof data.message === 'string'
+          ? data.message
+          : '';
+      return { verified: false, error: msg || `HTTP ${res.status}` };
+    } catch (e: unknown) {
+      return {
+        verified: false,
+        error: e instanceof Error ? e.message : 'ქსელის შეცდომა',
+      };
     }
   }
 }
-
-// Auto-cleanup expired OTPs every 5 minutes
-setInterval(() => {
-  EmailService.clearExpiredOTPs();
-}, 5 * 60 * 1000);

@@ -148,6 +148,253 @@ export function buildPriceByUuid(pricesRows: Record<string, unknown>[]): Map<str
   return map;
 }
 
+/** Exchange/Discounts — ერთი ნომენკლატურაზე (უკანასკნელი არაცარიელი ხაზი იგებს) */
+export type BalanceDiscountForItem = {
+  balanceDiscountUid?: string;
+  balanceDiscountName?: string;
+  balanceDiscountPercent?: number;
+  balanceDiscountAmount?: number;
+};
+
+/** Balance Discounts API — ხშირად მასივი წესებისა `Items: [{ Item: guid }]`, `Percentage`, `Code` */
+export type BalanceDiscountMaps = {
+  byItemUid: Map<string, BalanceDiscountForItem>;
+  /** `Items: []` — „უპირობოდ"; სინქში ფოლბექი ნომენკლატურაზე სპეციფიკური წესის გარეშე */
+  unconditional?: BalanceDiscountForItem;
+};
+
+function getOptionalNum(
+  item: Record<string, unknown>,
+  ...keys: string[]
+): number | undefined {
+  for (const k of keys) {
+    const v = item[k];
+    if (v === null || v === undefined || v === '') continue;
+    const n = Number(v);
+    if (!Number.isNaN(n)) return n;
+  }
+  return undefined;
+}
+
+/**
+ * Discounts ხაზზე ნომენკლატურის GUID — არა ჩანაწერის `uid` (რომელიც ფასდაკლების id-იც შეიძლება იყოს).
+ */
+function nomenclatureUidFromDiscountRow(
+  row: Record<string, unknown>
+): string | undefined {
+  const flat = getStr(
+    row,
+    'Item',
+    'item',
+    'ItemRef',
+    'NomenclatureRef',
+    'ProductRef',
+    'Nomenclature',
+    'nomenclature',
+    'Product',
+    'product'
+  );
+  if (flat && /^[0-9a-f-]{36}$/i.test(flat)) return flat;
+  for (const k of ['Item', 'Nomenclature', 'Product', 'item'] as const) {
+    const nested = row[k];
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      const u = getStr(
+        nested as Record<string, unknown>,
+        'uid',
+        'UID',
+        'Ref',
+        'UUID',
+        'Uuid'
+      );
+      if (u && /^[0-9a-f-]{36}$/i.test(u)) return u;
+    }
+  }
+  return undefined;
+}
+
+/** `DD.MM.YYYY` / ცარიელი — თუ პერიოდი მითითებულია და დღეს გარეთაა, წესი გამორთულად ჩაითვლება */
+function balanceDiscountRuleActiveByPeriod(row: Record<string, unknown>): boolean {
+  const start = getStr(row, 'StartDate', 'startDate');
+  const end = getStr(row, 'EndDate', 'endDate');
+  if (!start && !end) return true;
+  const parseDdMmYyyy = (s: string): Date | undefined => {
+    const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(s.trim());
+    if (!m) return undefined;
+    const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    return Number.isNaN(d.getTime()) ? undefined : d;
+  };
+  const now = new Date();
+  now.setHours(12, 0, 0, 0);
+  if (start) {
+    const ds = parseDdMmYyyy(start);
+    if (ds && now < ds) return false;
+  }
+  if (end) {
+    const de = parseDdMmYyyy(end);
+    if (de) {
+      de.setHours(23, 59, 59, 999);
+      if (now > de) return false;
+    }
+  }
+  return true;
+}
+
+function balanceDiscountRuleIsActiveFlag(row: Record<string, unknown>): boolean {
+  const v = String(row.IsActive ?? row.isActive ?? 'true').trim().toLowerCase();
+  return v === 'true' || v === '1' || v === 'yes';
+}
+
+function percentFromDiscountRuleRow(row: Record<string, unknown>): number | undefined {
+  const pctRaw = getOptionalNum(
+    row,
+    'Percentage',
+    'percentage',
+    'DiscountPercent',
+    'discountPercent',
+    'PercentDiscount',
+    'percentDiscount',
+    'Percent',
+    'percent'
+  );
+  if (pctRaw !== undefined && pctRaw > 0) {
+    if (pctRaw > 0 && pctRaw <= 1) return Math.round(pctRaw * 100);
+    if (pctRaw <= 100) return Math.round(pctRaw);
+  }
+  const discVal = getOptionalNum(row, 'Discount', 'discount');
+  if (discVal !== undefined && discVal > 0 && discVal <= 100) return Math.round(discVal);
+  return undefined;
+}
+
+function discountEntryFromRuleRow(row: Record<string, unknown>): BalanceDiscountForItem | undefined {
+  const name = getStr(
+    row,
+    'Name',
+    'name',
+    'Description',
+    'Presentation',
+    'DiscountName',
+    'discountName'
+  );
+  const code = getStr(row, 'Code', 'code', 'uid', 'UID');
+  const rowUid = getStr(row, 'uid', 'UUID', 'Uuid');
+  const idForUid = code || rowUid;
+
+  const balanceDiscountPercent = percentFromDiscountRuleRow(row);
+  let balanceDiscountAmount: number | undefined;
+  if (balanceDiscountPercent === undefined) {
+    balanceDiscountAmount = getOptionalNum(
+      row,
+      'DiscountAmount',
+      'discountAmount',
+      'FixedDiscount',
+      'fixedDiscount',
+      'Amount',
+      'Sum'
+    );
+    if (balanceDiscountAmount !== undefined && balanceDiscountAmount <= 0) {
+      balanceDiscountAmount = undefined;
+    }
+  }
+
+  const entry: BalanceDiscountForItem = {};
+  if (idForUid) entry.balanceDiscountUid = idForUid;
+  if (name) entry.balanceDiscountName = name;
+  if (balanceDiscountPercent !== undefined) entry.balanceDiscountPercent = balanceDiscountPercent;
+  if (balanceDiscountAmount !== undefined) entry.balanceDiscountAmount = balanceDiscountAmount;
+
+  if (
+    entry.balanceDiscountPercent === undefined &&
+    entry.balanceDiscountAmount === undefined &&
+    !entry.balanceDiscountName &&
+    !entry.balanceDiscountUid
+  ) {
+    return undefined;
+  }
+  return entry;
+}
+
+function mergeDiscountPreferHigherPercent(
+  a: BalanceDiscountForItem,
+  b: BalanceDiscountForItem
+): BalanceDiscountForItem {
+  const pa = a.balanceDiscountPercent ?? 0;
+  const pb = b.balanceDiscountPercent ?? 0;
+  if (pb > pa) return b;
+  if (pa > pb) return a;
+  return b;
+}
+
+/**
+ * Discounts სრული პასუხი (მასივი წესებისა `Items`, `Percentage`, …) → ნომენკლატურა + უპირობო.
+ */
+export function buildDiscountMapsFromBalanceApi(data: unknown): BalanceDiscountMaps {
+  return buildDiscountMapsFromBalanceDiscountRows(getBalanceItems(data));
+}
+
+export function buildDiscountMapsFromBalanceDiscountRows(
+  discountRows: Record<string, unknown>[]
+): BalanceDiscountMaps {
+  const byItemUid = new Map<string, BalanceDiscountForItem>();
+  let unconditional: BalanceDiscountForItem | undefined;
+
+  const setItemDisc = (itemUid: string, entry: BalanceDiscountForItem) => {
+    const key = itemUid.trim().toLowerCase();
+    const prev = byItemUid.get(key);
+    byItemUid.set(
+      key,
+      prev ? mergeDiscountPreferHigherPercent(prev, entry) : entry
+    );
+  };
+
+  for (const row of discountRows) {
+    if (!balanceDiscountRuleIsActiveFlag(row)) continue;
+    if (!balanceDiscountRuleActiveByPeriod(row)) continue;
+
+    const entry = discountEntryFromRuleRow(row);
+    const itemsRaw = row.Items ?? row.items;
+
+    if (Array.isArray(itemsRaw) && itemsRaw.length > 0) {
+      if (!entry) continue;
+      for (const el of itemsRaw) {
+        if (!el || typeof el !== 'object') continue;
+        const rec = el as Record<string, unknown>;
+        const itemUid = getStr(rec, 'Item', 'item');
+        if (!itemUid || !/^[0-9a-f-]{36}$/i.test(itemUid)) continue;
+        setItemDisc(itemUid, { ...entry });
+      }
+      continue;
+    }
+
+    if (Array.isArray(itemsRaw) && itemsRaw.length === 0) {
+      if (entry) {
+        const pu = entry.balanceDiscountPercent ?? 0;
+        const uu = unconditional?.balanceDiscountPercent ?? 0;
+        if (!unconditional || pu > uu) {
+          unconditional = { ...entry };
+        }
+      }
+      continue;
+    }
+
+    const uuid = nomenclatureUidFromDiscountRow(row);
+    if (uuid && entry) {
+      setItemDisc(uuid, entry);
+    }
+  }
+
+  return { byItemUid, unconditional };
+}
+
+/**
+ * Discounts JSON ხაზები → ნომენკლატურის Item `uid` → ფასდაკლება.
+ * @deprecated სინქისთვის გამოიყენე `buildDiscountMapsFromBalanceApi` (უპირობო წესების ფოლბექით).
+ */
+export function buildDiscountByItemUid(
+  discountRows: Record<string, unknown>[]
+): Map<string, BalanceDiscountForItem> {
+  return buildDiscountMapsFromBalanceDiscountRows(discountRows).byItemUid;
+}
+
 /**
  * ნომენკლატურის (Items) ხაზიდან `VATRate` — როგორც Balance აბრუნებს (არ ვაფორმატებთ % / ტექსტს).
  */
@@ -343,6 +590,21 @@ export function mapBalanceItemToProduct(
     transportStartDate: getDate(item, 'TransportStartDate', 'transportStartDate') || undefined,
     buyer: getStr(item, 'Buyer', 'buyer') || undefined,
     seller: getStr(item, 'Seller', 'seller') || undefined,
+    /**
+     * Balance Items `uid` (GUID) — Exchange/Sale-ის `Item` ველი.
+     * ასე Mongo-ში SKU-თან ერთად ინახება ნომენკლატურის GUID-იც და
+     * მობილური GET /products პასუხში ავტომატურად ხვდება.
+     */
+    balanceNomenclatureItemUid: uuid || undefined,
+    balanceInventoriesAccount:
+      getStr(item, 'InventoriesAccount', 'inventoriesAccount') || undefined,
+    balanceExpensesAccount:
+      getStr(item, 'ExpensesAccount', 'expensesAccount') || undefined,
+    balanceRevenuesAccount:
+      getStr(item, 'RevenuesAccount', 'revenuesAccount') || undefined,
+    balanceVatPayableAccount:
+      getStr(item, 'VATPayableAccount', 'VatPayableAccount', 'vatPayableAccount') ||
+      undefined,
   };
 }
 

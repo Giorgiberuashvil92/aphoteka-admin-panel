@@ -1,4 +1,5 @@
 import {
+  fetchBalanceDiscounts,
   fetchBalanceExchangeStocks,
   fetchBalanceItemsSeriesForItem,
   fetchBalanceItemsSeriesFullList,
@@ -12,6 +13,7 @@ import { fetchBalanceItemPricing } from '@/lib/api/balancePricing';
 import {
   aggregateExchangeStocksByItemUid,
   buildBalanceWarehouseNameByUuid,
+  buildDiscountMapsFromBalanceApi,
   buildPriceByUuid,
   buildSkuToBalanceItemUid,
   buildTaxationByUuid,
@@ -27,6 +29,7 @@ import {
   normalizeBalanceItemSeriesRows,
   stockLinesHaveSeriesUuid,
   type AggregatedBalanceStockForItem,
+  type BalanceDiscountForItem,
   type BalanceItemSeriesLine,
 } from '@/lib/api/balanceSync';
 import { NextRequest, NextResponse } from 'next/server';
@@ -95,6 +98,17 @@ export async function POST(request: NextRequest) {
       /* Stocks/Warehouses ოფციონალური — სინქი გაგრძელდება ფასებით/ნომენკლატურით */
     }
     const skuToBalanceItemUid = buildSkuToBalanceItemUid(leafItems);
+
+    let discountByItemUid = new Map<string, BalanceDiscountForItem>();
+    let discountUnconditional: BalanceDiscountForItem | undefined;
+    try {
+      const discountsRaw = await fetchBalanceDiscounts();
+      const maps = buildDiscountMapsFromBalanceApi(discountsRaw);
+      discountByItemUid = maps.byItemUid;
+      discountUnconditional = maps.unconditional;
+    } catch {
+      /* Discounts ოფციონალური — სინქი სხვა ველებით გრძელდება */
+    }
 
     const seriesByItemUid = new Map<string, BalanceItemSeriesLine[]>();
     const seriesFetchOk = new Set<string>();
@@ -202,6 +216,11 @@ export async function POST(request: NextRequest) {
     let updated = 0;
     const errors: string[] = [];
 
+    const logSync =
+      process.env.BALANCE_SYNC_DEBUG === '1' ||
+      process.env.NODE_ENV === 'development';
+    let firstDumpDone = false;
+
     for (const product of withSku) {
       const id = bySku.get(product.sku!);
       const itemUid = skuToBalanceItemUid.get(product.sku!) ?? '';
@@ -217,8 +236,30 @@ export async function POST(request: NextRequest) {
       const mergedSeries = shouldPatchSeries
         ? mergeBalanceItemSeriesFromStocks(apiSeries, stockLines)
         : undefined;
+      /** სპეც. Items-ით წესი ან უპირობო (Items: []); itemUid ცარიელზეც unconditional უნდა ჩაწეროს */
+      const disc =
+        (itemUid
+          ? discountByItemUid.get(itemUid.trim().toLowerCase())
+          : undefined) ?? discountUnconditional;
       const payload = {
         ...product,
+        ...(itemUid ? { balanceNomenclatureItemUid: itemUid } : {}),
+        ...(disc
+          ? {
+              ...(disc.balanceDiscountPercent != null
+                ? { balanceDiscountPercent: disc.balanceDiscountPercent }
+                : {}),
+              ...(disc.balanceDiscountAmount != null
+                ? { balanceDiscountAmount: disc.balanceDiscountAmount }
+                : {}),
+              ...(disc.balanceDiscountName
+                ? { balanceDiscountName: disc.balanceDiscountName }
+                : {}),
+              ...(disc.balanceDiscountUid
+                ? { balanceDiscountUid: disc.balanceDiscountUid }
+                : {}),
+            }
+          : {}),
         ...(mergedSeries !== undefined
           ? {
               balanceItemSeries: mergedSeries,
@@ -247,6 +288,27 @@ export async function POST(request: NextRequest) {
           : {}),
       };
       const body = JSON.stringify(payload);
+
+      /**
+       * დიაგნოსტიკა: პირველი პროდუქტის (ან თითოეული SKU-ის — `BALANCE_SYNC_DEBUG_ALL=1`)
+       * Balance Items `raw` და backend-ში მისაწოდებელი payload ერთად დაილოგება. ამით ცხადია:
+       * (1) რა დაბრუნა Balance-მა (`InventoriesAccount`, `VATRate`, …);
+       * (2) რა მიდის backend-ს (balanceNomenclatureItemUid + ანგარიშები + taxation).
+       */
+      if (logSync && (!firstDumpDone || process.env.BALANCE_SYNC_DEBUG_ALL === '1')) {
+        const rawItem = leafItems.find((row) => {
+          const code = String(
+            row.Code ?? row.SKU ?? row.sku ?? row.code ?? ''
+          ).trim();
+          return code === product.sku;
+        });
+        console.log(
+          `[sync-stocks][DEBUG] SKU=${product.sku} id=${id ?? '(new)'}` +
+            `\n── Balance Items raw:\n${JSON.stringify(rawItem ?? null, null, 2)}` +
+            `\n── payload → backend:\n${JSON.stringify(payload, null, 2)}`
+        );
+        firstDumpDone = true;
+      }
 
       if (id) {
         const res = await fetch(`${API_BASE}/products/${id}`, {

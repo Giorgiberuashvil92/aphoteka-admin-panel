@@ -54,11 +54,13 @@ import { productsApi, warehousesApi, inventoryApi } from "@/lib/api";
 import {
   getBalanceStocks,
   getBalancePrices,
+  getBalanceDiscounts,
   getBalanceItemPricing,
   getBalanceExchangeStocks,
   itemPricingRowsForDbProducts,
   rowsFromBalanceStocks,
   rowsFromBalancePrices,
+  rowsFromBalanceDiscounts,
   rowsFromBalanceItemPricing,
   rowsFromBalanceExchangeStocks,
 } from "@/lib/api/balanceStocks";
@@ -81,11 +83,14 @@ import {
   uniqueExchangeStockNomenclatureItemUids,
   nomenclatureUidForItemsSeriesFromBalanceItems,
   buildTaxationByUuid,
+  buildDiscountMapsFromBalanceApi,
   getItemUuid,
   vatRateRawFromBalanceItemRow,
   productBalanceSerialDisplay,
   productBalanceExpiryDisplay,
   type BalanceItemSeriesLine,
+  type BalanceDiscountMaps,
+  type BalanceDiscountForItem,
 } from "@/lib/api/balanceSync";
 import { balanceUidForSku } from "@/lib/api/balancePricing";
 import { BALANCE_PUBLICATION_TARGET } from "@/lib/balancePublicationTarget";
@@ -98,6 +103,87 @@ import { BALANCE_PUBLICATION_TARGET } from "@/lib/balancePublicationTarget";
  */
 /** ერთ გვერდზე ItemsSeries მოთხოვნების ზედა ზღვარი (Balance სერვერი) */
 const MAX_EXCHANGE_ITEMS_SERIES_FETCH = 100;
+
+/** პროდუქტის ცხრილში თარიღის უჯრა (აპის ფორმატის მსგავსად) */
+function formatDisplayDate(value: unknown): string {
+  if (value == null || value === "") return "—";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toLocaleDateString("ka-GE");
+  }
+  const s = String(value).trim();
+  if (!s) return "—";
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return d.toLocaleDateString("ka-GE");
+  return s;
+}
+
+/** Balance Discounts API (Items → ნომენკლატურა) + უპირობო წესი — ცხრილში DB-ს გარდა ცოცხალი მნიშვნელობებიც */
+function liveBalanceDiscountForProduct(
+  product: Product,
+  maps: BalanceDiscountMaps,
+  stocksRows: Record<string, unknown>[]
+): BalanceDiscountForItem | undefined {
+  const uidFromDb = product.balanceNomenclatureItemUid?.trim().toLowerCase();
+  if (uidFromDb) {
+    const d = maps.byItemUid.get(uidFromDb);
+    if (d) return d;
+  }
+  const sku = product.sku?.trim();
+  if (sku) {
+    const uid = balanceUidForSku(stocksRows, sku)?.trim().toLowerCase();
+    if (uid) {
+      const d = maps.byItemUid.get(uid);
+      if (d) return d;
+    }
+  }
+  return maps.unconditional;
+}
+
+/** Kutuku მობილურთან იგივე: პროცენტი → ფასი×(1−p/100); თანხა ერთეულზე → ფასი−თანხა */
+function unitAndTotalAfterBalanceDiscount(
+  product: Product,
+  hasDiscPct: boolean,
+  discPct: number,
+  hasDiscAmt: boolean,
+  discAmt: number
+): { apply: boolean; unit: number; total: number; origUnit: number; origTotal: number } {
+  const origUnit = Number(product.price);
+  if (!Number.isFinite(origUnit) || origUnit <= 0) {
+    const t =
+      product.totalPrice != null && Number.isFinite(Number(product.totalPrice))
+        ? Number(product.totalPrice)
+        : 0;
+    return { apply: false, unit: origUnit, total: t, origUnit, origTotal: t };
+  }
+  const qtyRaw = product.quantity;
+  const qty =
+    qtyRaw != null && Number.isFinite(Number(qtyRaw)) ? Math.max(0, Number(qtyRaw)) : 0;
+  const qMult = qty > 0 ? qty : 1;
+  const origTotal =
+    product.totalPrice != null && Number.isFinite(Number(product.totalPrice))
+      ? Number(product.totalPrice)
+      : origUnit * qMult;
+
+  if (hasDiscPct) {
+    const f = 1 - discPct / 100;
+    return {
+      apply: true,
+      origUnit,
+      origTotal,
+      unit: Math.max(0, Math.round(origUnit * f * 100) / 100),
+      total: Math.max(0, Math.round(origTotal * f * 100) / 100),
+    };
+  }
+  if (hasDiscAmt) {
+    const u = Math.max(0, Math.round((origUnit - discAmt) * 100) / 100);
+    const t =
+      qty > 0
+        ? Math.max(0, Math.round(u * qty * 100) / 100)
+        : Math.max(0, Math.round((origTotal - discAmt) * 100) / 100);
+    return { apply: true, origUnit, origTotal, unit: u, total: t };
+  }
+  return { apply: false, unit: origUnit, total: origTotal, origUnit, origTotal };
+}
 
 function ProductsPageContent() {
   const searchParams = useSearchParams();
@@ -131,6 +217,10 @@ function ProductsPageContent() {
   const [balancePricesRaw, setBalancePricesRaw] = useState<unknown>(null);
   const [balancePricesLoading, setBalancePricesLoading] = useState(true);
   const [balancePricesError, setBalancePricesError] = useState<string | null>(null);
+  const [balanceDiscountsRows, setBalanceDiscountsRows] = useState<Record<string, unknown>[]>([]);
+  const [balanceDiscountsRaw, setBalanceDiscountsRaw] = useState<unknown>(null);
+  const [balanceDiscountsLoading, setBalanceDiscountsLoading] = useState(true);
+  const [balanceDiscountsError, setBalanceDiscountsError] = useState<string | null>(null);
   const [balanceItemPricingRaw, setBalanceItemPricingRaw] = useState<unknown>(null);
   const [balanceItemPricingLoading, setBalanceItemPricingLoading] = useState(true);
   const [balanceItemPricingError, setBalanceItemPricingError] = useState<string | null>(null);
@@ -220,6 +310,23 @@ function ProductsPageContent() {
         );
       } finally {
         setBalancePricesLoading(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setBalanceDiscountsError(null);
+        const data = await getBalanceDiscounts();
+        setBalanceDiscountsRaw(data);
+        setBalanceDiscountsRows(rowsFromBalanceDiscounts(data));
+      } catch (err) {
+        setBalanceDiscountsError(
+          err instanceof Error ? err.message : "Balance Discounts-ის ჩატვირთვა ვერ მოხერხდა"
+        );
+      } finally {
+        setBalanceDiscountsLoading(false);
       }
     })();
   }, []);
@@ -512,17 +619,11 @@ function ProductsPageContent() {
   }, [balanceStocksRows]);
 
   const products = useMemo(() => {
-    const prods = (data?.data || []).filter(
+    return (data?.data || []).filter(
       (p) => !balanceGroupSkuSet.has(String(p.sku ?? "").trim())
     );
-    if (prods.length > 0) {
-      console.log('First product:', prods[0]);
-      console.log('First product ID:', prods[0].id);
-    }
-    return prods;
   }, [data?.data, balanceGroupSkuSet]);
 
-  /** ItemPricing — მხოლოდ იმ ჩანაწერები, რაც ემთხვევა ამ გვერდზე ჩატვირთულ პროდუქტებს (SKU + Balance Items) */
   const balanceItemPricingRowsForProducts = useMemo(() => {
     if (balanceItemPricingRaw == null) return [];
     const all = rowsFromBalanceItemPricing(balanceItemPricingRaw);
@@ -569,6 +670,12 @@ function ProductsPageContent() {
     }
     return m;
   }, [balancePricesRows, balanceItemPricingRowsForProducts, products, balanceStocksRows]);
+
+  /** GET /api/balance/discounts → ნომენკლატურის Item-ზე + უპირობო (ცხრილში ცოცხლად, სინქამდეც) */
+  const balanceDiscountMaps = useMemo(
+    () => buildDiscountMapsFromBalanceApi(balanceDiscountsRaw),
+    [balanceDiscountsRaw]
+  );
 
   /** Exchange/Stocks — ItemName + ItemsSeries (ფილტრი Stocks `Series` ↔ ItemsSeries ჩანაწერის `uid`) */
   const balanceExchangeQtyDisplayRows = useMemo((): Record<string, unknown>[] => {
@@ -1327,6 +1434,74 @@ function ProductsPageContent() {
           )}
         </div>
 
+        {/* Balance – ფასდაკლებები (Discounts) — იგივე პატერნი რაც Prices */}
+        <div className="mt-6 border-t border-gray-200 pt-4 dark:border-gray-700">
+          <h3 className="mb-1 text-base font-semibold text-gray-900 dark:text-white">
+            ფასდაკლებები (Discounts)
+          </h3>
+          <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">GET /api/balance/discounts</code>
+            {" — "}
+            იგივე სერვერული proxy რაც სინქში; ნაგულისხმევი URL: Exchange/Discounts.
+          </p>
+          {balanceDiscountsLoading && (
+            <p className="text-sm text-gray-500 dark:text-gray-400">იტვირთება...</p>
+          )}
+          {balanceDiscountsError && (
+            <p className="text-sm text-red-600 dark:text-red-400">{balanceDiscountsError}</p>
+          )}
+          {!balanceDiscountsLoading && !balanceDiscountsError && balanceDiscountsRows.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 dark:border-gray-600">
+                    {Object.keys(balanceDiscountsRows[0]).map((key) => (
+                      <th
+                        key={key}
+                        className="whitespace-nowrap px-3 py-2 font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {key}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {balanceDiscountsRows.map((row, i) => (
+                    <tr
+                      key={i}
+                      className="border-b border-gray-100 dark:border-gray-700"
+                    >
+                      {Object.keys(balanceDiscountsRows[0]).map((key) => (
+                        <td
+                          key={key}
+                          className="max-w-xs truncate px-3 py-2 text-gray-800 dark:text-gray-200"
+                          title={String(row[key] ?? "")}
+                        >
+                          {row[key] === null || row[key] === undefined
+                            ? "—"
+                            : typeof row[key] === "object"
+                              ? JSON.stringify(row[key])
+                              : String(row[key])}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {!balanceDiscountsLoading &&
+            !balanceDiscountsError &&
+            balanceDiscountsRows.length === 0 &&
+            balanceDiscountsRaw != null && (
+              <pre className="max-h-96 overflow-auto rounded bg-gray-50 p-3 text-xs dark:bg-gray-900 dark:text-gray-300">
+                {typeof balanceDiscountsRaw === "string"
+                  ? balanceDiscountsRaw
+                  : JSON.stringify(balanceDiscountsRaw, null, 2)}
+              </pre>
+            )}
+        </div>
+
         {/* Balance – ItemPricing (პროდუქტების მიხედვით გაფილტრული) */}
         <div className="mt-6 border-t border-gray-200 pt-4 dark:border-gray-700">
           <h3 className="mb-3 text-base font-semibold text-gray-900 dark:text-white">
@@ -1398,79 +1573,91 @@ function ProductsPageContent() {
         )}
       </div>
 
-      {/* Products Table */}
+      {/* Products Table — თანმიმდევრობა: Balance/ზედნადები (10) → ფარმაცევტის სვეტები (12) → სხვა... → ადმინი: რეზერვი, Balance, მოქმედებები */}
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  საქონლის კოდი
+                <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
+                  SKU / საქონლის კოდი
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  საქონლის დასახელება
+                <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
+                  დასახელება (მყიდველისგან)
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   ზომის ერთეული
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  რაოდ.
+                <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
+                  რაოდენობა
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  რეზერვი
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  Balance ნაშთი
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   ერთეულის ფასი
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   საქონლის ფასი
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
+                  ფასდაკლებული (ერთ. / ჯამი)
+                </th>
+                <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
+                  Balance ფასდაკლება
+                </th>
+                <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   დაბეგვრა
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   სტატუსი
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  SKU / internal product code
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   სერიის ნომერი
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  ვარგისიანობის ვადა
+                <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
+                  ვარიგისია -მდე
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  მწარმოებელი (ქვეყანა)
+                <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                  1) Product Name (Brand Name)
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  Generic name
+                <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                  2) Generic Name (INN)
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  Product name (brand)
+                <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                  3) Strength
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  აქტიური ნივთიერებები
+                <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                  4) Dosage Form
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  Strength (e.g., 500 mg)
+                <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                  5) Route of Administration
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  Dosage form (tablet, syrup, injection)
+                <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                  6) Therapeutic Class
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  Pack size (10 tablets, 100 ml)
+                <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                  7) ATC Code
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  შეფუთვის სახეობა
+                <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                  8) Product Description (Short)
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  კატეგორია
+                <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                  Product Identifier (Internal ID) in APP
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                  Market / Country
+                </th>
+                <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                  PDF - სრული ანოტაციის
+                </th>
+                <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                  სხვა...
+                </th>
+                <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+                  რეზერვი
+                </th>
+                <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+                  Balance ნაშთი
+                </th>
+                <th className="whitespace-nowrap px-3 py-3 text-right text-xs font-medium text-gray-600 dark:text-gray-300">
                   მოქმედებები
                 </th>
               </tr>
@@ -1478,43 +1665,233 @@ function ProductsPageContent() {
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={23} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={27} className="px-6 py-8 text-center text-sm text-gray-500">
                     პროდუქტები არ მოიძებნა
                   </td>
                 </tr>
               ) : (
                 filteredProducts.map((product) => {
-                  // Debug: Log product to see what we have
-                  if (!product.id) {
-                    console.error('Product without ID:', product);
-                  }
+                  const skuOrCode =
+                    String(product.productCode ?? "").trim() ||
+                    String(product.sku ?? "").trim() ||
+                    "—";
+                  const taxationDisplay =
+                    balanceVatRateBySku.get(String(product.sku ?? "").trim()) ??
+                    product.taxation ??
+                    balanceTaxationBySku.get(String(product.sku ?? "").trim()) ??
+                    "—";
+                  const pdfUrl = product.imageUrl?.trim();
+                  const pdfCell =
+                    pdfUrl && /\.pdf($|\?)/i.test(pdfUrl) ? (
+                      <a
+                        href={pdfUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-brand-600 hover:underline dark:text-brand-400"
+                      >
+                        ბმული
+                      </a>
+                    ) : (
+                      "—"
+                    );
+                  const otherParts = [
+                    product.invoiceNumber && `ზედნადები: ${product.invoiceNumber}`,
+                    product.buyer && `მყიდველი: ${product.buyer}`,
+                    product.seller && `გამყიდველი: ${product.seller}`,
+                    product.activationDate &&
+                      `გააქტიურება: ${formatDisplayDate(product.activationDate)}`,
+                    product.transportStartDate &&
+                      `ტრანსპორტი: ${formatDisplayDate(product.transportStartDate)}`,
+                    product.certificateNumber && `ფირნიში: ${product.certificateNumber}`,
+                    product.documentNumber && `დოკ. N: ${product.documentNumber}`,
+                    product.manufacturer && `მწარმოებელი: ${product.manufacturer}`,
+                    product.packSize && `შეფუთვა: ${product.packSize}`,
+                    product.barcode && `ბარკოდი: ${product.barcode}`,
+                    product.packagingType && `შეფუთვის სახე: ${product.packagingType}`,
+                    product.activeIngredients && `აქტ. ნივთ.: ${product.activeIngredients}`,
+                  ].filter(Boolean);
+                  const otherCell =
+                    otherParts.length > 0 ? otherParts.join(" · ") : "—";
+
+                  const cellBalance =
+                    "border border-amber-100/90 bg-amber-50/35 dark:border-amber-900/35 dark:bg-amber-950/20";
+
+                  const liveDisc = liveBalanceDiscountForProduct(
+                    product,
+                    balanceDiscountMaps,
+                    balanceStocksRows
+                  );
+                  const discPct =
+                    liveDisc?.balanceDiscountPercent ?? product.balanceDiscountPercent;
+                  const discAmt =
+                    liveDisc?.balanceDiscountAmount ?? product.balanceDiscountAmount;
+                  const hasDiscPct =
+                    discPct != null && Number.isFinite(Number(discPct)) && Number(discPct) > 0;
+                  const hasDiscAmt =
+                    discAmt != null && Number.isFinite(Number(discAmt)) && Number(discAmt) > 0;
+                  const discountCellText = hasDiscPct
+                    ? `−${Number(discPct)}%`
+                    : hasDiscAmt
+                      ? `−₾${Number(discAmt).toFixed(2)}`
+                      : "—";
+                  const discountTitle = [
+                    (liveDisc?.balanceDiscountName ?? product.balanceDiscountName)?.trim(),
+                    (liveDisc?.balanceDiscountUid ?? product.balanceDiscountUid) &&
+                      `წესის კოდი: ${liveDisc?.balanceDiscountUid ?? product.balanceDiscountUid}`,
+                    liveDisc &&
+                      !balanceDiscountsLoading &&
+                      !balanceDiscountsError &&
+                      "Balance Discounts (ცოცხალი)",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
+
+                  const priced = unitAndTotalAfterBalanceDiscount(
+                    product,
+                    hasDiscPct,
+                    hasDiscPct ? Number(discPct) : 0,
+                    hasDiscAmt && !hasDiscPct,
+                    hasDiscAmt ? Number(discAmt) : 0
+                  );
+
                   return (
                   <tr
-                    key={product.id || (product as any)._id || Math.random()}
+                    key={product.id || (product as any)._id || product.sku}
                     className="hover:bg-gray-50 dark:hover:bg-gray-700"
                   >
-                    {/* საქონლის კოდი */}
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
-                      {product.productCode || product.sku || "-"}
+                    <td className={`max-w-[130px] truncate px-3 py-3 text-sm text-gray-900 dark:text-white ${cellBalance}`} title={skuOrCode}>
+                      {skuOrCode}
                     </td>
-                    {/* საქონლის დასახელება */}
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
-                      {product.name || "-"}
+                    <td className={`max-w-[200px] truncate px-3 py-3 text-sm text-gray-900 dark:text-white ${cellBalance}`} title={product.name}>
+                      {product.name || "—"}
                     </td>
-                    {/* ზომის ერთეული */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.unitOfMeasure || "-"}
+                    <td className={`whitespace-nowrap px-3 py-3 text-sm text-gray-800 dark:text-gray-200 ${cellBalance}`}>
+                      {product.unitOfMeasure || "—"}
                     </td>
-                    {/* რაოდ. */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    <td className={`whitespace-nowrap px-3 py-3 text-sm tabular-nums text-gray-800 dark:text-gray-200 ${cellBalance}`}>
                       {product.quantity ?? "—"}
                     </td>
-                    {/* რეზერვი (Balance) */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    <td className={`whitespace-nowrap px-3 py-3 text-sm tabular-nums text-gray-900 dark:text-white ${cellBalance}`}>
+                      ₾{product.price.toFixed(2)}
+                    </td>
+                    <td className={`whitespace-nowrap px-3 py-3 text-sm tabular-nums text-gray-900 dark:text-white ${cellBalance}`}>
+                      {product.totalPrice != null
+                        ? `₾${Number(product.totalPrice).toFixed(2)}`
+                        : `₾${product.price.toFixed(2)}`}
+                    </td>
+                    <td
+                      className={`px-3 py-3 text-sm text-gray-900 dark:text-white ${cellBalance}`}
+                      title={priced.apply && discountTitle ? discountTitle : undefined}
+                    >
+                      {priced.apply ? (
+                        <div className="flex flex-col items-end gap-1.5 tabular-nums">
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="text-[10px] font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                              ერთეული
+                            </span>
+                            <span>
+                              <span className="text-xs line-through text-gray-500 dark:text-gray-400">
+                                ₾{priced.origUnit.toFixed(2)}
+                              </span>
+                              <span className="ml-1 font-semibold text-emerald-700 dark:text-emerald-400">
+                                ₾{priced.unit.toFixed(2)}
+                              </span>
+                            </span>
+                          </div>
+                          <div className="flex flex-col items-end gap-0.5 border-t border-amber-200/60 pt-1 dark:border-amber-800/40">
+                            <span className="text-[10px] font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                              ჯამი
+                            </span>
+                            <span>
+                              <span className="text-xs line-through text-gray-500 dark:text-gray-400">
+                                ₾{priced.origTotal.toFixed(2)}
+                              </span>
+                              <span className="ml-1 font-semibold text-emerald-700 dark:text-emerald-400">
+                                ₾{priced.total.toFixed(2)}
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-gray-500 dark:text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td
+                      className={`whitespace-nowrap px-3 py-3 text-sm tabular-nums ${cellBalance} ${
+                        hasDiscPct || hasDiscAmt
+                          ? "font-medium text-emerald-700 dark:text-emerald-400"
+                          : "text-gray-500 dark:text-gray-400"
+                      }`}
+                      title={discountTitle || undefined}
+                    >
+                      {discountCellText}
+                    </td>
+                    <td className={`max-w-[90px] truncate px-3 py-3 text-sm text-gray-800 dark:text-gray-200 ${cellBalance}`} title={String(taxationDisplay)}>
+                      {taxationDisplay}
+                    </td>
+                    <td className={`px-3 py-3 ${cellBalance}`}>
+                      <span
+                        className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
+                          product.active
+                            ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                            : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                        }`}
+                      >
+                        {product.active ? "აქტიური" : "არააქტიური"}
+                      </span>
+                    </td>
+                    <td
+                      className={`max-w-[110px] truncate px-3 py-3 text-sm text-gray-800 dark:text-gray-200 ${cellBalance}`}
+                      title={productBalanceSerialDisplay(product) || undefined}
+                    >
+                      {productBalanceSerialDisplay(product) || "—"}
+                    </td>
+                    <td
+                      className={`max-w-[110px] truncate px-3 py-3 text-sm text-gray-800 dark:text-gray-200 ${cellBalance}`}
+                      title={productBalanceExpiryDisplay(product) || undefined}
+                    >
+                      {productBalanceExpiryDisplay(product) || "—"}
+                    </td>
+                    <td className="max-w-[160px] truncate px-3 py-3 text-sm text-gray-900 dark:text-white" title={product.productNameBrand || undefined}>
+                      {product.productNameBrand || "—"}
+                    </td>
+                    <td className="max-w-[130px] truncate px-3 py-3 text-sm text-gray-600 dark:text-gray-300" title={product.genericName}>
+                      {product.genericName || "—"}
+                    </td>
+                    <td className="max-w-[90px] truncate px-3 py-3 text-sm text-gray-600 dark:text-gray-300">
+                      {product.strength || "—"}
+                    </td>
+                    <td className="max-w-[110px] truncate px-3 py-3 text-sm text-gray-600 dark:text-gray-300">
+                      {product.dosageForm || "—"}
+                    </td>
+                    <td className="max-w-[120px] truncate px-3 py-3 text-sm text-gray-600 dark:text-gray-300" title={product.usage}>
+                      {product.usage?.trim() || "—"}
+                    </td>
+                    <td className="max-w-[120px] truncate px-3 py-3 text-sm text-gray-600 dark:text-gray-300" title={product.category}>
+                      {product.category || "—"}
+                    </td>
+                    <td className="max-w-[80px] truncate px-3 py-3 text-sm text-gray-600 dark:text-gray-300">
+                      —
+                    </td>
+                    <td className="max-w-[180px] truncate px-3 py-3 text-sm text-gray-600 dark:text-gray-300" title={product.description}>
+                      {product.description?.trim() || "—"}
+                    </td>
+                    <td className="max-w-[100px] truncate px-3 py-3 font-mono text-xs text-gray-600 dark:text-gray-300" title={product.id}>
+                      {product.id || "—"}
+                    </td>
+                    <td className="max-w-[100px] truncate px-3 py-3 text-sm text-gray-600 dark:text-gray-300">
+                      {product.countryOfOrigin?.trim() || "—"}
+                    </td>
+                    <td className="px-3 py-3 text-sm text-gray-600 dark:text-gray-300">
+                      {pdfCell}
+                    </td>
+                    <td className="max-w-[min(28rem,40vw)] truncate px-3 py-3 text-xs text-gray-600 dark:text-gray-300" title={otherCell}>
+                      {otherCell}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 text-sm tabular-nums text-gray-500 dark:text-gray-400">
                       {product.reservedQuantity != null ? product.reservedQuantity : "—"}
                     </td>
-                    {/* Balance ნაშთი / სერიული — დეტალები მოდალში */}
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-3">
                       {(() => {
                         const nWh = product.balanceStockBreakdown?.length ?? 0;
                         const nSe = product.balanceItemSeries?.length ?? 0;
@@ -1533,96 +1910,7 @@ function ProductsPageContent() {
                         );
                       })()}
                     </td>
-                    {/* ერთეულის ფასი */}
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
-                      ₾{product.price.toFixed(2)}
-                    </td>
-                    {/* საქონლის ფასი */}
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
-                      {product.totalPrice ? `₾${product.totalPrice.toFixed(2)}` : `₾${product.price.toFixed(2)}`}
-                    </td>
-                    {/* დაბეგვრა — პირველ რიგში Balance Items `VATRate` როგორც მოდის */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {balanceVatRateBySku.get(String(product.sku ?? "").trim()) ??
-                        product.taxation ??
-                        balanceTaxationBySku.get(String(product.sku ?? "").trim()) ??
-                        "—"}
-                    </td>
-                    {/* სტატუსი */}
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
-                          product.active
-                            ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                            : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-                        }`}
-                      >
-                        {product.active ? "აქტიური" : "არააქტიური"}
-                      </span>
-                    </td>
-                    {/* SKU / internal product code */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.sku || "-"}
-                    </td>
-                    {/* სერიის ნომერი — № ან Balance Series ref (როცა ItemsSeries ცარიელია) */}
-                    <td
-                      className="max-w-40 truncate px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-                      title={productBalanceSerialDisplay(product) || undefined}
-                    >
-                      {productBalanceSerialDisplay(product) || "—"}
-                    </td>
-                    {/* ვარგისიანობის ვადა */}
-                    <td
-                      className="max-w-40 truncate px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-                      title={productBalanceExpiryDisplay(product) || undefined}
-                    >
-                      {productBalanceExpiryDisplay(product) || "—"}
-                    </td>
-                    {/* მწარმოებელი (ქვეყანა) */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.manufacturer || "-"}
-                      {product.countryOfOrigin && (
-                        <div className="text-xs text-gray-400 dark:text-gray-500">
-                          ({product.countryOfOrigin})
-                        </div>
-                      )}
-                    </td>
-                    {/* Generic name */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.genericName || "-"}
-                    </td>
-                    {/* Product name (brand) */}
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
-                      {product.productNameBrand || product.name || "-"}
-                    </td>
-                    {/* აქტიური ნივთიერებები */}
-                    <td className="max-w-56 px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      <span className="line-clamp-3" title={product.activeIngredients || undefined}>
-                        {product.activeIngredients || "-"}
-                      </span>
-                    </td>
-                    {/* Strength (e.g., 500 mg) */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.strength || "-"}
-                    </td>
-                    {/* Dosage form (tablet, syrup, injection) */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.dosageForm || "-"}
-                    </td>
-                    {/* Pack size (10 tablets, 100 ml) */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.packSize || "-"}
-                    </td>
-                    {/* შეფუთვის სახეობა */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.packagingType || "-"}
-                    </td>
-                    {/* კატეგორია */}
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      {product.category || "-"}
-                    </td>
-                    {/* მოქმედებები */}
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-3 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <Link
                           href={`/products/${product.id}`}

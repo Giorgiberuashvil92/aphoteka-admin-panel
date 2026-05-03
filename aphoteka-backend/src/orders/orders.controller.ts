@@ -1,15 +1,18 @@
 import {
-  Controller,
-  Get,
-  Post,
   Body,
+  Controller,
+  ForbiddenException,
+  Get,
   Param,
   Patch,
-  UseGuards,
+  Post,
   Request,
+  UseGuards,
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { AssignWarehouseDto } from './dto/assign-warehouse.dto';
+import { UpdateWarehouseOrderStatusDto } from './dto/update-warehouse-order-status.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -35,12 +38,28 @@ export class OrdersController {
     return this.ordersService.create(userId, dto);
   }
 
-  /** ადმინ პანელი — JWT + მხოლოდ `admin` როლი */
   @Get('admin/all')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   findAllAdmin() {
     return this.ordersService.findAllForAdmin();
+  }
+
+  @Get('admin/by-warehouse/:warehouseId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  findAllAdminByWarehouse(@Param('warehouseId') warehouseId: string) {
+    return this.ordersService.findAllForAdminByWarehouse(warehouseId);
+  }
+
+  @Patch('admin/:id/assign-warehouse')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  assignWarehouseAdmin(
+    @Param('id') id: string,
+    @Body() dto: AssignWarehouseDto,
+  ) {
+    return this.ordersService.assignWarehouseForAdmin(id, dto.warehouseId);
   }
 
   @Get('admin/:id')
@@ -57,6 +76,68 @@ export class OrdersController {
     return this.ordersService.updateForAdmin(id, body.status);
   }
 
+  /** საწყობის თანამშრომლის შეკვეთების სია (`warehouse/:id`-ს არ ეჯახება) */
+  @Get('assigned-to-me')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.WAREHOUSE_STAFF)
+  findMyWarehouseOrders(@Request() req: any) {
+    const wh = req.user?.warehouseId;
+    const wid =
+      wh && typeof wh === 'object' && '_id' in wh
+        ? String(wh._id)
+        : wh != null
+          ? String(wh)
+          : '';
+    if (!wid || wid === 'undefined') {
+      throw new ForbiddenException(
+        'საწყობი არ არის მიბმული პროფილზე — დაუკავშირდით ადმინისტრატორს',
+      );
+    }
+    return this.ordersService.findAllForWarehouse(wid);
+  }
+
+  @Get('warehouse/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.WAREHOUSE_STAFF)
+  findOneWarehouseOrder(@Param('id') id: string, @Request() req: any) {
+    const wh = req.user?.warehouseId;
+    const wid =
+      wh && typeof wh === 'object' && '_id' in wh
+        ? String(wh._id)
+        : wh != null
+          ? String(wh)
+          : '';
+    if (!wid || wid === 'undefined') {
+      throw new ForbiddenException(
+        'საწყობი არ არის მიბმული პროფილზე — დაუკავშირდით ადმინისტრატორს',
+      );
+    }
+    return this.ordersService.findOneForWarehouseStaff(id, wid);
+  }
+
+  @Patch('warehouse/:id/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.WAREHOUSE_STAFF)
+  updateWarehouseOrderStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateWarehouseOrderStatusDto,
+    @Request() req: any,
+  ) {
+    const wh = req.user?.warehouseId;
+    const wid =
+      wh && typeof wh === 'object' && '_id' in wh
+        ? String(wh._id)
+        : wh != null
+          ? String(wh)
+          : '';
+    if (!wid || wid === 'undefined') {
+      throw new ForbiddenException(
+        'საწყობი არ არის მიბმული პროფილზე — დაუკავშირდით ადმინისტრატორს',
+      );
+    }
+    return this.ordersService.updateStatusForWarehouse(id, wid, dto.status);
+  }
+
   @Get()
   @UseGuards(JwtAuthGuard)
   findMyOrders(@Request() req: any) {
@@ -71,7 +152,23 @@ export class OrdersController {
     return this.ordersService.findOne(id, userId);
   }
 
-  /** საქართველოს ბანკის გადახდის გვერდზე გადამისამართების URL */
+
+  @Post(':id/payment/bog/dev-simulate-completed')
+  @UseGuards(JwtAuthGuard)
+  async devSimulateBogCompleted(@Param('id') id: string, @Request() req: any) {
+    const userId = req.user?.id || req.user?.sub;
+    const data = await this.ordersService.simulateBogCompletedForUser(
+      id,
+      userId,
+    );
+    return {
+      ok: true,
+      message:
+        'გადახდის სიმულაცია შესრულდა (BOG completed). Balance გაგზავნა ხდება მხოლოდ ადმინის სტატუსის ცვლილებაზე.',
+      data,
+    };
+  }
+
   @Post(':id/payment/bog')
   @UseGuards(JwtAuthGuard)
   async initBogPayment(

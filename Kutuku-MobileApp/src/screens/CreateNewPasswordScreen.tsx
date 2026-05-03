@@ -1,19 +1,35 @@
-import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Alert,
+} from 'react-native';
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/src/theme';
 import { Button, InputWithIcon } from '@/src/components/ui';
+import { UserService } from '@/src/services/user.service';
 
 type CreateNewPasswordScreenProps = {
+  resetToken: string;
   onChangePassword: () => void;
   onBack: () => void;
 };
 
-export function CreateNewPasswordScreen({ onChangePassword, onBack }: CreateNewPasswordScreenProps) {
+export function CreateNewPasswordScreen({
+  resetToken,
+  onChangePassword,
+  onBack,
+}: CreateNewPasswordScreenProps) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({
     password: '',
     confirmPassword: '',
@@ -43,10 +59,20 @@ export function CreateNewPasswordScreen({ onChangePassword, onBack }: CreateNewP
     return isValid;
   };
 
-  const handleChangePassword = () => {
-    if (validateForm()) {
-      onChangePassword();
+  const handleChangePassword = async () => {
+    if (!validateForm()) return;
+    if (!resetToken.trim()) {
+      Alert.alert('შეცდომა', 'სესია ვადაგასულია. თავიდან მოითხოვეთ კოდი.');
+      return;
     }
+    setSaving(true);
+    const res = await UserService.resetPasswordWithToken(resetToken.trim(), password);
+    setSaving(false);
+    if (!res.ok) {
+      Alert.alert('შეცდომა', res.message || 'პაროლი ვერ შეიცვალა');
+      return;
+    }
+    Alert.alert('წარმატება', 'პაროლი განახლებულია.', [{ text: 'კარგი', onPress: onChangePassword }]);
   };
 
   const isValid = password && confirmPassword && password === confirmPassword;
@@ -123,7 +149,8 @@ export function CreateNewPasswordScreen({ onChangePassword, onBack }: CreateNewP
           title="Change Password"
           onPress={handleChangePassword}
           size="lg"
-          disabled={!isValid}
+          disabled={!isValid || saving}
+          loading={saving}
         />
       </ScrollView>
     </KeyboardAvoidingView>

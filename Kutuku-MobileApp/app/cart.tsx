@@ -11,6 +11,15 @@ export default function Cart() {
         console.log('Checkout pressed');
         router.push('/payment' as any);
       }}
+      onDevBogSimulateToPayment={
+        typeof __DEV__ !== 'undefined' && __DEV__
+          ? () =>
+              router.push({
+                pathname: '/payment',
+                params: { bogDevSimulate: '1' },
+              } as any)
+          : undefined
+      }
       onSearch={() => {
         console.log('Search pressed');
         router.push('/search' as any);

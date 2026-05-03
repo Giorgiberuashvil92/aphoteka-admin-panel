@@ -43,12 +43,8 @@ export default function WarehouseOrdersPage() {
   const loadOrders = async () => {
     try {
       setLoading(true);
-      const response = await ordersApi.getAll({});
-      // Filter orders by warehouseLocation
-      const warehouseOrders = response.data.filter(
-        (order) => order.warehouseLocation === warehouseId
-      );
-      setOrders(warehouseOrders);
+      const response = await ordersApi.getAdminByWarehouse(warehouseId);
+      setOrders(response.data ?? []);
     } catch (err) {
       console.error("Error loading orders:", err);
     } finally {

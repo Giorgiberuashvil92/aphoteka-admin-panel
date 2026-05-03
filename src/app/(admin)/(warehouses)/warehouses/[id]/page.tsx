@@ -51,95 +51,10 @@ export default function WarehouseOverviewPage() {
         </h3>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Link
-            href={`/warehouses/${warehouseId}/inventory`}
-            className="group rounded-lg border border-gray-200 bg-gray-50 p-4 transition-colors hover:border-brand-500 hover:bg-brand-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-brand-500 dark:hover:bg-gray-800"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">ინვენტარი</div>
-                <div className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
-                  {stats.inventoryCount}
-                </div>
-              </div>
-              <BoxIcon className="h-8 w-8 text-brand-500" />
-            </div>
-          </Link>
-          <Link
-            href={`/warehouses/${warehouseId}/orders`}
-            className="group rounded-lg border border-gray-200 bg-gray-50 p-4 transition-colors hover:border-brand-500 hover:bg-brand-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-brand-500 dark:hover:bg-gray-800"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">შეკვეთები</div>
-                <div className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
-                  {stats.ordersCount}
-                </div>
-              </div>
-              <TaskIcon className="h-8 w-8 text-brand-500" />
-            </div>
-          </Link>
-          <Link
-            href={`/warehouses/${warehouseId}/employees`}
-            className="group rounded-lg border border-gray-200 bg-gray-50 p-4 transition-colors hover:border-brand-500 hover:bg-brand-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-brand-500 dark:hover:bg-gray-800"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">თანამშრომლები</div>
-                <div className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
-                  {stats.employeesCount}
-                </div>
-              </div>
-              <GroupIcon className="h-8 w-8 text-brand-500" />
-            </div>
-          </Link>
-        </div>
+       
 
         {/* Quick Actions */}
-        <div>
-          <h4 className="mb-4 text-base font-semibold text-gray-900 dark:text-white">
-            სწრაფი მოქმედებები
-          </h4>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Link
-              href={`/warehouses/${warehouseId}/receive`}
-              className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-4 transition-colors hover:border-brand-500 hover:bg-brand-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:border-brand-500"
-            >
-              <PlusIcon className="h-5 w-5 text-brand-500" />
-              <div className="text-sm font-medium text-gray-900 dark:text-white">
-                ინვენტარის მიღება
-              </div>
-            </Link>
-            <Link
-              href={`/warehouses/${warehouseId}/dispatch`}
-              className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-4 transition-colors hover:border-brand-500 hover:bg-brand-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:border-brand-500"
-            >
-              <BoxIcon className="h-5 w-5 text-brand-500" />
-              <div className="text-sm font-medium text-gray-900 dark:text-white">
-                ინვენტარის გაცემა
-              </div>
-            </Link>
-            <Link
-              href={`/products?warehouseId=${warehouseId}`}
-              className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-4 transition-colors hover:border-brand-500 hover:bg-brand-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:border-brand-500"
-            >
-              <PlusIcon className="h-5 w-5 text-brand-500" />
-              <div className="text-sm font-medium text-gray-900 dark:text-white">
-                პროდუქტის დამატება
-              </div>
-            </Link>
-            <Link
-              href={`/warehouses/${warehouseId}/reports`}
-              className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-4 transition-colors hover:border-brand-500 hover:bg-brand-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:border-brand-500"
-            >
-              <EyeIcon className="h-5 w-5 text-brand-500" />
-              <div className="text-sm font-medium text-gray-900 dark:text-white">
-                რეპორტების ნახვა
-              </div>
-            </Link>
-          </div>
-        </div>
+    
 
         {/* Quick Links */}
         <div>

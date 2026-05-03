@@ -1,7 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Warehouse, WarehouseDocument, WarehouseEmployee, WarehouseEmployeeDocument } from './schemas/warehouse.schema';
+import { Model, Types } from 'mongoose';
+import {
+  Warehouse,
+  WarehouseDocument,
+  WarehouseEmployee,
+  WarehouseEmployeeDocument,
+  WarehouseEmployeeRole,
+} from './schemas/warehouse.schema';
+import { User, UserDocument } from '../users/schemas/user.schema';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 
@@ -12,6 +19,8 @@ export class WarehousesService {
     private warehouseModel: Model<WarehouseDocument>,
     @InjectModel(WarehouseEmployee.name)
     private employeeModel: Model<WarehouseEmployeeDocument>,
+    @InjectModel(User.name)
+    private userModel: Model<UserDocument>,
   ) {}
 
   async create(createWarehouseDto: CreateWarehouseDto) {
@@ -52,7 +61,11 @@ export class WarehousesService {
       // Use object destructuring to remove _id and __v
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { _id: _unusedId, __v: _unusedV, ...rest } = obj;
-      console.log('Transformed warehouse:', { id: rest.id, name: rest.name, hasId: !!rest.id });
+      console.log('Transformed warehouse:', {
+        id: rest.id,
+        name: rest.name,
+        hasId: !!rest.id,
+      });
       return rest;
     });
 
@@ -71,8 +84,16 @@ export class WarehousesService {
       throw new NotFoundException(`Warehouse with ID ${id} not found`);
     }
 
-    // Get employees for this warehouse
-    const employees = await this.employeeModel.find({ warehouseId: id }).exec();
+    const whOid = Types.ObjectId.isValid(id) ? new Types.ObjectId(id) : null;
+    const employees = await this.employeeModel
+      .find(
+        whOid
+          ? {
+              $or: [{ warehouseId: whOid }, { warehouseId: id }],
+            }
+          : { warehouseId: id },
+      )
+      .exec();
 
     // Transform _id to id
     const warehouseObj = warehouse.toObject() as any;
@@ -82,8 +103,12 @@ export class WarehousesService {
     }
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { _id: _unusedId, __v: _unusedV, ...rest } = warehouseObj;
-    
-    console.log('Transformed warehouse in findOne:', { id: rest.id, name: rest.name, hasId: !!rest.id });
+
+    console.log('Transformed warehouse in findOne:', {
+      id: rest.id,
+      name: rest.name,
+      hasId: !!rest.id,
+    });
 
     return { data: { ...rest, employees } };
   }
@@ -102,7 +127,7 @@ export class WarehousesService {
 
   async toggleStatus(id: string) {
     const warehouse = await this.warehouseModel.findById(id).exec();
-    
+
     if (!warehouse) {
       throw new NotFoundException(`Warehouse with ID ${id} not found`);
     }
@@ -111,12 +136,57 @@ export class WarehousesService {
     return await warehouse.save();
   }
 
-  async getEmployees(warehouseId: string, params?: {
-    role?: string;
-    active?: boolean;
-    search?: string;
-  }) {
-    const filter: any = { warehouseId };
+  /**
+   * User.warehouseId-ით მიბმული ნებისმიერი როლის მომხმარებელი — თუ WarehouseEmployee არ აქვს, ვქმნით.
+   */
+  private async ensureWarehouseEmployeesFromStaffUsers(
+    warehouseId: string,
+    whOid: Types.ObjectId,
+  ): Promise<void> {
+    const linked = await this.userModel
+      .find({
+        $or: [{ warehouseId: whOid }, { warehouseId: warehouseId }],
+      })
+      .select('_id status')
+      .exec();
+
+    for (const u of linked) {
+      const uid = u._id.toString();
+      const existing = await this.employeeModel
+        .findOne({
+          userId: uid,
+          $or: [{ warehouseId: whOid }, { warehouseId: warehouseId }],
+        })
+        .exec();
+      if (!existing) {
+        await this.employeeModel.create({
+          warehouseId: whOid,
+          userId: uid,
+          role: WarehouseEmployeeRole.WAREHOUSE_KEEPER,
+          active: u.status === 'active',
+          startedAt: new Date(),
+        });
+      }
+    }
+  }
+
+  async getEmployees(
+    warehouseId: string,
+    params?: {
+      role?: string;
+      active?: boolean;
+      search?: string;
+    },
+  ) {
+    if (!Types.ObjectId.isValid(warehouseId)) {
+      return { data: [], total: 0 };
+    }
+    const whOid = new Types.ObjectId(warehouseId);
+    await this.ensureWarehouseEmployeesFromStaffUsers(warehouseId, whOid);
+
+    const filter: Record<string, unknown> = {
+      $or: [{ warehouseId: whOid }, { warehouseId: warehouseId }],
+    };
 
     if (params?.role) {
       filter.role = params.role;
@@ -126,10 +196,45 @@ export class WarehousesService {
       filter.active = params.active;
     }
 
-    const [data, total] = await Promise.all([
+    const [employees, total] = await Promise.all([
       this.employeeModel.find(filter).exec(),
       this.employeeModel.countDocuments(filter).exec(),
     ]);
+
+    const userIds = [
+      ...new Set(
+        employees
+          .map((e) => String(e.userId ?? '').trim())
+          .filter((id) => Types.ObjectId.isValid(id)),
+      ),
+    ];
+    const oids = userIds.map((id) => new Types.ObjectId(id));
+    const users =
+      oids.length > 0
+        ? await this.userModel
+            .find({ _id: { $in: oids } })
+            .select('fullName email phoneNumber role status')
+            .lean()
+            .exec()
+        : [];
+    const userById = new Map(users.map((u) => [u._id.toString(), u] as const));
+
+    const data = employees.map((e) => {
+      const json = e.toJSON() as Record<string, unknown>;
+      const uid = String(e.userId ?? '').trim();
+      const u = userById.get(uid);
+      if (u) {
+        json.user = {
+          id: u._id.toString(),
+          fullName: u.fullName,
+          email: u.email,
+          phoneNumber: u.phoneNumber,
+          role: u.role,
+          status: u.status,
+        };
+      }
+      return json;
+    });
 
     return { data, total };
   }
@@ -143,21 +248,21 @@ export class WarehousesService {
     const employee = await this.employeeModel
       .findByIdAndUpdate(id, employeeDto, { new: true })
       .exec();
-      
+
     if (!employee) {
       throw new NotFoundException(`Employee with ID ${id} not found`);
     }
-    
+
     return employee;
   }
 
   async toggleEmployeeStatus(id: string) {
     const employee = await this.employeeModel.findById(id).exec();
-    
+
     if (!employee) {
       throw new NotFoundException(`Employee with ID ${id} not found`);
     }
-    
+
     employee.active = !employee.active;
     return await employee.save();
   }

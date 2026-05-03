@@ -6,9 +6,38 @@ export type User = {
   firstName: string;
   lastName: string;
   email: string;
+  /** Mongo `Buyer` — მყიდველის პროფილი რეგისტრაციისას */
+  buyerId?: string;
+  /** Balance.ge Exchange Clients `uid` */
+  balanceBuyerUid?: string;
   password?: string;
   createdAt?: string;
 };
+
+/** მობილური `POST /auth/register-mobile` სხეული */
+export type RegisterMobilePayload =
+  | {
+      accountType: 'individual';
+      firstName: string;
+      lastName: string;
+      personalId: string;
+      address: string;
+      country?: string;
+      email: string;
+      phone: string;
+      password: string;
+    }
+  | {
+      accountType: 'legal';
+      companyName: string;
+      legalId: string;
+      address: string;
+      representative?: string;
+      country?: string;
+      email: string;
+      phone: string;
+      password: string;
+    };
 
 const USE_API = true;
 const TOKEN_KEY = '@kutuku_access_token';
@@ -42,6 +71,9 @@ function formatApiErrorMessage(data: unknown, fallback: string): string {
   }
   if (/არასწორი ტელეფონის ნომერი/i.test(raw)) {
     return 'არასწორი ტელეფონის ნომერი';
+  }
+  if (/personalId must be 11 digits/i.test(raw)) {
+    return 'პირადი ნომერი უნდა იყოს ზუსტად 11 ციფრი';
   }
   return raw;
 }
@@ -81,43 +113,67 @@ class UserServiceClass {
     }
   }
 
-  // Check if email exists (local list when !USE_API; when USE_API backend returns error on register)
   async emailExists(email: string): Promise<boolean> {
     if (USE_API) return false;
     const users = await this.getUsers();
     return users.some((user) => user.email.toLowerCase() === email.toLowerCase());
   }
 
-  // Register new user (API ან ლოკალური)
   async register(
-    firstName: string,
-    lastName: string,
-    email: string,
-    password: string,
-    phone?: string,
+    data: RegisterMobilePayload,
   ): Promise<{ success: boolean; message: string; user?: User }> {
+    const email = data.email.trim().toLowerCase();
     if (USE_API) {
       try {
         const url = API_CONFIG.BASE_URL + API_CONFIG.endpoints.auth.registerMobile;
-        const payload: Record<string, unknown> = { firstName, lastName, email, password };
-        const p = phone?.trim();
-        if (p) payload.phone = p;
+        const payload: Record<string, unknown> = {
+          accountType: data.accountType,
+          email,
+          phone: data.phone.trim(),
+          password: data.password,
+        };
+        if (data.accountType === 'individual') {
+          payload.firstName = data.firstName.trim();
+          payload.lastName = data.lastName.trim();
+          payload.personalId = data.personalId.replace(/\D/g, '');
+          payload.address = data.address.trim();
+        } else {
+          payload.companyName = data.companyName.trim();
+          payload.legalId = data.legalId.trim();
+          payload.address = data.address.trim();
+          const rep = data.representative?.trim();
+          if (rep) payload.representative = rep;
+        }
+        const c = data.country?.trim();
+        if (c) payload.country = c;
         logOutgoingAuth('POST register-mobile', url, payload);
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify(payload),
         });
-        const data = await res.json();
+        const responseData = await res.json();
         if (!res.ok) {
           return {
             success: false,
-            message: formatApiErrorMessage(data, 'რეგისტრაცია ვერ მოხერხდა'),
+            message: formatApiErrorMessage(responseData, 'რეგისტრაცია ვერ მოხერხდა'),
           };
         }
-        const user: User = { id: data.user.id, firstName: data.user.firstName, lastName: data.user.lastName, email: data.user.email };
+        const ru = responseData.user as Record<string, unknown>;
+        const regBal =
+          typeof ru.balanceBuyerUid === 'string' && ru.balanceBuyerUid.trim()
+            ? ru.balanceBuyerUid.trim()
+            : undefined;
+        const user: User = {
+          id: String(ru.id ?? ru._id ?? ''),
+          firstName: String(ru.firstName ?? ''),
+          lastName: String(ru.lastName ?? ''),
+          email: String(ru.email ?? ''),
+          ...(typeof ru.buyerId === 'string' && ru.buyerId ? { buyerId: ru.buyerId } : {}),
+          ...(regBal ? { balanceBuyerUid: regBal } : {}),
+        };
         await this.setCurrentUser(user);
-        await this.setAccessToken(data.accessToken);
+        await this.setAccessToken(responseData.accessToken);
         return { success: true, message: 'Registration successful', user };
       } catch (e: any) {
         return { success: false, message: e.message || 'ქსელის შეცდომა' };
@@ -126,7 +182,20 @@ class UserServiceClass {
     try {
       const exists = await this.emailExists(email);
       if (exists) return { success: false, message: 'This email is already registered' };
-      const newUser: User = { id: Date.now().toString(), firstName, lastName, email: email.toLowerCase(), password: password, createdAt: new Date().toISOString() };
+      const firstName =
+        data.accountType === 'individual' ? data.firstName.trim() : data.companyName.trim();
+      const lastName =
+        data.accountType === 'individual'
+          ? data.lastName.trim()
+          : (data.representative?.trim() || 'იურიდიული პირი');
+      const newUser: User = {
+        id: Date.now().toString(),
+        firstName,
+        lastName,
+        email,
+        password: data.password,
+        createdAt: new Date().toISOString(),
+      };
       const users = await this.getUsers();
       users.push(newUser);
       await AsyncStorage.setItem(this.USERS_KEY, JSON.stringify(users));
@@ -143,18 +212,12 @@ class UserServiceClass {
         const identifier = normalizeLoginIdentifier(emailOrPhone);
         const url = API_CONFIG.BASE_URL + API_CONFIG.endpoints.auth.loginMobile;
         const payload = { emailOrPhone: identifier, password };
-        logOutgoingAuth('POST login-mobile', url, payload);
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify(payload),
         });
         const text = await res.text();
-        if (typeof __DEV__ !== 'undefined' && __DEV__) {
-          console.log(
-            `[UserService] login-mobile პასუხი: HTTP ${res.status}, ტექსტის სიგრძე: ${text.length}`,
-          );
-        }
         let data: Record<string, unknown> = {};
         if (text) {
           try {
@@ -181,11 +244,19 @@ class UserServiceClass {
           (typeof rawUser.id === 'string' && rawUser.id) ||
           (typeof rawUser._id === 'string' && rawUser._id) ||
           '';
+        const bal =
+          typeof rawUser.balanceBuyerUid === 'string' && rawUser.balanceBuyerUid.trim()
+            ? rawUser.balanceBuyerUid.trim()
+            : undefined;
         const user: User = {
           id: uid,
           firstName: String(rawUser.firstName ?? ''),
           lastName: String(rawUser.lastName ?? ''),
           email: String(rawUser.email ?? rawUser.phoneNumber ?? identifier),
+          ...(typeof rawUser.buyerId === 'string' && rawUser.buyerId
+            ? { buyerId: rawUser.buyerId }
+            : {}),
+          ...(bal ? { balanceBuyerUid: bal } : {}),
         };
         if (!user.id) {
           return { success: false, message: 'სერვერის პასუხი არასწორია (user id)' };
@@ -286,13 +357,32 @@ class UserServiceClass {
         headers: getAuthHeaders(token),
       });
       if (!res.ok) return this.getCurrentUser();
-      const data = await res.json();
-      const parts = (data.fullName || '').trim().split(/\s+/);
+      const data = (await res.json()) as Record<string, unknown>;
+      const parts = String(data.fullName ?? '')
+        .trim()
+        .split(/\s+/);
+      const uid =
+        (typeof data.id === 'string' && data.id) ||
+        (typeof data._id === 'string' && data._id) ||
+        '';
+      const meBal =
+        typeof data.balanceBuyerUid === 'string' && data.balanceBuyerUid.trim()
+          ? data.balanceBuyerUid.trim()
+          : undefined;
       const user: User = {
-        id: data.id,
-        firstName: data.firstName ?? parts[0] ?? data.fullName ?? '',
-        lastName: data.lastName ?? parts.slice(1).join(' ') ?? '',
-        email: data.email ?? '',
+        id: uid,
+        firstName:
+          (typeof data.firstName === 'string' && data.firstName) ||
+          parts[0] ||
+          String(data.fullName ?? '') ||
+          '',
+        lastName:
+          (typeof data.lastName === 'string' && data.lastName) ||
+          parts.slice(1).join(' ') ||
+          '',
+        email: typeof data.email === 'string' ? data.email : '',
+        ...(typeof data.buyerId === 'string' && data.buyerId ? { buyerId: data.buyerId } : {}),
+        ...(meBal ? { balanceBuyerUid: meBal } : {}),
       };
       await this.setCurrentUser(user);
       return user;
@@ -380,6 +470,36 @@ class UserServiceClass {
     } catch (error) {
       console.error('Error updating profile:', error);
       return false;
+    }
+  }
+
+  /** OTP-ის შემდეგ დაბრუნებული JWT — ახალი პაროლი */
+  async resetPasswordWithToken(
+    resetToken: string,
+    newPassword: string,
+  ): Promise<{ ok: boolean; message?: string }> {
+    const url = `${API_CONFIG.BASE_URL}${API_CONFIG.endpoints.auth.resetPasswordWithToken}`;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ resetToken, newPassword }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { message?: string | string[] };
+      if (res.ok) {
+        const m = data.message;
+        const msg = Array.isArray(m) ? m.join(', ') : typeof m === 'string' ? m : '';
+        return { ok: true, message: msg || undefined };
+      }
+      return {
+        ok: false,
+        message: formatApiErrorMessage(data, `HTTP ${res.status}`),
+      };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        message: e instanceof Error ? e.message : 'ქსელის შეცდომა',
+      };
     }
   }
 

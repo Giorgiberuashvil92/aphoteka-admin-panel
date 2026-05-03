@@ -18,8 +18,20 @@ const roleLabels: Record<UserRole, string> = {
   [UserRole.CONSUMER]: "მომხმარებელი",
   [UserRole.OPERATIONS]: "ოპერაციები",
   [UserRole.DELIVERY]: "მიტანა",
+  [UserRole.WAREHOUSE_STAFF]: "საწყობის თანამშრომელი",
   [UserRole.ADMIN]: "ადმინისტრატორი",
 };
+
+/** Nest populate-ის შემდეგ warehouseId ხშირად ობიექტია — select / PATCH სჭირდება სტრიქონი MongoId */
+function warehouseIdAsString(raw: unknown): string {
+  if (typeof raw === "string") return raw.trim();
+  if (raw && typeof raw === "object") {
+    const o = raw as { id?: unknown; _id?: unknown };
+    if (typeof o.id === "string" && o.id.trim()) return o.id.trim();
+    if (typeof o._id === "string" && o._id.trim()) return o._id.trim();
+  }
+  return "";
+}
 
 const permissionLabels: Record<UserPermission, string> = {
   [UserPermission.VIEW_PRODUCTS]: "პროდუქტების ნახვა",
@@ -83,7 +95,9 @@ export default function CreateUserModal({
           phoneNumber: user.phoneNumber || "",
           email: user.email || "",
           fullName: user.fullName || "",
-          warehouseId: user.warehouseId || (user.warehouse?.id || ""),
+          warehouseId:
+            warehouseIdAsString(user.warehouseId) ||
+            warehouseIdAsString(user.warehouse),
           status: user.status || "active",
           permissions: user.permissions || [],
         });
@@ -124,6 +138,17 @@ export default function CreateUserModal({
         }
       }
 
+      const warehouseIdNormalized = warehouseIdAsString(formData.warehouseId);
+
+      if (
+        formData.role === UserRole.WAREHOUSE_STAFF &&
+        !warehouseIdNormalized
+      ) {
+        alert("საწყობის თანამშრომლისთვის აირჩიეთ საწყობი.");
+        setLoading(false);
+        return;
+      }
+
       const userData: any = {
         role: formData.role,
         phoneNumber: formData.phoneNumber,
@@ -138,8 +163,8 @@ export default function CreateUserModal({
         userData.fullName = formData.fullName;
       }
 
-      if (formData.warehouseId) {
-        userData.warehouseId = formData.warehouseId;
+      if (warehouseIdNormalized) {
+        userData.warehouseId = warehouseIdNormalized;
       }
 
       if (formData.permissions.length > 0) {
@@ -150,8 +175,10 @@ export default function CreateUserModal({
         userData.password = newPassword.trim();
       }
 
-      if (isEditMode && user?.id) {
-        await usersApi.update(user.id, userData);
+      const editUserId =
+        user?.id ?? (typeof user?._id === "string" ? user._id : user?._id?.toString?.());
+      if (isEditMode && editUserId) {
+        await usersApi.update(editUserId, userData);
       } else {
         await usersApi.create(userData);
       }
@@ -353,6 +380,7 @@ export default function CreateUserModal({
           <Button
             size="sm"
             variant="outline"
+            type="button"
             onClick={onClose}
             disabled={loading}
           >

@@ -25,6 +25,10 @@ export class OrderItem {
 
   @Prop()
   packSize?: string;
+
+  /** Balance Items[].Series — სერიული ნომენკლატურისთვის Balance Sale-ზე required-ია */
+  @Prop()
+  balanceSeriesUuid?: string;
 }
 
 export const OrderItemSchema = SchemaFactory.createForClass(OrderItem);
@@ -60,6 +64,9 @@ export class Order {
   @Prop()
   comment?: string;
 
+  @Prop({ type: Types.ObjectId, ref: 'Warehouse' })
+  warehouseId?: Types.ObjectId;
+
   /** საქართველოს ბანკის ონლაინ გადახდის order_id (UUID) */
   @Prop()
   bogOrderId?: string;
@@ -78,6 +85,34 @@ export class Order {
    */
   @Prop({ type: MongooseSchema.Types.Mixed })
   bogLastCallbackRaw?: Record<string, unknown>;
+
+  /** Balance Exchange Sale (PUT) წარმატებით გაგზავნის დრო — იდემპოტენტობა BOG callback-ის დუბლიკატებზე */
+  @Prop({ type: Date })
+  balanceSalePostedAt?: Date;
+
+  /** მოკლე lock პარალელური callback-ებისთვის (წარმატებაზე/შეცდომაზე იშლება) */
+  @Prop({ type: Date })
+  balanceSalePostingLock?: Date;
+
+  /** ბოლო Sale PUT შეცდომის ტექსტი (დებაგი) */
+  @Prop()
+  balanceSalePostError?: string;
+
+  /** ბოლო Balance Sale PUT პასუხის დრო (წარმატება ან შეცდომა) */
+  @Prop({ type: Date })
+  balanceSalePutResponseAt?: Date;
+
+  /** ბოლო PUT-ის HTTP სტატუსი (0 = არ გაიგზავნა / ქსელი) */
+  @Prop({ type: Number })
+  balanceSalePutResponseStatus?: number;
+
+  /** Balance-ის პასუხის სხეული (ტექსტი, საჭიროებისამებრ მოჭრილი) */
+  @Prop()
+  balanceSalePutResponseBody?: string;
+
+  /** ბოლო `test-balance-sale` ენდპოინტის PUT (BOG-ის გარეშე) */
+  @Prop({ type: Date })
+  balanceSaleTestPutAt?: Date;
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);

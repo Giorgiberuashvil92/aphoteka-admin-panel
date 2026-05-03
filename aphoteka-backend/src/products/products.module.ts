@@ -12,9 +12,11 @@ import {
   ProductStrength,
   ProductStrengthSchema,
 } from './schemas/product.schema';
+import { BalanceModule } from '../balance/balance.module';
 
 @Module({
   imports: [
+    BalanceModule,
     MongooseModule.forFeature([
       { name: Product.name, schema: ProductSchema },
       { name: ProductGroup.name, schema: ProductGroupSchema },

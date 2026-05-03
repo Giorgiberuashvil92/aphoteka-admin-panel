@@ -6,14 +6,16 @@ import {
   ensureAuthTokenFromEnv,
   getAuthToken,
 } from "@/lib/authToken";
-import { verifyAdminBackendSession } from "@/lib/verifyAdminBackendSession";
+import { verifyPanelBackendSession } from "@/lib/verifyAdminBackendSession";
+import { UserRole } from "@/types";
 import { usePathname, useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 
 type GuardState = "loading" | "ready" | "redirect" | "error";
 
 /**
- * ადმინ layout-ისთვის: JWT + `GET /auth/me` (`admin` როლი); თუ არაა სესია — `/login`.
+ * ადმინ layout-ისთვის: JWT + `GET /auth/me` — `admin` ან `warehouse_staff`.
+ * საწყობის თანამშრომელი მხოლოდ თავისი საწყობის გვერდებსა და `/orders/:id` დეტალზე.
  */
 export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -37,10 +39,10 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const check = await verifyAdminBackendSession(token);
+      const check = await verifyPanelBackendSession(token);
       if (cancelled) return;
 
-      if (check === "unauthorized") {
+      if (check.status === "unauthorized") {
         clearAuthToken();
         setState("redirect");
         const from = encodeURIComponent(pathname || "/");
@@ -48,9 +50,28 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (check === "failed") {
+      if (check.status === "failed") {
         setState("error");
         return;
+      }
+
+      if (check.role === UserRole.WAREHOUSE_STAFF && check.warehouseId) {
+        const wid = check.warehouseId;
+        const path = pathname || "";
+        const isOrderDetail = /^\/orders\/[^/]+$/.test(path);
+        const isWarehouseArea = path.startsWith(`/warehouses/${wid}`);
+
+        if (path === "/orders" || path.startsWith("/orders?")) {
+          setState("redirect");
+          router.replace(`/warehouses/${wid}/orders`);
+          return;
+        }
+
+        if (!isOrderDetail && !isWarehouseArea) {
+          setState("redirect");
+          router.replace(`/warehouses/${wid}/orders`);
+          return;
+        }
       }
 
       setState("ready");

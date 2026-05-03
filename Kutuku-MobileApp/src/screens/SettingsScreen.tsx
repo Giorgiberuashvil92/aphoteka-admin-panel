@@ -39,14 +39,26 @@ export function SettingsScreen({
   const { favoriteCount, clearFavorites } = useFavorites();
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
+  const [balanceBuyerUid, setBalanceBuyerUid] = useState('');
   const [ordersCount, setOrdersCount] = useState(0);
 
-  useEffect(() => {
-    loadUserInfo();
+  const loadUserInfo = useCallback(async () => {
+    const fresh = await UserService.fetchProfile();
+    const user = fresh ?? (await UserService.getCurrentUser());
+    if (user) {
+      setUserName(`${user.firstName} ${user.lastName}`.trim() || 'მომხმარებელი');
+      setUserEmail(user.email);
+      setBalanceBuyerUid(user.balanceBuyerUid?.trim() ?? '');
+    }
   }, []);
+
+  useEffect(() => {
+    void loadUserInfo();
+  }, [loadUserInfo]);
 
   useFocusEffect(
     useCallback(() => {
+      void loadUserInfo();
       let active = true;
       (async () => {
         const result = await OrdersService.fetchMyOrders();
@@ -60,16 +72,8 @@ export function SettingsScreen({
       return () => {
         active = false;
       };
-    }, [])
+    }, [loadUserInfo]),
   );
-
-  const loadUserInfo = async () => {
-    const user = await UserService.getCurrentUser();
-    if (user) {
-      setUserName(`${user.firstName} ${user.lastName}`);
-      setUserEmail(user.email);
-    }
-  };
 
   const handleLogout = () => {
     Alert.alert(
@@ -203,6 +207,11 @@ export function SettingsScreen({
           <View style={styles.profileInfo}>
             <Text style={styles.profileName}>{userName || 'მომხმარებელი'}</Text>
             <Text style={styles.profileEmail}>{userEmail || 'email@example.com'}</Text>
+            {balanceBuyerUid ? (
+              <Text style={styles.balanceUid} selectable>
+                Balance: {balanceBuyerUid}
+              </Text>
+            ) : null}
           </View>
           <Ionicons name="chevron-forward" size={20} color={theme.colors.text.tertiary} />
         </TouchableOpacity>
@@ -356,6 +365,11 @@ const styles = StyleSheet.create({
   profileEmail: {
     fontSize: 14,
     color: theme.colors.text.secondary,
+  },
+  balanceUid: {
+    marginTop: 6,
+    fontSize: 11,
+    color: theme.colors.text.tertiary,
   },
   statsContainer: {
     flexDirection: 'row',

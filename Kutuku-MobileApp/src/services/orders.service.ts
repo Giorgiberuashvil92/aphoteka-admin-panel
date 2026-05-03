@@ -143,6 +143,8 @@ export type CreateOrderLineInput = {
   unitPrice: number;
   imageUrl?: string;
   packSize?: string;
+  /** Balance Sale-ისთვის: სერიული ნომენკლატურის შერჩეული სერიის UUID */
+  balanceSeriesUuid?: string;
 };
 
 export type CreateOrderInput = {
@@ -150,6 +152,8 @@ export type CreateOrderInput = {
   shippingAddress?: string;
   phoneNumber?: string;
   comment?: string;
+  /** Balance Sale-ისთვის: არჩეული საწყობის Mongo id */
+  warehouseId?: string;
 };
 
 export type CreateOrderResult =
@@ -211,10 +215,12 @@ export const OrdersService = {
             unitPrice: it.unitPrice,
             imageUrl: it.imageUrl,
             packSize: it.packSize,
+            balanceSeriesUuid: it.balanceSeriesUuid?.trim() || undefined,
           })),
           shippingAddress: input.shippingAddress,
           phoneNumber: input.phoneNumber,
           comment: input.comment,
+          warehouseId: input.warehouseId?.trim() || undefined,
         }),
       });
 
@@ -323,6 +329,54 @@ export const OrdersService = {
         ok: false,
         error: 'network',
         message: e instanceof Error ? e.message : undefined,
+      };
+    }
+  },
+
+  /** დევ: სერვერზე სტატიკური BOG `completed` + Balance Sale (რეალური ბანკის გარეშე) */
+  async devSimulateBogCompleted(
+    orderId: string,
+  ): Promise<{ ok: boolean; message?: string }> {
+    const token = await UserService.getAccessToken();
+    if (!token) {
+      return { ok: false, message: 'საჭიროა შესვლა' };
+    }
+    const id = orderId?.trim();
+    if (!id) {
+      return { ok: false, message: 'შეკვეთის ID აკლია' };
+    }
+    try {
+      const url = `${API_CONFIG.BASE_URL}${API_CONFIG.endpoints.orders.bogDevSimulateCompleted(id)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: getAuthHeaders(token),
+        body: '{}',
+      });
+      let data: unknown;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, message: 'სესია ვადაგასულია' };
+      }
+      if (!res.ok) {
+        const msg = nestApiErrorMessage(data, res.status);
+        return { ok: false, message: msg };
+      }
+      const msg =
+        data &&
+        typeof data === 'object' &&
+        'message' in data &&
+        typeof (data as { message: unknown }).message === 'string'
+          ? String((data as { message: string }).message)
+          : 'OK';
+      return { ok: true, message: msg };
+    } catch (e) {
+      return {
+        ok: false,
+        message: e instanceof Error ? e.message : 'ქსელი',
       };
     }
   },

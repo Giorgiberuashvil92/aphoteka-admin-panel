@@ -8,10 +8,16 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { RolesGuard } from './guards/roles.guard';
 import { User, UserSchema } from '../users/schemas/user.schema';
+import { BuyersModule } from '../buyers/buyers.module';
+import { BalanceModule } from '../balance/balance.module';
+import { SmsModule } from '../sms/sms.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
+    BuyersModule,
+    BalanceModule,
+    SmsModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

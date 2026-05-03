@@ -3,6 +3,8 @@ export enum UserRole {
   CONSUMER = "consumer",
   OPERATIONS = "operations",
   DELIVERY = "delivery",
+  /** საწყობის თანამშრომელი — შეკვეთების სტატუსები თავის საწყობზე */
+  WAREHOUSE_STAFF = "warehouse_staff",
   ADMIN = "admin",
 }
 
@@ -122,6 +124,18 @@ export interface Product {
   quantity?: number; // რაოდენობა
   /** Balance Exchange/Stocks Reserve ჯამი */
   reservedQuantity?: number;
+  /** Balance Items ნომენკლატურის `uid` (რეალიზაციის `Item`) */
+  balanceNomenclatureItemUid?: string;
+  /** Balance Exchange/Discounts */
+  balanceDiscountPercent?: number;
+  balanceDiscountAmount?: number;
+  balanceDiscountName?: string;
+  balanceDiscountUid?: string;
+  /** Balance Items — Sale ხაზის AccountNumber / IncomeAccount / ExpensesAccount / VATPayableAccount */
+  balanceInventoriesAccount?: string;
+  balanceExpensesAccount?: string;
+  balanceRevenuesAccount?: string;
+  balanceVatPayableAccount?: string;
   /** საწყობების მიხედვით დაშლილი ნაშთი (Balance) */
   balanceStockBreakdown?: Array<{
     balanceWarehouseUuid: string;

@@ -90,7 +90,7 @@ export default function SignInForm() {
                   <Label>
                     Email <span className="text-error-500">*</span>{" "}
                   </Label>
-                  <Input placeholder="info@gmail.com" type="email" />
+                  <Input placeholder="+995555000000" type="tel" />
                 </div>
                 <div>
                   <Label>

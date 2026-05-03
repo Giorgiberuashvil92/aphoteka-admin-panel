@@ -1,7 +1,87 @@
-import { Medicine } from '@/src/types/medicine.types';
+import {
+  Medicine,
+  ProductSeriesEntry,
+  ProductStockByWarehouse,
+} from '@/src/types/medicine.types';
 import { API_CONFIG } from '@/src/config/api.config';
 
 export type Product = Medicine;
+
+/** Metro / Xcode კონსოლში: რა მოდის API-დან vs რა გამოდის map-ის შემდეგ */
+const LOG_PRODUCTS_DEBUG =
+  typeof __DEV__ !== 'undefined' && __DEV__;
+
+function logFeaturedProductsPipeline(
+  phase: 'raw' | 'mapped',
+  payload: {
+    url?: string;
+    status?: number;
+    jsonTopKeys?: string[];
+    rawCount?: number;
+    filteredCount?: number;
+    sampleRaw?: Record<string, unknown> | null;
+    sampleMapped?: Record<string, unknown> | null;
+  }
+) {
+  if (!LOG_PRODUCTS_DEBUG) return;
+  console.log(`[ProductService][featured ${phase}]`, JSON.stringify(payload, null, 2));
+}
+
+/** რიცხვის გაწმენდა — თუ finite და >= 0, დაბრუნდება, წინააღმდეგ შემთხვევაში fallback */
+function toSafeNumber(value: unknown, fallback = 0): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/** Product.balanceStockBreakdown → UI hidden stockByWarehouse[] */
+function mapStockByWarehouse(raw: unknown): ProductStockByWarehouse[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  return raw
+    .map((row: any) => {
+      const quantity = toSafeNumber(row?.quantity, 0);
+      const reserve = toSafeNumber(row?.reserve, 0);
+      const available = Math.max(quantity - reserve, 0);
+      const warehouseUuid =
+        typeof row?.balanceWarehouseUuid === 'string'
+          ? row.balanceWarehouseUuid
+          : '';
+      if (!warehouseUuid) return null;
+      return {
+        warehouseUuid,
+        warehouseName:
+          typeof row?.balanceWarehouseName === 'string'
+            ? row.balanceWarehouseName
+            : undefined,
+        branchUuid:
+          typeof row?.balanceBranchUuid === 'string'
+            ? row.balanceBranchUuid
+            : undefined,
+        quantity,
+        reserve,
+        available,
+        seriesUuid:
+          typeof row?.seriesUuid === 'string' ? row.seriesUuid : undefined,
+      } as ProductStockByWarehouse;
+    })
+    .filter((x): x is ProductStockByWarehouse => x !== null);
+}
+
+/** Product.balanceItemSeries → UI hidden series[] */
+function mapSeries(raw: unknown): ProductSeriesEntry[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  return raw.map((row: any) => ({
+    seriesUuid: typeof row?.seriesUuid === 'string' ? row.seriesUuid : undefined,
+    seriesNumber:
+      typeof row?.seriesNumber === 'string' ? row.seriesNumber : undefined,
+    quantity: Number.isFinite(Number(row?.quantity))
+      ? Number(row.quantity)
+      : undefined,
+    expiryDate:
+      typeof row?.expiryDate === 'string' ? row.expiryDate : undefined,
+    warehouseUuid:
+      typeof row?.warehouseUuid === 'string' ? row.warehouseUuid : undefined,
+  }));
+}
 
 const USE_API = true;
 
@@ -40,6 +120,60 @@ function mapApiProductToMedicine(p: any): Product {
   const contraindications = Array.isArray(p.contraindications)
     ? p.contraindications.filter((x: unknown): x is string => typeof x === 'string')
     : [];
+
+  const stockByWarehouse = mapStockByWarehouse(p?.balanceStockBreakdown);
+  const series = mapSeries(p?.balanceItemSeries);
+
+  const listPrice = Number.isFinite(Number(p?.price)) ? Number(p.price) : 0;
+  const pct =
+    Number.isFinite(Number(p?.balanceDiscountPercent)) &&
+    Number(p.balanceDiscountPercent) > 0
+      ? Number(p.balanceDiscountPercent)
+      : undefined;
+  const amt =
+    pct === undefined &&
+    Number.isFinite(Number(p?.balanceDiscountAmount)) &&
+    Number(p.balanceDiscountAmount) > 0
+      ? Number(p.balanceDiscountAmount)
+      : undefined;
+
+  let displayPrice = listPrice;
+  let oldPrice: number | undefined;
+  let discountPercentage: number | undefined;
+  let discountPrice: number | undefined;
+
+  if (pct !== undefined && listPrice > 0) {
+    discountPercentage = Math.round(pct);
+    oldPrice = listPrice;
+    displayPrice = Math.round(listPrice * (1 - pct / 100) * 100) / 100;
+    discountPrice = displayPrice;
+  } else if (amt !== undefined && listPrice > 0) {
+    oldPrice = listPrice;
+    displayPrice = Math.max(0, Math.round((listPrice - amt) * 100) / 100);
+    discountPrice = displayPrice;
+    discountPercentage = Math.round((amt / listPrice) * 100);
+  }
+
+  const quantity = Number.isFinite(Number(p?.quantity))
+    ? Number(p.quantity)
+    : undefined;
+  const reservedQuantity = Number.isFinite(Number(p?.reservedQuantity))
+    ? Number(p.reservedQuantity)
+    : undefined;
+  /** ხელმისაწვდომი = total − reserved. Breakdown-იდან ჯამიც ვცდილობთ, თუ root ცარიელია. */
+  const availableFromBreakdown = stockByWarehouse
+    ? stockByWarehouse.reduce((s, w) => s + w.available, 0)
+    : undefined;
+  const availableQuantity =
+    typeof quantity === 'number'
+      ? Math.max(quantity - (reservedQuantity ?? 0), 0)
+      : availableFromBreakdown;
+
+  /** მარაგის UI სიგნალი: ხელმისაწვდომიდან + fallback-ი ძველ ქცევაზე (999), რომ დღევანდელი სცენარი არ გაფუჭდეს */
+  const stockQuantity =
+    typeof availableQuantity === 'number' ? availableQuantity : 999;
+  const inStock = stockQuantity > 0;
+
   return {
     id: p.id,
     name: p.name,
@@ -49,7 +183,10 @@ function mapApiProductToMedicine(p: any): Product {
       typeof p.activeIngredients === 'string' ? p.activeIngredients : '',
     nameGeo: p.name,
     brand: p.manufacturer || p.productNameBrand || '',
-    price: p.price ?? 0,
+    price: displayPrice,
+    oldPrice,
+    discountPrice,
+    discountPercentage,
     thumbnail: p.imageUrl || 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=400',
     images: p.imageUrl ? [p.imageUrl] : [],
     description: p.description || '',
@@ -63,11 +200,18 @@ function mapApiProductToMedicine(p: any): Product {
     packSize: p.packSize || undefined,
     prescriptionRequired: false,
     manufacturer: p.manufacturer || '',
-    stockQuantity: 999,
+    stockQuantity,
     lowStockThreshold: 10,
-    inStock: true,
+    inStock,
     rating: 4.5,
     reviewCount: 0,
+
+    // hidden, Balance Sale-ის საჭიროებისთვის
+    quantity,
+    reservedQuantity,
+    availableQuantity,
+    stockByWarehouse,
+    series,
   };
 }
 
@@ -143,12 +287,57 @@ export class ProductServiceClass {
   async getFeaturedProducts(limit = 8): Promise<Product[]> {
     if (USE_API) {
       try {
-        const res = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.endpoints.products.list}?page=1&limit=${limit}`);
-        if (!res.ok) return [];
-        const json = await res.json();
-        return filterDisplayableProducts(json.data || []).map(
-          mapApiProductToMedicine
-        );
+        const url = `${API_CONFIG.BASE_URL}${API_CONFIG.endpoints.products.list}?page=1&limit=${limit}`;
+        const res = await fetch(url);
+        const json = await res.json().catch(() => ({}));
+        const rawList: any[] = Array.isArray(json?.data) ? json.data : [];
+
+        const pickDiscountSlice = (p: any) =>
+          p
+            ? {
+                id: p.id ?? p._id,
+                sku: p.sku,
+                name: p.name,
+                price: p.price,
+                quantity: p.quantity,
+                balanceDiscountPercent: p.balanceDiscountPercent,
+                balanceDiscountAmount: p.balanceDiscountAmount,
+                balanceDiscountName: p.balanceDiscountName,
+                balanceDiscountUid: p.balanceDiscountUid,
+                balanceNomenclatureItemUid: p.balanceNomenclatureItemUid,
+              }
+            : null;
+
+        logFeaturedProductsPipeline('raw', {
+          url,
+          status: res.status,
+          jsonTopKeys: json && typeof json === 'object' ? Object.keys(json) : [],
+          rawCount: rawList.length,
+          sampleRaw: pickDiscountSlice(rawList[0]) as Record<string, unknown> | null,
+        });
+
+        if (!res.ok) {
+          console.warn('[ProductService] featured HTTP', res.status, json);
+          return [];
+        }
+
+        const filtered = filterDisplayableProducts(rawList);
+        const mapped = filtered.map(mapApiProductToMedicine);
+
+        logFeaturedProductsPipeline('mapped', {
+          filteredCount: filtered.length,
+          sampleMapped: mapped[0]
+            ? {
+                id: mapped[0].id,
+                price: mapped[0].price,
+                oldPrice: mapped[0].oldPrice,
+                discountPercentage: mapped[0].discountPercentage,
+                stockQuantity: mapped[0].stockQuantity,
+              }
+            : null,
+        });
+
+        return mapped;
       } catch (e) {
         console.error('Error fetching featured products:', e);
         return [];

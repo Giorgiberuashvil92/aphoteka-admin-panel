@@ -9,10 +9,45 @@ import * as bcrypt from 'bcrypt';
 import { User, UserDocument } from './schemas/user.schema';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import {
+  WarehouseEmployee,
+  WarehouseEmployeeDocument,
+  WarehouseEmployeeRole,
+} from '../warehouses/schemas/warehouse.schema';
+
+function warehouseIdToObjectId(
+  w:
+    | Types.ObjectId
+    | { _id?: Types.ObjectId; id?: string }
+    | string
+    | undefined
+    | null,
+): Types.ObjectId | undefined {
+  if (!w) return undefined;
+  if (w instanceof Types.ObjectId) return w;
+  if (typeof w === 'string' && Types.ObjectId.isValid(w)) {
+    return new Types.ObjectId(w);
+  }
+  if (typeof w === 'object' && w !== null) {
+    if ('_id' in w && w._id instanceof Types.ObjectId) return w._id;
+    if (
+      'id' in w &&
+      typeof w.id === 'string' &&
+      Types.ObjectId.isValid(w.id)
+    ) {
+      return new Types.ObjectId(w.id);
+    }
+  }
+  return undefined;
+}
 
 @Injectable()
 export class UsersService {
-  constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {}
+  constructor(
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(WarehouseEmployee.name)
+    private warehouseEmployeeModel: Model<WarehouseEmployeeDocument>,
+  ) {}
 
   async create(createUserDto: CreateUserDto): Promise<User> {
     const { password: plainPassword, ...rest } = createUserDto;
@@ -31,12 +66,47 @@ export class UsersService {
     const createdUser = new this.userModel(userData as never);
     const savedUser = await createdUser.save();
 
+    await this.syncWarehouseEmployeeForUser(savedUser);
+
     // Populate warehouse if warehouseId exists
     if (savedUser.warehouseId) {
       await savedUser.populate('warehouseId');
     }
 
     return savedUser.toObject();
+  }
+
+  /**
+   * User.warehouseId → WarehouseEmployee (საწყობის თანამშრომლების სია).
+   * ნებისმიერი როლის მომხმარებელს შეიძლება ჰქონდეს საწყობი; თუ როლი არ არის warehouse_staff,
+   * ჩანაწერი მაინც უნდა იყოს, რომ ადმინში საწყობის გვერდზე ჩანდეს.
+   */
+  private async syncWarehouseEmployeeForUser(user: UserDocument): Promise<void> {
+    const uid = user._id.toString();
+    const wid = warehouseIdToObjectId(
+      user.warehouseId as Types.ObjectId | undefined,
+    );
+
+    if (wid) {
+      const existing = await this.warehouseEmployeeModel
+        .findOne({ userId: uid })
+        .exec();
+      if (existing) {
+        existing.warehouseId = wid;
+        existing.active = user.status === 'active';
+        await existing.save();
+      } else {
+        await this.warehouseEmployeeModel.create({
+          warehouseId: wid,
+          userId: uid,
+          role: WarehouseEmployeeRole.WAREHOUSE_KEEPER,
+          active: user.status === 'active',
+          startedAt: new Date(),
+        });
+      }
+    } else {
+      await this.warehouseEmployeeModel.deleteMany({ userId: uid }).exec();
+    }
   }
 
   async findAll(): Promise<User[]> {
@@ -118,6 +188,8 @@ export class UsersService {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
+    await this.syncWarehouseEmployeeForUser(user);
+
     return user.toObject();
   }
 
@@ -125,6 +197,8 @@ export class UsersService {
     if (!Types.ObjectId.isValid(id)) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
+
+    await this.warehouseEmployeeModel.deleteMany({ userId: id }).exec();
 
     const result = await this.userModel.findByIdAndDelete(id).exec();
 
@@ -148,6 +222,8 @@ export class UsersService {
 
     user.status = newStatus;
     await user.save();
+
+    await this.syncWarehouseEmployeeForUser(user);
 
     await user.populate('warehouseId');
 

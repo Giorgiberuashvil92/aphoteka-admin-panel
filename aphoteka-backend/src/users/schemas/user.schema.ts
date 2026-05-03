@@ -7,6 +7,8 @@ export enum UserRole {
   CONSUMER = 'consumer',
   OPERATIONS = 'operations',
   DELIVERY = 'delivery',
+  /** საწყობის თანამშრომელი — მხოლოდ თავისი საწყობის შეკვეთების სტატუსები */
+  WAREHOUSE_STAFF = 'warehouse_staff',
   ADMIN = 'admin',
 }
 

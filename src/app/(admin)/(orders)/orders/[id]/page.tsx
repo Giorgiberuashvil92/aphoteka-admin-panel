@@ -2,19 +2,28 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Order, OrderStatus, PaymentStatus } from "@/types";
+import { Order, OrderStatus, PaymentStatus, User, UserRole } from "@/types";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
 import {
   BogOrderCallbackView,
   hasBogDisplayData,
 } from "@/components/orders/BogOrderCallbackView";
-import { ordersApi } from "@/lib/api";
+import { authApi, ordersApi } from "@/lib/api";
 import { ApiError } from "@/lib/api/client";
+
+function userWarehouseId(u: User | null): string | undefined {
+  if (!u?.warehouseId) return undefined;
+  const w = u.warehouseId as unknown;
+  if (typeof w === "object" && w !== null && "_id" in w) {
+    return String((w as { _id: unknown })._id);
+  }
+  return String(u.warehouseId);
+}
 
 const statusLabels: Record<OrderStatus, string> = {
   [OrderStatus.CREATED]: "მოლოდინში",
   [OrderStatus.CONFIRMED]: "დადასტურებული",
-  [OrderStatus.PACKED]: "დაფასული",
+  [OrderStatus.PACKED]: "დაფასოებული",
   [OrderStatus.OUT_FOR_DELIVERY]: "გზაში",
   [OrderStatus.DELIVERED]: "მიწოდებული",
   [OrderStatus.CANCELLED]: "გაუქმებული",
@@ -46,6 +55,7 @@ export default function OrderDetailPage() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [panelUser, setPanelUser] = useState<User | null>(null);
 
   const loadOrder = useCallback(async () => {
     if (!orderId) {
@@ -56,7 +66,12 @@ export default function OrderDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await ordersApi.getById(orderId);
+      const me = await authApi.getCurrentUser();
+      setPanelUser(me);
+      const res =
+        me.role === UserRole.WAREHOUSE_STAFF
+          ? await ordersApi.getWarehouseOrderById(orderId)
+          : await ordersApi.getById(orderId);
       setOrder(res.data);
       setSelectedStatus(res.data.status);
     } catch (e) {
@@ -82,9 +97,21 @@ export default function OrderDetailPage() {
   const handleStatusUpdate = async () => {
     if (!orderId || !order || selectedStatus === order.status) return;
 
+    const isWarehouse = panelUser?.role === UserRole.WAREHOUSE_STAFF;
+    const balanceOnShipped =
+      selectedStatus === OrderStatus.OUT_FOR_DELIVERY &&
+      order.status !== OrderStatus.OUT_FOR_DELIVERY;
+    if (balanceOnShipped) {
+      window.alert(
+        "სტატუსი „გზაში“ (გაგზავნილი): სისტემა ეცდება გაყიდვის ჩაწერას Balance-ში, თუ გადახდა დასრულებულია და ეს შეკვეთა ჯერ არ არის ჩაწერილი იქ.",
+      );
+    }
+
     setIsUpdating(true);
     try {
-      const res = await ordersApi.updateStatus(orderId, selectedStatus);
+      const res = isWarehouse
+        ? await ordersApi.updateWarehouseOrderStatus(orderId, selectedStatus)
+        : await ordersApi.updateStatus(orderId, selectedStatus);
       setOrder(res.data);
       setSelectedStatus(res.data.status);
     } catch (e) {
@@ -99,17 +126,40 @@ export default function OrderDetailPage() {
   };
 
   const getNextStatuses = (currentStatus: OrderStatus): OrderStatus[] => {
+    const isWarehouse = panelUser?.role === UserRole.WAREHOUSE_STAFF;
+    if (isWarehouse) {
+      const whFlow: Record<OrderStatus, OrderStatus[]> = {
+        [OrderStatus.CREATED]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
+        [OrderStatus.CONFIRMED]: [OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CANCELLED],
+        [OrderStatus.PACKED]: [OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CANCELLED],
+        [OrderStatus.OUT_FOR_DELIVERY]: [OrderStatus.DELIVERED, OrderStatus.CANCELLED],
+        [OrderStatus.DELIVERED]: [],
+        [OrderStatus.CANCELLED]: [],
+        [OrderStatus.FAILED]: [],
+      };
+      return whFlow[currentStatus] ?? [];
+    }
     const statusFlow: Record<OrderStatus, OrderStatus[]> = {
       [OrderStatus.CREATED]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
-      [OrderStatus.CONFIRMED]: [OrderStatus.PACKED, OrderStatus.CANCELLED],
+      [OrderStatus.CONFIRMED]: [
+        OrderStatus.PACKED,
+        OrderStatus.OUT_FOR_DELIVERY,
+        OrderStatus.CANCELLED,
+      ],
       [OrderStatus.PACKED]: [OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CANCELLED],
-      [OrderStatus.OUT_FOR_DELIVERY]: [OrderStatus.DELIVERED, OrderStatus.FAILED],
+      [OrderStatus.OUT_FOR_DELIVERY]: [OrderStatus.DELIVERED, OrderStatus.CANCELLED],
       [OrderStatus.DELIVERED]: [],
       [OrderStatus.CANCELLED]: [],
       [OrderStatus.FAILED]: [],
     };
-    return statusFlow[currentStatus] || [];
+    return statusFlow[currentStatus] ?? [];
   };
+
+  const whIdNav = userWarehouseId(panelUser);
+  const ordersListHref =
+    panelUser?.role === UserRole.WAREHOUSE_STAFF && whIdNav
+      ? `/warehouses/${whIdNav}/orders`
+      : "/orders";
 
   if (loading) {
     return (
@@ -128,10 +178,10 @@ export default function OrderDetailPage() {
         </div>
         <button
           type="button"
-          onClick={() => router.push("/orders")}
+          onClick={() => router.push(ordersListHref)}
           className="text-sm text-brand-600 hover:underline"
         >
-          ← ყველა შეკვეთა
+          ← შეკვეთების სია
         </button>
       </div>
     );

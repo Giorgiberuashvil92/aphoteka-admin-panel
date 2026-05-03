@@ -69,23 +69,33 @@ export const warehousesApi = {
     return api.get<WarehouseEmployeesResponse>(`/warehouses/${warehouseId}/employees${query ? `?${query}` : ''}`);
   },
 
-  // Get warehouse employee by ID
+  // Get warehouse employee by ID (Nest: @Controller('warehouses') + 'warehouse-employees/:id')
   getEmployeeById: async (id: string): Promise<WarehouseEmployeeResponse> => {
-    return api.get<WarehouseEmployeeResponse>(`/warehouse-employees/${id}`);
+    return api.get<WarehouseEmployeeResponse>(
+      `/warehouses/warehouse-employees/${id}`,
+    );
   },
 
   // Create warehouse employee
   createEmployee: async (employee: Partial<WarehouseEmployee>): Promise<WarehouseEmployeeResponse> => {
-    return api.post<WarehouseEmployeeResponse>('/warehouse-employees', employee);
+    return api.post<WarehouseEmployeeResponse>(
+      '/warehouses/warehouse-employees',
+      employee,
+    );
   },
 
   // Update warehouse employee
   updateEmployee: async (id: string, employee: Partial<WarehouseEmployee>): Promise<WarehouseEmployeeResponse> => {
-    return api.put<WarehouseEmployeeResponse>(`/warehouse-employees/${id}`, employee);
+    return api.put<WarehouseEmployeeResponse>(
+      `/warehouses/warehouse-employees/${id}`,
+      employee,
+    );
   },
 
   // Toggle warehouse employee status
   toggleEmployeeStatus: async (id: string): Promise<WarehouseEmployeeResponse> => {
-    return api.patch<WarehouseEmployeeResponse>(`/warehouse-employees/${id}/toggle-status`);
+    return api.patch<WarehouseEmployeeResponse>(
+      `/warehouses/warehouse-employees/${id}/toggle-status`,
+    );
   },
 };

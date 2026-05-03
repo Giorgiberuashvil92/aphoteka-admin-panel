@@ -87,6 +87,46 @@ export class BulkCreateProductDto {
   @IsOptional()
   reservedQuantity?: number;
 
+  @IsString()
+  @IsOptional()
+  balanceNomenclatureItemUid?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceInventoriesAccount?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceExpensesAccount?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceRevenuesAccount?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceVatPayableAccount?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceVatRateUid?: string;
+
+  @IsNumber()
+  @IsOptional()
+  balanceDiscountPercent?: number;
+
+  @IsNumber()
+  @IsOptional()
+  balanceDiscountAmount?: number;
+
+  @IsString()
+  @IsOptional()
+  balanceDiscountName?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceDiscountUid?: string;
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

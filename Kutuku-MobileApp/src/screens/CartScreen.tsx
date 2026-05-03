@@ -9,6 +9,8 @@ import { Animated, Image, SafeAreaView, StatusBar, StyleSheet, Text, TextInput, 
 interface CartScreenProps {
   onBack: () => void;
   onCheckout: () => void;
+  /** __DEV__ — კალათიდან გადახდაზე BOG-ის იმიტაციის რეჟიმით */
+  onDevBogSimulateToPayment?: () => void;
   onSearch: () => void;
   onHomePress: () => void;
   onWishlistPress: () => void;
@@ -19,6 +21,7 @@ interface CartScreenProps {
 export function CartScreen({
   onBack,
   onCheckout,
+  onDevBogSimulateToPayment,
   onSearch,
   onHomePress,
   onWishlistPress,
@@ -293,6 +296,20 @@ export function CartScreen({
                 <Text style={styles.checkoutButtonText}>გაგრძელება — {total.toFixed(2)}₾</Text>
                 <Ionicons name="arrow-forward" size={20} color={theme.colors.white} />
               </TouchableOpacity>
+              {typeof __DEV__ !== 'undefined' &&
+              __DEV__ &&
+              onDevBogSimulateToPayment ? (
+                <TouchableOpacity
+                  style={styles.devSimulateCartButton}
+                  onPress={onDevBogSimulateToPayment}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="flask-outline" size={18} color="#78350f" />
+                  <Text style={styles.devSimulateCartButtonText}>
+                    დევ: გადახდა BOG-ის გარეთ (სიმულაცია)
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
 
             <View style={styles.bottomSpacer} />
@@ -696,6 +713,26 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: theme.colors.white,
+  },
+  devSimulateCartButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: '#fef3c7',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+  },
+  devSimulateCartButtonText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#78350f',
+    textAlign: 'center',
   },
   bottomSpacer: {
     height: 24,

@@ -12,6 +12,7 @@ const roleLabels: Record<UserRole, string> = {
   [UserRole.CONSUMER]: "მომხმარებელი",
   [UserRole.OPERATIONS]: "ოპერაციები",
   [UserRole.DELIVERY]: "მიტანა",
+  [UserRole.WAREHOUSE_STAFF]: "საწყობის თანამშრომელი",
   [UserRole.ADMIN]: "ადმინისტრატორი",
 };
 

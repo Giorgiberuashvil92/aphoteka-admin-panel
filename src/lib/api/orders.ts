@@ -35,6 +35,8 @@ type ApiOrder = {
   id?: string;
   _id?: { toString(): string };
   userId?: unknown;
+  /** მისაინდი საწყობი (Mongo ObjectId) */
+  warehouseId?: unknown;
   items: ApiOrderItem[];
   totalAmount: number;
   status: string;
@@ -230,6 +232,12 @@ export function normalizeOrderFromApi(raw: ApiOrder): Order {
     ? deliveryAddr.split(',').pop()?.trim()
     : undefined;
 
+  const whRaw = raw.warehouseId;
+  const warehouseLocation =
+    whRaw != null && typeof whRaw === 'object' && '_id' in (whRaw as object)
+      ? oid((whRaw as { _id: unknown })._id)
+      : oid(whRaw) || undefined;
+
   return {
     id: orderId,
     userId: userIdStr,
@@ -241,7 +249,7 @@ export function normalizeOrderFromApi(raw: ApiOrder): Order {
     deliveryAddress: deliveryAddr,
     deliveryCity: cityGuess || '—',
     deliveryPhone: raw.phoneNumber?.trim() || populatedUser?.phoneNumber || '—',
-    warehouseLocation: undefined,
+    warehouseLocation: warehouseLocation || undefined,
     comment: raw.comment?.trim() || undefined,
     bogOrderId:
       typeof raw.bogOrderId === 'string' && raw.bogOrderId.trim()
@@ -313,10 +321,73 @@ export const ordersApi = {
     return { data: normalizeOrderFromApi(raw) };
   },
 
+  /** საწყობის თანამშრომელი: ერთი შეკვეთა */
+  getWarehouseOrderById: async (id: string): Promise<OrderResponse> => {
+    const raw = await api.get<ApiOrder>(
+      `/orders/warehouse/${encodeURIComponent(id)}`,
+    );
+    return { data: normalizeOrderFromApi(raw) };
+  },
+
   updateStatus: async (id: string, status: OrderStatus): Promise<OrderResponse> => {
     const backendStatus = mapUiOrderStatusToBackend(status);
     const raw = await api.patch<ApiOrder>(
       `/orders/admin/${encodeURIComponent(id)}`,
+      { status: backendStatus },
+    );
+    return { data: normalizeOrderFromApi(raw) };
+  },
+
+  /** ადმინი: შეკვეთის მისაინი კონკრეტულ საწყობზე */
+  assignWarehouse: async (
+    orderId: string,
+    warehouseId: string,
+  ): Promise<OrderResponse> => {
+    const raw = await api.patch<ApiOrder>(
+      `/orders/admin/${encodeURIComponent(orderId)}/assign-warehouse`,
+      { warehouseId },
+    );
+    return { data: normalizeOrderFromApi(raw) };
+  },
+
+  /** ადმინი: შეკვეთები ერთი საწყობის მიხედვით */
+  getAdminByWarehouse: async (
+    warehouseId: string,
+  ): Promise<OrdersResponse> => {
+    const raw = await api.get<ApiOrder[]>(
+      `/orders/admin/by-warehouse/${encodeURIComponent(warehouseId)}`,
+    );
+    const list = Array.isArray(raw) ? raw : [];
+    const mapped = list.map(normalizeOrderFromApi);
+    return {
+      data: mapped,
+      total: mapped.length,
+      page: 1,
+      limit: mapped.length || 1,
+    };
+  },
+
+  /** საწყობის თანამშრომელი: ჩემი საწყობის შეკვეთები */
+  getMyWarehouseOrders: async (): Promise<OrdersResponse> => {
+    const raw = await api.get<ApiOrder[]>(`/orders/assigned-to-me`);
+    const list = Array.isArray(raw) ? raw : [];
+    const mapped = list.map(normalizeOrderFromApi);
+    return {
+      data: mapped,
+      total: mapped.length,
+      page: 1,
+      limit: mapped.length || 1,
+    };
+  },
+
+  /** საწყობის თანამშრომელი: სტატუსის განახლება (მხოლოდ თავისი საწყობის შეკვეთაზე) */
+  updateWarehouseOrderStatus: async (
+    id: string,
+    status: OrderStatus,
+  ): Promise<OrderResponse> => {
+    const backendStatus = mapUiOrderStatusToBackend(status);
+    const raw = await api.patch<ApiOrder>(
+      `/orders/warehouse/${encodeURIComponent(id)}/status`,
       { status: backendStatus },
     );
     return { data: normalizeOrderFromApi(raw) };

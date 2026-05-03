@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Product, ProductDocument } from './schemas/product.schema';
@@ -6,12 +6,20 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { QueryProductDto } from './dto/query-product.dto';
 import { BulkCreateProductDto } from './dto/bulk-create-product.dto';
+import { BalanceExchangeService } from '../balance/balance-exchange.service';
+import {
+  buildDiscountMapsFromBalanceApi,
+  enrichProductsWithBalanceDiscounts,
+} from './balance-discounts-merge.util';
 
 @Injectable()
 export class ProductsService {
+  private readonly logger = new Logger(ProductsService.name);
+
   constructor(
     @InjectModel(Product.name)
     private productModel: Model<ProductDocument>,
+    private readonly balanceExchange: BalanceExchangeService,
   ) {}
 
   async create(createProductDto: CreateProductDto) {
@@ -47,6 +55,24 @@ export class ProductsService {
           message: err.errmsg,
         })),
       };
+    }
+  }
+
+  /** სიასა და ერთ ჩანაწერზე — ცოცხალი Balance Discounts, თუ env/credentials საშუალებას იძლევა */
+  private async applyBalanceDiscountEnrichment(
+    rows: Record<string, unknown>[],
+  ): Promise<void> {
+    try {
+      const discRaw = await this.balanceExchange.tryFetchExchangeDiscounts();
+      if (discRaw != null) {
+        const maps = buildDiscountMapsFromBalanceApi(discRaw);
+        enrichProductsWithBalanceDiscounts(rows, maps);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(
+        `[Products] Balance Discounts enrich გამოტოვებულია: ${msg}`,
+      );
     }
   }
 
@@ -109,6 +135,10 @@ export class ProductsService {
       };
     });
 
+    await this.applyBalanceDiscountEnrichment(
+      productsWithComputedFields as Record<string, unknown>[],
+    );
+
     return {
       data: productsWithComputedFields,
       total,
@@ -156,7 +186,7 @@ export class ProductsService {
     const variant = strength?.productVariant;
     const group = variant?.productGroup;
 
-    return {
+    const row = {
       ...productObj,
       genericName: productObj.genericName ?? group?.genericName,
       countryOfOrigin: variant?.countryOfOrigin ?? productObj.countryOfOrigin,
@@ -164,6 +194,8 @@ export class ProductsService {
       strength: strength?.strength ?? productObj.strength,
       dosageForm: strength?.dosageForm ?? productObj.dosageForm,
     };
+    await this.applyBalanceDiscountEnrichment([row as Record<string, unknown>]);
+    return row;
   }
 
   async update(id: string, updateProductDto: UpdateProductDto) {

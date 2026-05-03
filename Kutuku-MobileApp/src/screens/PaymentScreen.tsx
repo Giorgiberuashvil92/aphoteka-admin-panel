@@ -94,6 +94,11 @@ type PaymentScreenProps = {
   onLoginRequired: () => void;
   onEditAddress: () => void;
   onAddPaymentMethod: () => void;
+  /**
+   * კალათიდან დევ-ნაკადი: BOG WebView-ის ნაცვლად სერვერზე სტატიკური `completed` + Balance Sale.
+   * ბექი: `balanceSaleTestPutEnabled()` უნდა იყოს ჩართული.
+   */
+  bogDevSimulate?: boolean;
 };
 
 export function PaymentScreen({
@@ -102,6 +107,7 @@ export function PaymentScreen({
   onLoginRequired,
   onEditAddress,
   onAddPaymentMethod,
+  bogDevSimulate = false,
 }: PaymentScreenProps) {
   const insets = useSafeAreaInsets();
   const { items: cartItems, totalPrice, clearCartSilently, itemCount } = useCart();
@@ -318,6 +324,21 @@ export function PaymentScreen({
       const orderId = result.orderId;
 
       if (selectedPayment === BOG_ONLINE_PAYMENT_ID) {
+        if (bogDevSimulate) {
+          const sim = await OrdersService.devSimulateBogCompleted(orderId);
+          if (!sim.ok) {
+            Alert.alert(
+              'დევ-იმიტაცია ვერ გავიდა',
+              sim.message ??
+                'შეამოწმე ბექზე testPutEnabled / BALANCE_SALE_TEST_PUT_ENABLED=1',
+            );
+            onOrderPlaced(orderId, { bogOutcome: 'init_failed' });
+            return;
+          }
+          onOrderPlaced(orderId);
+          return;
+        }
+
         const apiBase = getApiBaseUrl();
         const bogRedirects = apiBase.toLowerCase().startsWith('https://')
           ? {
@@ -375,6 +396,15 @@ export function PaymentScreen({
         <Text style={styles.headerTitle}>გადახდა</Text>
         <View style={styles.headerButton} />
       </View>
+
+      {bogDevSimulate ? (
+        <View style={styles.devSimulateBanner}>
+          <Ionicons name="flask-outline" size={18} color="#92400e" />
+          <Text style={styles.devSimulateBannerText}>
+            დევ რეჟიმი: ონლაინ გადახდის არჩევისას BOG არ გაიხსნება — სერვერზე იგზავნება სიმულირებული წარმატება + Balance.
+          </Text>
+        </View>
+      ) : null}
 
       <ScrollView
         style={styles.scrollView}
@@ -730,6 +760,26 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: theme.colors.text.primary,
+  },
+  devSimulateBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#fef3c7',
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+  },
+  devSimulateBannerText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#78350f',
+    fontWeight: '500',
   },
   scrollView: {
     flex: 1,

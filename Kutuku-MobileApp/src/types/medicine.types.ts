@@ -1,3 +1,29 @@
+/**
+ * per-საწყობი მარაგის ჩანაწერი (Balance Sale-ისთვის ლოგიკური არჩევანი checkout-ზე).
+ * UI-ში არ ვაჩვენებთ — უბრალოდ შიდა გამოყენებისთვის.
+ */
+export interface ProductStockByWarehouse {
+  warehouseUuid: string;
+  warehouseName?: string;
+  branchUuid?: string;
+  quantity: number;
+  reserve: number;
+  /** ხელმისაწვდომი მარაგი (quantity − reserve, >= 0) */
+  available: number;
+  seriesUuid?: string;
+}
+
+/**
+ * per-სერია ჩანაწერი (Balance Items[].Series required-ია სერიული ნომენკლატურისთვის).
+ */
+export interface ProductSeriesEntry {
+  seriesUuid?: string;
+  seriesNumber?: string;
+  quantity?: number;
+  expiryDate?: string;
+  warehouseUuid?: string;
+}
+
 // Medicine Types
 export interface Medicine {
   id: string;
@@ -32,6 +58,18 @@ export interface Medicine {
   inStock: boolean;
   rating: number;
   reviewCount: number;
+
+  // ── Balance Sale-ის დასახმარებელი hidden ველები (UI-ში არ ჩანს) ──
+  /** Balance Exchange/Stocks ჯამური რაოდენობა */
+  quantity?: number;
+  /** Balance Reserve ჯამი */
+  reservedQuantity?: number;
+  /** ხელმისაწვდომი მარაგი (quantity − reservedQuantity, >= 0) */
+  availableQuantity?: number;
+  /** per-საწყობი მარაგი — warehouse picker-ისა და Balance Sale Warehouse-ისთვის */
+  stockByWarehouse?: ProductStockByWarehouse[];
+  /** per-სერია ჩანაწერი — Balance Items[].Series required-ია */
+  series?: ProductSeriesEntry[];
 }
 
 export interface PaginatedResponse<T> {

@@ -39,7 +39,6 @@ export default function WarehouseLayout({
 
   const tabs = [
     { id: "overview", name: "მიმოხილვა", path: `/warehouses/${warehouseId}` },
-    { id: "inventory", name: "ინვენტარი", path: `/warehouses/${warehouseId}/inventory` },
     { id: "orders", name: "შეკვეთები", path: `/warehouses/${warehouseId}/orders` },
     { id: "employees", name: "თანამშრომლები", path: `/warehouses/${warehouseId}/employees` },
     { id: "reports", name: "რეპორტები", path: `/warehouses/${warehouseId}/reports` },

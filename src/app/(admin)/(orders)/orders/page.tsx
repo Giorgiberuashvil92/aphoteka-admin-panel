@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, Suspense, useMemo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-import { Order, OrderStatus, PaymentStatus } from "@/types";
+import { Order, OrderStatus, PaymentStatus, Warehouse } from "@/types";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
 import { EyeIcon } from "@/icons";
 import Link from "next/link";
@@ -48,6 +48,21 @@ function OrdersPageContent() {
   const [filterPaymentStatus, setFilterPaymentStatus] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [warehouseOptions, setWarehouseOptions] = useState<Warehouse[]>([]);
+  const [assigningId, setAssigningId] = useState<string | null>(null);
+
+  const warehouseNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    warehouseOptions.forEach((w) => m.set(w.id, w.name));
+    return m;
+  }, [warehouseOptions]);
+
+  useEffect(() => {
+    warehousesApi
+      .getAll({ active: true })
+      .then((res) => setWarehouseOptions(res.data ?? []))
+      .catch(() => setWarehouseOptions([]));
+  }, []);
 
   useEffect(() => {
     if (warehouseId) {
@@ -64,8 +79,10 @@ function OrdersPageContent() {
     let cancelled = false;
     setLoading(true);
     setLoadError(null);
-    ordersApi
-      .getAll(warehouseId ? { warehouseId } : undefined)
+    const loader = warehouseId
+      ? ordersApi.getAdminByWarehouse(warehouseId)
+      : ordersApi.getAll();
+    loader
       .then((response) => {
         if (!cancelled) setOrders(response.data ?? []);
       })
@@ -88,6 +105,25 @@ function OrdersPageContent() {
       cancelled = true;
     };
   }, [warehouseId]);
+
+  const handleAssignWarehouse = useCallback(async (orderId: string, wid: string) => {
+    if (!wid) return;
+    setAssigningId(orderId);
+    try {
+      const res = await ordersApi.assignWarehouse(orderId, wid);
+      setOrders((prev) => prev.map((o) => (o.id === orderId ? res.data : o)));
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === "object" && "data" in err
+          ? JSON.stringify((err as { data?: unknown }).data)
+          : err instanceof Error
+            ? err.message
+            : "მისაინი ვერ შესრულდა";
+      window.alert(msg);
+    } finally {
+      setAssigningId(null);
+    }
+  }, []);
 
   const filteredOrders = orders.filter((order) => {
     const q = searchTerm.toLowerCase();
@@ -134,7 +170,7 @@ function OrdersPageContent() {
                 ფილტრი: {warehouse.name}
               </p>
               <p className="text-xs text-brand-700 dark:text-brand-300">
-                საწყობის ველი ჯერ არ არის შეკვეთაში — სია შეიძლება ცარიელი იყოს საწყობის ფილტრით.
+                ნაჩვენებია მხოლოდ ამ საწყობზე მისაინდი შეკვეთები.
               </p>
             </div>
             <Link
@@ -204,6 +240,9 @@ function OrdersPageContent() {
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
                   გადახდა
                 </th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                  საწყობი
+                </th>
                 <th className="px-6 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
                   მოქმედებები
                 </th>
@@ -212,13 +251,13 @@ function OrdersPageContent() {
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-sm text-gray-500">
+                  <td colSpan={8} className="px-6 py-12 text-center text-sm text-gray-500">
                     იტვირთება...
                   </td>
                 </tr>
               ) : filteredOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={8} className="px-6 py-8 text-center text-sm text-gray-500">
                     შეკვეთები არ მოიძებნა
                   </td>
                 </tr>
@@ -304,6 +343,41 @@ function OrdersPageContent() {
                       >
                         {paymentStatusLabels[order.paymentStatus]}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 align-top">
+                      <div className="flex min-w-[200px] flex-col gap-2">
+                        {order.warehouseLocation ? (
+                          <span
+                            className="text-xs font-medium text-brand-700 dark:text-brand-300"
+                            title={order.warehouseLocation}
+                          >
+                            {warehouseNameById.get(order.warehouseLocation) ??
+                              `${order.warehouseLocation.slice(0, 10)}…`}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400 dark:text-gray-500">
+                            არ არის მისაინდ
+                          </span>
+                        )}
+                        <select
+                          value={order.warehouseLocation ?? ""}
+                          disabled={assigningId === order.id}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v) void handleAssignWarehouse(order.id, v);
+                          }}
+                          className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                        >
+                          <option value="">
+                            {assigningId === order.id ? "იტვირთება…" : "მისაინე საწყობზე…"}
+                          </option>
+                          {warehouseOptions.map((w) => (
+                            <option key={w.id} value={w.id}>
+                              {w.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <Link

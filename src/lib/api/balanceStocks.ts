@@ -88,6 +88,18 @@ export async function getBalancePrices(): Promise<unknown> {
   return json.data;
 }
 
+/** კლიენტიდან – ფასდაკლებები Balance Exchange/Discounts */
+export async function getBalanceDiscounts(): Promise<unknown> {
+  const json = await nextAppJson<{
+    ok?: boolean;
+    error?: string;
+    data?: unknown;
+  }>('/api/balance/discounts');
+  logBalanceClientJson('discounts /api/balance/discounts', json);
+  if (!json.ok) throw new Error(json.error || 'Balance Discounts API შეცდომა');
+  return json.data;
+}
+
 /** კლიენტიდან – ItemPricing (Exchange) */
 export async function getBalanceItemPricing(): Promise<unknown> {
   const json = await nextAppJson<{
@@ -147,6 +159,11 @@ export {
 } from '@/lib/api/balancePricing';
 
 export function rowsFromBalancePrices(data: unknown): Record<string, unknown>[] {
+  return rowsFromBalanceData(data);
+}
+
+/** Discounts — იგივე JSON გახსნა რაც Prices (Items, value, Source, …) */
+export function rowsFromBalanceDiscounts(data: unknown): Record<string, unknown>[] {
   return rowsFromBalanceData(data);
 }
 

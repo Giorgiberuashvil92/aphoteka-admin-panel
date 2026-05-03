@@ -7,8 +7,11 @@ import {
 } from '@/src/services/deliveryAddress.service';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -20,7 +23,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, type Region } from 'react-native-maps';
+import MapView, { type Region } from 'react-native-maps';
 
 const DEFAULT_MAP_REGION: Region = {
   latitude: 41.7151,
@@ -44,10 +47,16 @@ const emptyForm = (): DeliveryAddress => ({
   phone: '',
 });
 
+const REGION_SAVE_DEBOUNCE_MS = 450;
+
 export function AddressScreen({ onBack, onSaved }: AddressScreenProps) {
   const [form, setForm] = useState<DeliveryAddress>(emptyForm);
   const [loaded, setLoaded] = useState(false);
+  const [locatingMe, setLocatingMe] = useState(false);
+  const [showUserLocationDot, setShowUserLocationDot] = useState(false);
   const mapRef = useRef<MapView>(null);
+  const regionSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const didApplyInitialMap = useRef(false);
 
   const loadSaved = useCallback(async () => {
     const saved = await DeliveryAddressService.get();
@@ -96,25 +105,100 @@ export function AddressScreen({ onBack, onSaved }: AddressScreenProps) {
     return { ...DEFAULT_MAP_REGION };
   }, [mapLat, mapLng]);
 
-  const handleMapPress = (e: {
-    nativeEvent: { coordinate: { latitude: number; longitude: number } };
-  }) => {
-    const { latitude, longitude } = e.nativeEvent.coordinate;
+  /** რუკის ცენტრი = არჩეული წერტილი (ფიქსირებული ნიშანი ზედ) */
+  const applyRegionCenter = useCallback((r: Region) => {
     setForm((prev) => {
-      const next: DeliveryAddress = { ...prev, latitude, longitude };
+      const next: DeliveryAddress = {
+        ...prev,
+        latitude: r.latitude,
+        longitude: r.longitude,
+      };
       void DeliveryAddressService.save(next);
       return next;
     });
-    mapRef.current?.animateToRegion(
-      {
-        latitude,
-        longitude,
+  }, []);
+
+  const handleRegionChangeComplete = useCallback(
+    (r: Region) => {
+      if (regionSaveTimer.current) clearTimeout(regionSaveTimer.current);
+      regionSaveTimer.current = setTimeout(() => {
+        regionSaveTimer.current = null;
+        applyRegionCenter(r);
+      }, REGION_SAVE_DEBOUNCE_MS);
+    },
+    [applyRegionCenter],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (regionSaveTimer.current) clearTimeout(regionSaveTimer.current);
+    };
+  }, []);
+
+  /** შენახული ლოკაცია — ერთხელ `loaded`-ის შემდეგ (არ უნდა განმეორდეს პანისას) */
+  useEffect(() => {
+    if (!loaded || !mapRef.current || didApplyInitialMap.current) return;
+    didApplyInitialMap.current = true;
+    if (
+      typeof form.latitude === 'number' &&
+      typeof form.longitude === 'number' &&
+      Number.isFinite(form.latitude) &&
+      Number.isFinite(form.longitude)
+    ) {
+      mapRef.current.animateToRegion(
+        {
+          latitude: form.latitude,
+          longitude: form.longitude,
+          latitudeDelta: 0.012,
+          longitudeDelta: 0.012,
+        },
+        400,
+      );
+    }
+    // მხოლოდ პირველი ჩატვირთვა — `form` ამ რენდერის შესაბამისია
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+
+  const goToMyGpsLocation = useCallback(async () => {
+    if (Platform.OS === 'web') {
+      Alert.alert('ლოკაცია', 'თქვენი GPS ხელმისაწვდომია iOS და Android აპში.');
+      return;
+    }
+    setLocatingMe(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'ლოკაცია',
+          'გთხოვთ, პარამეტრებში დაუშვით წვდომა ლოკაციაზე, რომ მიტანის წერტილი თქვენს ადგილზე დააყენოთ.',
+        );
+        return;
+      }
+      setShowUserLocationDot(true);
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const region: Region = {
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
         latitudeDelta: 0.012,
         longitudeDelta: 0.012,
-      },
-      280,
-    );
-  };
+      };
+      if (regionSaveTimer.current) {
+        clearTimeout(regionSaveTimer.current);
+        regionSaveTimer.current = null;
+      }
+      applyRegionCenter(region);
+      mapRef.current?.animateToRegion(region, 550);
+    } catch {
+      Alert.alert(
+        'შეცდომა',
+        'ლოკაციის მიღება ვერ მოხერხდა. ცადეთ თავიდან ან აირჩიეთ წერტილი რუკის გადატანით.',
+      );
+    } finally {
+      setLocatingMe(false);
+    }
+  }, [applyRegionCenter]);
 
   const handleSave = async () => {
     await DeliveryAddressService.save(form);
@@ -145,6 +229,64 @@ export function AddressScreen({ onBack, onSaved }: AddressScreenProps) {
         <View style={styles.headerButton} />
       </View>
 
+      {Platform.OS === 'web' ? (
+        <View style={styles.mapHeroWeb}>
+          <Ionicons name="map-outline" size={28} color={theme.colors.gray[400]} />
+          <Text style={styles.mapWebFallbackText}>
+            ინტერაქტიული რუკა ხელმისაწვდომია iOS და Android აპში.
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.mapHero}>
+          <MapView
+            ref={mapRef}
+            style={StyleSheet.absoluteFillObject}
+            initialRegion={initialMapRegion}
+            onRegionChangeComplete={handleRegionChangeComplete}
+            showsUserLocation={showUserLocationDot}
+            mapType="standard"
+            rotateEnabled={false}
+            pitchEnabled={false}
+            showsCompass={false}
+          />
+          <View style={styles.mapCrosshairWrap} pointerEvents="none">
+            <Ionicons name="location-sharp" size={44} color={theme.colors.primary} style={styles.mapCrosshairIcon} />
+          </View>
+          <TouchableOpacity
+            style={styles.mapMyLocationPill}
+            onPress={() => void goToMyGpsLocation()}
+            disabled={locatingMe}
+            activeOpacity={0.85}
+          >
+            {locatingMe ? (
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+            ) : (
+              <Ionicons name="navigate" size={18} color={theme.colors.primary} />
+            )}
+            <Text style={styles.mapMyLocationPillText}>ჩემი ლოკაცია</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.mapRecenterPill}
+            onPress={() => {
+              const r = { ...DEFAULT_MAP_REGION };
+              mapRef.current?.animateToRegion(r, 450);
+              applyRegionCenter(r);
+            }}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="navigate-outline" size={16} color={theme.colors.white} />
+            <Text style={styles.mapRecenterPillText}>თბილისი</Text>
+          </TouchableOpacity>
+          {form.latitude != null && form.longitude != null ? (
+            <View style={styles.coordsBadge} pointerEvents="none">
+              <Text style={styles.coordsBadgeText} numberOfLines={1}>
+                {form.latitude.toFixed(5)}, {form.longitude.toFixed(5)}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      )}
+
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -159,48 +301,9 @@ export function AddressScreen({ onBack, onSaved }: AddressScreenProps) {
           <View style={styles.titleSection}>
             <Text style={styles.title}>სად მივიტანოთ შეკვეთა?</Text>
             <Text style={styles.subtitle}>
-              მიუთითეთ სრული მისამართი საქართველოში. ეს ტექსტი გადაეცემა აფთიაქს კურიერისთვის და ჩანს შეკვეთის დეტალებში.
+              რუკაზე გადაიტანეთ ხედი — წითელი ნიშანი ზედა ცენტრში უჩვენებს ადგილს. ქვემოთ შეავსეთ მისამართის ტექსტი კურიერისთვის.
             </Text>
           </View>
-
-          <Text style={styles.fieldLabel}>ლოკაცია რუკაზე</Text>
-          <Text style={styles.mapHint}>
-            დააჭირეთ რუკას — წერტილი და კოორდინატები მაშინვე ინახება; სრული მისამართისთვის შეავსეთ ველები და დააჭირეთ „შენახვა“.
-          </Text>
-          {Platform.OS === 'web' ? (
-            <View style={styles.mapWebFallback}>
-              <Ionicons name="map-outline" size={28} color={theme.colors.gray[400]} />
-              <Text style={styles.mapWebFallbackText}>
-                ინტერაქტიული რუკა ხელმისაწვდომია iOS და Android აპში.
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.mapWrap}>
-              <MapView
-                ref={mapRef}
-                style={styles.map}
-                initialRegion={initialMapRegion}
-                onPress={handleMapPress}
-                showsUserLocation={false}
-                mapType="standard"
-              >
-                {typeof form.latitude === 'number' &&
-                typeof form.longitude === 'number' &&
-                Number.isFinite(form.latitude) &&
-                Number.isFinite(form.longitude) ? (
-                  <Marker
-                    coordinate={{ latitude: form.latitude, longitude: form.longitude }}
-                    title="მიწოდება"
-                  />
-                ) : null}
-              </MapView>
-            </View>
-          )}
-          {form.latitude != null && form.longitude != null ? (
-            <Text style={styles.coordsText} selectable>
-              {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}
-            </Text>
-          ) : null}
 
           <Text style={styles.fieldLabel}>ტიპი</Text>
           <View style={styles.chipRow}>
@@ -368,49 +471,105 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: theme.colors.text.secondary,
   },
-  mapHint: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: theme.colors.text.secondary,
-    paddingHorizontal: 20,
-    marginBottom: 10,
-  },
-  mapWrap: {
-    marginHorizontal: 20,
-    height: 220,
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: theme.colors.gray[200],
-  },
-  map: {
+  mapHero: {
+    height: 300,
     width: '100%',
-    height: '100%',
+    backgroundColor: theme.colors.gray[100],
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.gray[200],
   },
-  mapWebFallback: {
-    marginHorizontal: 20,
-    minHeight: 120,
-    padding: 20,
-    borderRadius: 12,
+  mapHeroWeb: {
+    minHeight: 100,
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
     backgroundColor: theme.colors.gray[50],
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.gray[200],
+  },
+  mapCrosshairWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mapCrosshairIcon: {
+    marginTop: -32,
+    shadowColor: '#000',
+    shadowOpacity: 0.22,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  mapMyLocationPill: {
+    position: 'absolute',
+    left: 12,
+    bottom: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderWidth: 1.5,
+    borderColor: theme.colors.primary,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 3,
+  },
+  mapMyLocationPillText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.colors.primary,
+  },
+  mapRecenterPill: {
+    position: 'absolute',
+    right: 14,
+    bottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: theme.colors.primary,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  mapRecenterPillText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.colors.white,
+  },
+  coordsBadge: {
+    position: 'absolute',
+    left: 12,
+    bottom: 12,
+    maxWidth: '72%',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.92)',
     borderWidth: 1,
     borderColor: theme.colors.gray[200],
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
+  },
+  coordsBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    fontVariant: ['tabular-nums'],
   },
   mapWebFallbackText: {
     fontSize: 13,
     color: theme.colors.text.secondary,
-    textAlign: 'center',
+    flex: 1,
     lineHeight: 20,
-  },
-  coordsText: {
-    fontSize: 12,
-    color: theme.colors.text.tertiary,
-    paddingHorizontal: 20,
-    marginTop: 8,
-    fontVariant: ['tabular-nums'],
   },
   fieldLabel: {
     fontSize: 13,

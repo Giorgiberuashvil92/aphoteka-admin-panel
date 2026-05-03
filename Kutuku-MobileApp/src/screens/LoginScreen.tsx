@@ -137,7 +137,7 @@ export function LoginScreen({ onLogin, onRegisterPress, onForgotPassword }: Logi
                       <Ionicons
                         name={showPassword ? 'eye-outline' : 'eye-off-outline'}
                         size={20}
-                        color={theme.colors.gray[400]}
+                        color={theme.colors.gray[1000]}
                       />
                     </TouchableOpacity>
                   }
@@ -145,7 +145,7 @@ export function LoginScreen({ onLogin, onRegisterPress, onForgotPassword }: Logi
 
                 <TouchableOpacity onPress={onForgotPassword} style={styles.forgotWrap}>
                   <Text style={styles.forgotText}>დაგავიწყდა პაროლი?</Text>
-                  <Ionicons name="arrow-forward" size={14} color={theme.colors.primary} />
+                  <Ionicons name="arrow-forward" size={14} color={theme.colors.primaryDark} />
                 </TouchableOpacity>
 
                 <Button title="შესვლა" onPress={handleLogin} size="lg" loading={loading} />
@@ -168,7 +168,7 @@ export function LoginScreen({ onLogin, onRegisterPress, onForgotPassword }: Logi
 const styles = StyleSheet.create({
   wrapper: {
     flex: 1,
-    backgroundColor: theme.colors.purple[1000],
+    backgroundColor: theme.colors.background.purple.light,
   },
   keyboard: {
     flex: 1,
@@ -182,19 +182,21 @@ const styles = StyleSheet.create({
   },
   hero: {
     height: 280,
-    backgroundColor: theme.colors.purple[1000],
+    backgroundColor: theme.colors.background.purple.medium,
     borderBottomLeftRadius: 32,
     borderBottomRightRadius: 32,
     overflow: 'hidden',
     position: 'relative',
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.purple[300],
   },
   blob1: {
     position: 'absolute',
     width: 200,
     height: 200,
     borderRadius: 100,
-    backgroundColor: theme.colors.purple[800],
-    opacity: 0.5,
+    backgroundColor: theme.colors.purple[400],
+    opacity: 0.35,
     top: -60,
     right: -80,
   },
@@ -204,7 +206,7 @@ const styles = StyleSheet.create({
     height: 160,
     borderRadius: 80,
     backgroundColor: theme.colors.primaryLight,
-    opacity: 0.25,
+    opacity: 0.45,
     bottom: 20,
     left: -60,
   },
@@ -213,8 +215,8 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: theme.colors.purple[600],
-    opacity: 0.35,
+    backgroundColor: theme.colors.white,
+    opacity: 0.55,
     top: 100,
     right: 40,
   },
@@ -231,38 +233,40 @@ const styles = StyleSheet.create({
     width: 88,
     height: 88,
     borderRadius: 44,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: theme.colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.35)',
+    borderColor: theme.colors.primaryDark,
   },
   brand: {
     fontSize: 13,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.85)',
+    fontWeight: '700',
+    color: theme.colors.primaryDark,
     letterSpacing: 2,
     marginBottom: 4,
   },
   title: {
     fontSize: 24,
     fontWeight: '800',
-    color: theme.colors.white,
+    color: theme.colors.gray[1200],
     textAlign: 'center',
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 15,
-    color: 'rgba(255,255,255,0.8)',
+    fontWeight: '600',
+    color: theme.colors.gray[1100],
     textAlign: 'center',
   },
   loginHint: {
     marginTop: 14,
     marginHorizontal: 12,
-    fontSize: 12,
-    lineHeight: 17,
-    color: 'rgba(255,255,255,0.75)',
+    fontSize: 13,
+    lineHeight: 19,
+    color: theme.colors.gray[1000],
     textAlign: 'center',
+    fontWeight: '500',
   },
   cardWrap: {
     marginTop: -32,
@@ -273,22 +277,24 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 24,
     minHeight: 320,
+    borderWidth: 1,
+    borderColor: theme.colors.border.light,
     ...Platform.select({
       ios: {
-        shadowColor: '#000',
+        shadowColor: theme.colors.purple[1200],
         shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.12,
+        shadowOpacity: 0.08,
         shadowRadius: 24,
       },
       android: {
-        elevation: 12,
+        elevation: 8,
       },
     }),
   },
   cardTitle: {
     fontSize: 20,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
+    fontWeight: '800',
+    color: theme.colors.gray[1200],
     marginBottom: 20,
   },
   forgotWrap: {
@@ -301,8 +307,8 @@ const styles = StyleSheet.create({
   },
   forgotText: {
     fontSize: 14,
-    color: theme.colors.primary,
-    fontWeight: '600',
+    color: theme.colors.primaryDark,
+    fontWeight: '700',
   },
   footer: {
     flexDirection: 'row',
@@ -313,11 +319,12 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: 15,
-    color: theme.colors.text.secondary,
+    fontWeight: '600',
+    color: theme.colors.gray[1100],
   },
   footerLink: {
     fontSize: 15,
-    color: theme.colors.primary,
-    fontWeight: '700',
+    color: theme.colors.primaryDark,
+    fontWeight: '800',
   },
 });

@@ -1,3 +1,5 @@
+import { existsSync } from 'fs';
+import { join } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, registerAs } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
@@ -44,11 +46,23 @@ const bogConfig = registerAs('bog', () => {
   };
 });
 
+/** cwd = მონორეპოს ფესვი ან `aphoteka-backend` — ორივე ადგილას `.env` იპოვოს */
+function balanceEnvFilePaths(): string[] {
+  const cwd = process.cwd();
+  const candidates = [
+    join(cwd, '.env'),
+    join(cwd, 'aphoteka-backend', '.env'),
+    join(__dirname, '..', '.env'),
+  ];
+  const unique = [...new Set(candidates.filter((p) => existsSync(p)))];
+  return unique.length ? unique : ['.env'];
+}
+
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: balanceEnvFilePaths(),
       ignoreEnvFile: false,
       load: [bogConfig],
     }),
