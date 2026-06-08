@@ -2,6 +2,7 @@
  * ადმინ პანელი — ფიქსირებული შესვლა (ლოკალური განვითარება / ტესტი).
  *
  * პრიორიტეტი: `NEXT_PUBLIC_ADMIN_LOGIN_*` env → ქვემოთ ჩაწერილი მნიშვნელობები.
+ * ნაგულისხმევი: მომხმარებელი `user`, პაროლი `123456` (იგივე რაც `npm run seed`).
  * თუ 401 — შეცვალე `phoneNumber` / `password` DB-ში არსებული აქტიური ადმინის მიხედვით,
  * ან ჩასვი JWT `ADMIN_PANEL_JWT_FALLBACK`-ში / `NEXT_PUBLIC_ADMIN_JWT`-ში.
  *
@@ -12,8 +13,7 @@
 export const ADMIN_PANEL_JWT_FALLBACK = "";
 
 export const ADMIN_PANEL_LOGIN = {
-  phoneNumber:
-    process.env.NEXT_PUBLIC_ADMIN_LOGIN_PHONE?.trim() || "+995555000000",
+  phoneNumber: process.env.NEXT_PUBLIC_ADMIN_LOGIN_PHONE?.trim() || "user",
   password:
-    process.env.NEXT_PUBLIC_ADMIN_LOGIN_PASSWORD?.trim() || "ChangeMe_Admin1!",
+    process.env.NEXT_PUBLIC_ADMIN_LOGIN_PASSWORD?.trim() || "123456",
 };

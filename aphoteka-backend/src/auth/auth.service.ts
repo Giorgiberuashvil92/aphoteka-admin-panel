@@ -23,6 +23,10 @@ import { BalanceExchangeService } from '../balance/balance-exchange.service';
 import { SenderGeService } from '../sms/sender-ge.service';
 import { SendVerificationOtpDto } from './dto/send-verification-otp.dto';
 import { VerifyVerificationOtpDto } from './dto/verify-verification-otp.dto';
+import {
+  VerificationOtp,
+  VerificationOtpDocument,
+} from './schemas/verification-otp.schema';
 
 /** საქართველოს მობილური → E.164 (+9955XXXXXXXX) ან null */
 function normalizeGePhoneToE164(raw: string): string | null {
@@ -75,14 +79,10 @@ export class AuthService {
   // In-memory storage for reset codes (in production, use Redis or database)
   private resetCodes = new Map<string, { code: string; expiresAt: Date }>();
 
-  /** რეგისტრაციის 4-ციფრიანი OTP — გასაღები: ელფოსტა (SMS Sender.ge-ზე იგზავნება) */
-  private verificationOtps = new Map<
-    string,
-    { code: string; expiresAt: number; purpose: string }
-  >();
-
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(VerificationOtp.name)
+    private verificationOtpModel: Model<VerificationOtpDocument>,
     private jwtService: JwtService,
     private buyersService: BuyersService,
     private balanceExchange: BalanceExchangeService,
@@ -426,21 +426,31 @@ export class AuthService {
     }
 
     const code = Math.floor(1000 + Math.random() * 9000).toString();
-    const expiresAt = Date.now() + 10 * 60 * 1000;
-    this.verificationOtps.set(emailKey, {
-      code,
-      expiresAt,
-      purpose: dto.purpose,
-    });
-
-    const text = `Aphoteka/Kutuku: ვერიფიკაციის კოდი: ${code}. ვადა 10 წუთი.`;
+    const text = `Aphoteka: ვერიფიკაციის კოდი: ${code}. ვადა 10 წუთი.`;
     const result = await this.senderGe.sendSms(dest9, text, 2, 0);
 
     if (!result.ok) {
-      this.verificationOtps.delete(emailKey);
       throw new BadRequestException(
         `SMS ვერ გაიგზავნა (Sender.ge). ${result.raw.slice(0, 120)}`,
       );
+    }
+
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    await this.verificationOtpModel.findOneAndUpdate(
+      { email: emailKey },
+      {
+        $set: {
+          email: emailKey,
+          code,
+          purpose: dto.purpose,
+          expiresAt,
+        },
+      },
+      { upsert: true, new: true, runValidators: true },
+    );
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[OTP][${dto.purpose}] ${emailKey} → ${code}`);
     }
 
     return { sent: true, channel: 'sms' as const };
@@ -448,14 +458,16 @@ export class AuthService {
 
   async verifyVerificationOtp(dto: VerifyVerificationOtpDto) {
     const emailKey = dto.email.trim().toLowerCase();
-    const stored = this.verificationOtps.get(emailKey);
+    const stored = await this.verificationOtpModel
+      .findOne({ email: emailKey })
+      .exec();
     if (!stored) {
       throw new BadRequestException(
         'კოდი არ მოიძებნა ან ვადაგასულია. თავიდან მოითხოვეთ.',
       );
     }
-    if (Date.now() > stored.expiresAt) {
-      this.verificationOtps.delete(emailKey);
+    if (new Date() > stored.expiresAt) {
+      await this.verificationOtpModel.deleteOne({ email: emailKey }).exec();
       throw new BadRequestException(
         'კოდის ვადა გავიდა. თავიდან მოითხოვეთ ახალი კოდი.',
       );
@@ -464,7 +476,7 @@ export class AuthService {
       throw new BadRequestException('კოდი არასწორია.');
     }
     const purpose = stored.purpose;
-    this.verificationOtps.delete(emailKey);
+    await this.verificationOtpModel.deleteOne({ email: emailKey }).exec();
 
     if (purpose === 'forgot') {
       const user = await this.userModel.findOne({ email: emailKey }).exec();
@@ -546,7 +558,7 @@ export class AuthService {
       expiresAt,
     });
 
-    const text = `Aphoteka/Kutuku: პაროლის აღდგენის კოდი: ${resetCode}. ვადა 15 წუთი.`;
+    const text = `Norix: პაროლის აღდგენის კოდი: ${resetCode}. ვადა 15 წუთი.`;
     const result = await this.senderGe.sendSms(dest9, text, 2, 0);
 
     if (!result.ok) {

@@ -86,7 +86,7 @@ export default function AdminLoginForm() {
           ადმინ პანელი — შესვლა
         </h1>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          მიუთითე ტელეფონი და პაროლი (იგივე რაც Nest / Mongo ადმინისთვის).
+          მიუთითე მომხმარებელი და პაროლი (იგივე რაც Nest / Mongo ადმინისთვის).
         </p>
       </div>
 
@@ -98,14 +98,14 @@ export default function AdminLoginForm() {
         ) : null}
 
         <div>
-          <Label>ტელეფონი</Label>
+          <Label>მომხმარებელი</Label>
           <Input
-            type="tel"
+            type="text"
             name="phoneNumber"
-            autoComplete="tel"
+            autoComplete="username"
             value={phoneNumber}
             onChange={(e) => setPhoneNumber(e.target.value)}
-            placeholder="+995555000000"
+            placeholder="user"
             required
           />
         </div>

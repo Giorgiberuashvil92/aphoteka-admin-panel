@@ -250,14 +250,20 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
         phone: phoneTrim,
       });
 
+      const goVerify = () => onRegister(emailNorm, phoneTrim);
+
       if (!otpResult.success) {
-        Alert.alert('შეცდომა', otpResult.error || 'ვერიფიკაციის კოდის გაგზავნა ვერ მოხერხდა');
+        Alert.alert(
+          'SMS ვერ გაიგზავნა',
+          `${otpResult.error || 'ვერიფიკაციის კოდის გაგზავნა ვერ მოხერხდა'}\n\nვერიფიკაციის გვერდზე დააჭირეთ «Resend» ახალი კოდის მოსათხოვნად.`,
+          [{ text: 'გაგრძელება', onPress: goVerify }],
+        );
         return;
       }
 
       const smsHint = `ვერიფიკაციის კოდი გამოგიგზავნეთ SMS-ით ნომერზე ${phoneTrim}.`;
       Alert.alert('წარმატება', `ანგარიში შექმნილია!\n\n${smsHint}`, [
-        { text: 'კარგი', onPress: () => onRegister(emailNorm, phoneTrim) },
+        { text: 'კარგი', onPress: goVerify },
       ]);
     } catch (error: unknown) {
       Alert.alert('შეცდომა', (error as Error)?.message || 'რაღაც არასწორი მოხდა');

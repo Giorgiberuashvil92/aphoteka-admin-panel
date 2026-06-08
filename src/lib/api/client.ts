@@ -394,7 +394,10 @@ export async function apiRequest<T>(
     const response = await fetch(url, config);
 
     if (!response.ok) {
-      if (response.status === 401 && typeof window !== 'undefined') {
+      if (
+        (response.status === 401 || response.status === 403) &&
+        typeof window !== 'undefined'
+      ) {
         if (!_authRetry) {
           await bootstrapAdminAuth();
           ensureAuthTokenFromEnv();
@@ -402,7 +405,6 @@ export async function apiRequest<T>(
             return apiRequest<T>(endpoint, { ...options, _authRetry: true });
           }
         }
-        /** სესია აღარ მოქმედებს — გამოგდება შესვლაზე */
         clearAuthToken();
         const path =
           `${window.location.pathname || '/'}${window.location.search || ''}`;
@@ -416,7 +418,6 @@ export async function apiRequest<T>(
       throw new ApiError(response.status, response.statusText, errorData);
     }
 
-    // Handle empty responses
     const contentType = response.headers.get('content-type');
     if (contentType && contentType.includes('application/json')) {
       return await response.json();
@@ -431,7 +432,6 @@ export async function apiRequest<T>(
   }
 }
 
-// Helper methods
 export const api = {
   get: <T>(endpoint: string, options?: RequestInit) =>
     apiRequest<T>(endpoint, { ...options, method: 'GET' }),
@@ -460,10 +460,7 @@ export const api = {
   delete: <T>(endpoint: string, options?: RequestInit) =>
     apiRequest<T>(endpoint, { ...options, method: 'DELETE' }),
 
-  /**
-   * იმავე Next აპის Route Handlers (`/api/balance/...` და სხვა).
-   * Nest-ისთვის იყენებე `api.get` / `api.post` (`getApiBaseUrl`).
-   */
+
   fetch: (path: string, init?: RequestInit) => nextAppFetch(path, init),
 
   fetchJson: <T = unknown>(path: string, init?: RequestInit) =>

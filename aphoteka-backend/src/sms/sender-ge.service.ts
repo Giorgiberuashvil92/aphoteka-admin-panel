@@ -39,8 +39,49 @@ export class SenderGeService {
   }
 
   /**
-   * @param smsno 1 — რეკლამა, 2 — საინფორმაციო (OTP-სთვის უკეთესია 2)
+   * Sender.ge send პასუხები:
+   * - ტექსტი `1`
+   * - `{ messageId, status: 1 }`
+   * - `{ data: [{ messageId, statusId: 1, qnt }] }` — ფაქტობრივი API ფორმატი
    */
+  private parseSendResponse(raw: string): { ok: boolean; messageId?: string } {
+    if (raw === '1' || /^1(\s|$|,|;)/.test(raw)) {
+      return { ok: true };
+    }
+
+    try {
+      const j = JSON.parse(raw) as Record<string, unknown>;
+
+      const topMessageId =
+        typeof j.messageId === 'string' ? j.messageId : undefined;
+      const topStatus = j.status ?? j.statusId;
+      if (topStatus === 1 || topStatus === '1') {
+        return { ok: true, messageId: topMessageId };
+      }
+
+      const data = j.data;
+      if (Array.isArray(data) && data.length > 0) {
+        const row = data[0] as Record<string, unknown>;
+        const messageId =
+          typeof row.messageId === 'string' ? row.messageId : topMessageId;
+        const statusId = row.statusId ?? row.status;
+        if (statusId === 1 || statusId === '1') {
+          return { ok: true, messageId };
+        }
+      }
+    } catch {
+      /* არა-JSON */
+    }
+
+    const ok =
+      /"statusId"\s*:\s*1/.test(raw) ||
+      /"status"\s*:\s*1/.test(raw) ||
+      /success/i.test(raw);
+
+    return { ok };
+  }
+
+  /** @param smsno 1 — რეკლამა, 2 — საინფორმაციო (OTP-სთვის უკეთესია 2) */
   async sendSms(
     destination9: string,
     content: string,
@@ -71,27 +112,12 @@ export class SenderGeService {
       return { ok: false, raw: trimmed };
     }
 
-    let messageId: string | undefined;
-    try {
-      const j = JSON.parse(trimmed) as { messageId?: string; status?: number };
-      if (typeof j.messageId === 'string') messageId = j.messageId;
-      if (j.status === 1) {
-        return { ok: true, raw: trimmed, messageId };
-      }
-    } catch {
-      /* არა-JSON */
+    const parsed = this.parseSendResponse(trimmed);
+    if (parsed.ok) {
+      return { ok: true, raw: trimmed, messageId: parsed.messageId };
     }
 
-    const ok =
-      trimmed === '1' ||
-      /^1(\s|$|,|;)/.test(trimmed) ||
-      /"status"\s*:\s*1/.test(trimmed) ||
-      /success/i.test(trimmed);
-
-    if (!ok) {
-      this.logger.warn(`Sender.ge უცნობი პასუხი: ${trimmed.slice(0, 200)}`);
-    }
-
-    return { ok, raw: trimmed, messageId };
+    this.logger.warn(`Sender.ge უცნობი პასუხი: ${trimmed.slice(0, 200)}`);
+    return { ok: false, raw: trimmed, messageId: parsed.messageId };
   }
 }

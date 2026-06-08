@@ -8,13 +8,20 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { RolesGuard } from './guards/roles.guard';
 import { User, UserSchema } from '../users/schemas/user.schema';
+import {
+  VerificationOtp,
+  VerificationOtpSchema,
+} from './schemas/verification-otp.schema';
 import { BuyersModule } from '../buyers/buyers.module';
 import { BalanceModule } from '../balance/balance.module';
 import { SmsModule } from '../sms/sms.module';
 
 @Module({
   imports: [
-    MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
+    MongooseModule.forFeature([
+      { name: User.name, schema: UserSchema },
+      { name: VerificationOtp.name, schema: VerificationOtpSchema },
+    ]),
     BuyersModule,
     BalanceModule,
     SmsModule,

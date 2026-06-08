@@ -1,14 +1,12 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const NEST_PROXY_TARGET =
-  process.env.NEST_API_DIRECT_URL?.trim() ||
-  process.env.RAILWAY_NEST_API_URL?.trim() ||
-  "https://aphoteka-admin-panel-production.up.railway.app/api";
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
   /**
-   * ბრაუზერი → `/api/nest/*` (იგივე Vercel origin, CORS არაა) → Railway Nest `/api/*`.
-   * `getApiBaseUrl()` ბრაუზერზე აბრუნებს `origin/api/nest`.
+   * Nest პროქსი — `src/app/api/nest/[...path]/route.ts` (არა rewrite; rewrite ხშირად არასწორ პორტზე მიდიოდა).
    */
   async rewrites() {
     /** ძველი path-ები → canonical `/api/balance/ItemSeries`. */
@@ -35,17 +33,7 @@ const nextConfig: NextConfig = {
       },
     ];
 
-    if (!process.env.VERCEL) {
-      return balanceItemSeriesLegacy;
-    }
-    const base = NEST_PROXY_TARGET.replace(/\/$/, "");
-    return [
-      {
-        source: "/api/nest/:path*",
-        destination: `${base}/:path*`,
-      },
-      ...balanceItemSeriesLegacy,
-    ];
+    return balanceItemSeriesLegacy;
   },
 
   webpack(config) {
@@ -56,6 +44,7 @@ const nextConfig: NextConfig = {
     return config;
   },
   turbopack: {
+    root: projectRoot,
     rules: {
       '*.svg': {
         loaders: ['@svgr/webpack'],

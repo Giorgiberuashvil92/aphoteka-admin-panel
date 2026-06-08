@@ -65,7 +65,11 @@ export function VerificationScreen({
     const result = await EmailService.verifyOTP(email, verificationCode);
 
     if (!result.success) {
-      Alert.alert('ვერიფიკაცია ვერ მოხერხდა', result.error || 'კოდი არასწორია');
+      const hint =
+        result.error?.includes('არ მოიძებნა') || result.error?.includes('ვადა')
+          ? '\n\nდააჭირეთ «Resend» ახალი კოდის მოსათხოვნად.'
+          : '';
+      Alert.alert('ვერიფიკაცია ვერ მოხერხდა', `${result.error || 'კოდი არასწორია'}${hint}`);
       setCode(['', '', '', '']);
       inputRefs[0].current?.focus();
       setLoading(false);

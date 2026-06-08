@@ -103,6 +103,81 @@ class UserServiceClass {
     return AsyncStorage.setItem(TOKEN_KEY, token);
   }
 
+  /** ტოკენი + კეშირებული პროფილი — სრული გასუფთავება */
+  async clearSession(): Promise<void> {
+    try {
+      await AsyncStorage.multiRemove([TOKEN_KEY, this.CURRENT_USER_KEY]);
+    } catch (error) {
+      console.error('Error clearing session:', error);
+    }
+  }
+
+  private mapMeResponseToUser(data: Record<string, unknown>): User {
+    const parts = String(data.fullName ?? '')
+      .trim()
+      .split(/\s+/);
+    const uid =
+      (typeof data.id === 'string' && data.id) ||
+      (typeof data._id === 'string' && data._id) ||
+      '';
+    const meBal =
+      typeof data.balanceBuyerUid === 'string' && data.balanceBuyerUid.trim()
+        ? data.balanceBuyerUid.trim()
+        : undefined;
+    return {
+      id: uid,
+      firstName:
+        (typeof data.firstName === 'string' && data.firstName) ||
+        parts[0] ||
+        String(data.fullName ?? '') ||
+        '',
+      lastName:
+        (typeof data.lastName === 'string' && data.lastName) ||
+        parts.slice(1).join(' ') ||
+        '',
+      email: typeof data.email === 'string' ? data.email : '',
+      ...(typeof data.buyerId === 'string' && data.buyerId ? { buyerId: data.buyerId } : {}),
+      ...(meBal ? { balanceBuyerUid: meBal } : {}),
+    };
+  }
+
+  /**
+   * JWT-ის შემოწმება GET /auth/me-ით.
+   * 401/403 → სესია იშლება. ქსელის შეცდომაზე — ბოლო კეში (ოფლაინი).
+   */
+  async validateSession(): Promise<User | null> {
+    if (!USE_API) return this.getCurrentUser();
+
+    const token = await this.getAccessToken();
+    if (!token?.trim()) {
+      await this.clearSession();
+      return null;
+    }
+
+    try {
+      const res = await fetch(API_CONFIG.BASE_URL + API_CONFIG.endpoints.auth.me, {
+        headers: getAuthHeaders(token.trim()),
+      });
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          await this.clearSession();
+        }
+        return null;
+      }
+      const data = (await res.json()) as Record<string, unknown>;
+      const user = this.mapMeResponseToUser(data);
+      if (!user.id) {
+        await this.clearSession();
+        return null;
+      }
+      await this.setCurrentUser(user);
+      return user;
+    } catch (error) {
+      console.error('Error validating session:', error);
+      return this.getCurrentUser();
+    }
+  }
+
   async getUsers(): Promise<User[]> {
     try {
       const usersJson = await AsyncStorage.getItem(this.USERS_KEY);
@@ -349,58 +424,13 @@ class UserServiceClass {
 
   /** ბაზიდან პროფილის ჩატვირთვა (GET /auth/me) */
   async fetchProfile(): Promise<User | null> {
-    if (!USE_API) return this.getCurrentUser();
-    try {
-      const token = await this.getAccessToken();
-      if (!token) return this.getCurrentUser();
-      const res = await fetch(API_CONFIG.BASE_URL + API_CONFIG.endpoints.auth.me, {
-        headers: getAuthHeaders(token),
-      });
-      if (!res.ok) return this.getCurrentUser();
-      const data = (await res.json()) as Record<string, unknown>;
-      const parts = String(data.fullName ?? '')
-        .trim()
-        .split(/\s+/);
-      const uid =
-        (typeof data.id === 'string' && data.id) ||
-        (typeof data._id === 'string' && data._id) ||
-        '';
-      const meBal =
-        typeof data.balanceBuyerUid === 'string' && data.balanceBuyerUid.trim()
-          ? data.balanceBuyerUid.trim()
-          : undefined;
-      const user: User = {
-        id: uid,
-        firstName:
-          (typeof data.firstName === 'string' && data.firstName) ||
-          parts[0] ||
-          String(data.fullName ?? '') ||
-          '',
-        lastName:
-          (typeof data.lastName === 'string' && data.lastName) ||
-          parts.slice(1).join(' ') ||
-          '',
-        email: typeof data.email === 'string' ? data.email : '',
-        ...(typeof data.buyerId === 'string' && data.buyerId ? { buyerId: data.buyerId } : {}),
-        ...(meBal ? { balanceBuyerUid: meBal } : {}),
-      };
-      await this.setCurrentUser(user);
-      return user;
-    } catch (error) {
-      console.error('Error fetching profile:', error);
-      return this.getCurrentUser();
-    }
+    return this.validateSession();
   }
 
   // Logout user
   async logout(): Promise<void> {
-    try {
-      await AsyncStorage.removeItem(this.CURRENT_USER_KEY);
-      if (USE_API) await AsyncStorage.removeItem(TOKEN_KEY);
-      console.log('User logged out');
-    } catch (error) {
-      console.error('Error logging out:', error);
-    }
+    await this.clearSession();
+    console.log('User logged out');
   }
 
   // Update user profile
@@ -507,7 +537,7 @@ class UserServiceClass {
   async clearAllUsers(): Promise<void> {
     try {
       await AsyncStorage.removeItem(this.USERS_KEY);
-      await AsyncStorage.removeItem(this.CURRENT_USER_KEY);
+      await this.clearSession();
       console.log('All users cleared');
     } catch (error) {
       console.error('Error clearing users:', error);

@@ -1,6 +1,6 @@
-import { Redirect } from 'expo-router';
+import { AuthBootstrap } from '@/src/components/auth/AuthBootstrap';
 
-/** სტარტი: პირდაპირ მთავარი — ავტორიზაცია მხოლოდ პროფილზე/დაცულ ექშენზე (`RequireAuth`). */
+/** სტარტი: ვალიდური სესია → home, სხვა შემთხვევაში → login. */
 export default function Index() {
-  return <Redirect href="/home" />;
+  return <AuthBootstrap />;
 }

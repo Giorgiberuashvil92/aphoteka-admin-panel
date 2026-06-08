@@ -33,7 +33,9 @@ export async function verifyPanelBackendSession(
       method: "GET",
       headers: { Authorization: `Bearer ${t}` },
     });
-    if (res.status === 401 || res.status === 403) return { status: "unauthorized" };
+    if (res.status === 401 || res.status === 403 || res.status === 404) {
+      return { status: "unauthorized" };
+    }
     if (!res.ok) return { status: "failed" };
 
     const data = (await res.json()) as {

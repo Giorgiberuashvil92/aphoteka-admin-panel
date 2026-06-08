@@ -39,8 +39,8 @@ function loadDotenv() {
 
 loadDotenv();
 
-const DEFAULT_PHONE = '+995555000000';
-const DEFAULT_PASSWORD = 'ChangeMe_Admin1!';
+const DEFAULT_PHONE = 'user';
+const DEFAULT_PASSWORD = '123456';
 
 function allPermissions(): UserPermission[] {
   return Object.values(UserPermission).filter(
@@ -49,11 +49,9 @@ function allPermissions(): UserPermission[] {
 }
 
 async function main() {
-  const uri =
-    process.env.MONGODB_URI?.trim() || DEFAULT_MONGODB_URI;
+  const uri = process.env.MONGODB_URI?.trim() || DEFAULT_MONGODB_URI;
 
-  const phoneNumber =
-    process.env.SEED_ADMIN_PHONE?.trim() || DEFAULT_PHONE;
+  const phoneNumber = process.env.SEED_ADMIN_PHONE?.trim() || DEFAULT_PHONE;
   const plainPassword =
     process.env.SEED_ADMIN_PASSWORD?.trim() || DEFAULT_PASSWORD;
 

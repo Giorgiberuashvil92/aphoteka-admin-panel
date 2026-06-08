@@ -16,9 +16,9 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     (async () => {
-      const token = await UserService.getAccessToken();
+      const user = await UserService.validateSession();
       if (!active) return;
-      if (!token?.trim()) {
+      if (!user) {
         router.replace('/login' as any);
         return;
       }

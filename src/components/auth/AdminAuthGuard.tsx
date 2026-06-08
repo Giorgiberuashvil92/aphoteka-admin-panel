@@ -11,20 +11,22 @@ import { UserRole } from "@/types";
 import { usePathname, useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 
-type GuardState = "loading" | "ready" | "redirect" | "error";
+type GuardState = "loading" | "ready" | "redirect";
 
-/**
- * ადმინ layout-ისთვის: JWT + `GET /auth/me` — `admin` ან `warehouse_staff`.
- * საწყობის თანამშრომელი მხოლოდ თავისი საწყობის გვერდებსა და `/orders/:id` დეტალზე.
- */
 export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [state, setState] = useState<GuardState>("loading");
-  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+
+    const goLogin = () => {
+      clearAuthToken();
+      setState("redirect");
+      const from = encodeURIComponent(pathname || "/");
+      router.replace(`/login?from=${from}`);
+    };
 
     (async () => {
       ensureAuthTokenFromEnv();
@@ -33,25 +35,15 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
 
       const token = getAuthToken();
       if (!token) {
-        setState("redirect");
-        const from = encodeURIComponent(pathname || "/");
-        router.replace(`/login?from=${from}`);
+        goLogin();
         return;
       }
 
       const check = await verifyPanelBackendSession(token);
       if (cancelled) return;
 
-      if (check.status === "unauthorized") {
-        clearAuthToken();
-        setState("redirect");
-        const from = encodeURIComponent(pathname || "/");
-        router.replace(`/login?from=${from}`);
-        return;
-      }
-
-      if (check.status === "failed") {
-        setState("error");
+      if (check.status === "unauthorized" || check.status === "failed") {
+        goLogin();
         return;
       }
 
@@ -80,13 +72,15 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [router, pathname, retryKey]);
+  }, [router, pathname]);
 
   if (state === "loading") {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-gray-50 dark:bg-gray-900">
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
-        <p className="text-sm text-gray-600 dark:text-gray-400">ავტორიზაციის შემოწმება…</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          ავტორიზაციის შემოწმება…
+        </p>
       </div>
     );
   }
@@ -94,27 +88,9 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
   if (state === "redirect") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <p className="text-sm text-gray-600 dark:text-gray-400">გადამისამართება შესვლაზე…</p>
-      </div>
-    );
-  }
-
-  if (state === "error") {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-gray-50 px-4 dark:bg-gray-900">
-        <p className="text-center text-sm text-gray-600 dark:text-gray-400">
-          სერვერთან დაკავშირება ვერ მოხერხდა. შეამოწმეთ ქსელი ან სცადეთ თავიდან.
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          გადამისამართება შესვლაზე…
         </p>
-        <button
-          type="button"
-          className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600"
-          onClick={() => {
-            setState("loading");
-            setRetryKey((k) => k + 1);
-          }}
-        >
-          თავიდან
-        </button>
       </div>
     );
   }
