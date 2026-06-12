@@ -16,6 +16,7 @@ import { OrdersModule } from './orders/orders.module';
 import { PromotionsModule } from './promotions/promotions.module';
 import { CategoriesModule } from './categories/categories.module';
 import { PrescriptionsModule } from './prescriptions/prescriptions.module';
+import { SmsModule } from './sms/sms.module';
 
 /**
  * BOG / OPAY (საქართველოს ბანკი) — OAuth: client_id + client_secret
@@ -76,6 +77,7 @@ function balanceEnvFilePaths(): string[] {
     PromotionsModule,
     CategoriesModule,
     PrescriptionsModule,
+    SmsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

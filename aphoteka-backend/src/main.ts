@@ -101,6 +101,14 @@ async function bootstrap() {
   const port = Number(process.env.PORT) || 3000;
   await app.listen(port, '0.0.0.0');
   console.log(`🚀 Application is running on: http://0.0.0.0:${port}/api`);
+  const smsKey = process.env.SENDER_GE_API_KEY?.trim();
+  if (smsKey) {
+    console.log('📱 Sender.ge SMS: configured');
+  } else {
+    console.warn(
+      '⚠️  Sender.ge SMS: SENDER_GE_API_KEY არ არის — OTP/TestFlight/პროდზე SMS არ იმუშავებს. Railway Variables → დაამატე იგივე key რაც ლოკალურ .env-ში.',
+    );
+  }
   if (process.env.CORS_ORIGIN?.trim()) {
     console.log(`🌐 CORS whitelist: ${process.env.CORS_ORIGIN}`);
   } else {

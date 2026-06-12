@@ -177,6 +177,13 @@ export default function MobileAppPage() {
             <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">eas.json</code>
           </li>
           <li>
+            SMS (Sender.ge) — ლოკალური Nest იყენებს <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">aphoteka-backend/.env</code> →{" "}
+            <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">SENDER_GE_API_KEY</code>.
+            TestFlight/პროდი იგივე Railway API-ს უკავშირდება — key აუცილებელია Railway → Service → Variables-შიც.
+            შემოწმება: <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">GET /api/health</code> →{" "}
+            <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">smsConfigured: true</code>
+          </li>
+          <li>
             Build: <code className="rounded bg-white/60 px-1.5 py-0.5 text-xs dark:bg-black/30">cd Kutuku-MobileApp && npx eas-cli build --platform all</code>
           </li>
         </ul>
