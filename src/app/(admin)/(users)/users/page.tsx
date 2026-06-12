@@ -3,9 +3,9 @@
 import React, { useState, useEffect } from "react";
 import { User, UserRole } from "@/types";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
-import { PlusIcon, PencilIcon, EyeIcon, TrashBinIcon } from "@/icons";
+import { PlusIcon, PencilIcon, EyeIcon, TrashBinIcon, LockIcon, CheckLineIcon } from "@/icons";
 import Link from "next/link";
-import { usersApi } from "@/lib/api";
+import { authApi, usersApi } from "@/lib/api";
 import CreateUserModal from "@/components/users/CreateUserModal";
 
 const roleLabels: Record<UserRole, string> = {
@@ -29,9 +29,18 @@ export default function UsersPage() {
   const [filterRole, setFilterRole] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   useEffect(() => {
     loadUsers();
+    authApi
+      .getCurrentUser()
+      .then((user) => {
+        const id = user.id || (user as { _id?: string })._id;
+        if (id) setCurrentUserId(String(id));
+      })
+      .catch(() => {});
   }, []);
 
   const loadUsers = async () => {
@@ -43,6 +52,7 @@ export default function UsersPage() {
       // Transform dates from strings to Date objects
       const transformedUsers = usersArray.map((user: any) => ({
         ...user,
+        id: user.id || user._id?.toString?.() || user._id,
         createdAt: user.createdAt ? new Date(user.createdAt) : new Date(),
         updatedAt: user.updatedAt ? new Date(user.updatedAt) : new Date(),
       }));
@@ -67,9 +77,36 @@ export default function UsersPage() {
   const toggleUserStatus = async (id: string) => {
     try {
       await usersApi.toggleStatus(id);
-      await loadUsers(); // Reload users after status change
+      await loadUsers();
     } catch (error) {
       console.error("Error toggling user status:", error);
+      alert(error instanceof Error ? error.message : "სტატუსის შეცვლა ვერ მოხერხდა");
+    }
+  };
+
+  const handleDelete = async (user: User) => {
+    if (currentUserId && user.id === currentUserId) {
+      alert("საკუთარი ანგარიშის წაშლა არ შეიძლება");
+      return;
+    }
+
+    const label = user.fullName || user.email || user.phoneNumber;
+    if (
+      !confirm(
+        `დარწმუნებული ხართ, რომ გსურთ მომხმარებლის „${label}" წაშლა? ეს მოქმედება შეუქცევადია.`
+      )
+    ) {
+      return;
+    }
+
+    setDeletingId(user.id);
+    try {
+      await usersApi.delete(user.id);
+      setUsers((prev) => prev.filter((u) => u.id !== user.id));
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "მომხმარებლის წაშლა ვერ მოხერხდა");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -222,15 +259,25 @@ export default function UsersPage() {
                           <PencilIcon className="h-4 w-4" />
                         </Link>
                         <button
+                          type="button"
                           onClick={() => toggleUserStatus(user.id)}
                           className="rounded p-1 text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
                           title={user.status === "active" ? "დეაქტივაცია" : "აქტივაცია"}
                         >
                           {user.status === "active" ? (
-                            <TrashBinIcon className="h-4 w-4" />
+                            <LockIcon className="h-4 w-4" />
                           ) : (
-                            <EyeIcon className="h-4 w-4" />
+                            <CheckLineIcon className="h-4 w-4" />
                           )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(user)}
+                          disabled={deletingId === user.id}
+                          className="rounded p-1 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-gray-700 disabled:opacity-50"
+                          title="წაშლა"
+                        >
+                          <TrashBinIcon className="h-4 w-4" />
                         </button>
                       </div>
                     </td>

@@ -534,7 +534,6 @@ export function HomeMainScreen({ onSearch, onCategory, onProductPress, onNotific
               image: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800',
               title: 'ფარმაცევტის კონსულტაცია',
               description: 'პროფესიონალი დახმარება ყოველ დღე',
-              buttonText: 'კონსულტაცია',
             },
           ]}
         />
@@ -631,6 +630,7 @@ export function HomeMainScreen({ onSearch, onCategory, onProductPress, onNotific
                       onToggleWishlist={() => handleToggleFavorite(product, null)}
                       isInWishlist={favoriteIds.has(product.id)}
                       showQuickAdd={true}
+                      variant="grid"
                     />
                   </View>
                 );

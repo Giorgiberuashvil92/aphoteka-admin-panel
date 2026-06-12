@@ -2,7 +2,13 @@ import { LoginScreen } from '@/src/screens';
 import { UserService } from '@/src/services/user.service';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { theme } from '@/src/theme';
 
 export default function LoginPage() {
@@ -67,6 +73,7 @@ export default function LoginPage() {
         onLogin={() => router.replace('/home' as any)}
         onRegisterPress={() => router.push('/register' as any)}
         onForgotPassword={() => router.push('/forgot-password' as any)}
+        onGuestPress={() => router.replace('/home' as any)}
       />
     </>
   );
@@ -80,17 +87,17 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.white,
   },
   sessionBanner: {
-    backgroundColor: theme.colors.background.purple.light,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border.light,
+    backgroundColor: theme.colors.white,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.colors.gray[600],
     paddingHorizontal: 20,
-    paddingVertical: 12,
-    gap: 8,
+    paddingVertical: 10,
+    gap: 6,
   },
   sessionText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: theme.colors.gray[1100],
+    fontSize: 13,
+    fontWeight: '500',
+    color: theme.colors.gray[1000],
   },
   sessionActions: {
     flexDirection: 'row',

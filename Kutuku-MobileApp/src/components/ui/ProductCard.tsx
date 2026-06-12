@@ -3,7 +3,15 @@ import { useCart, useFavorites } from '@/src/contexts';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { Image, ImageSourcePropType, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Image,
+  ImageSourcePropType,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 function coercePrice(value: number | string | undefined | null): number {
   if (value === undefined || value === null) return NaN;
@@ -12,7 +20,6 @@ function coercePrice(value: number | string | undefined | null): number {
   return Number.isFinite(n) ? n : NaN;
 }
 
-/** ლარი — ერთ სტრიქონად <Text>-ში (RN: ტექსტი არ უნდა „გაიპობინოს“ ბრეისებსა და ₾-ს შორის) */
 function formatLari(value: number | string | undefined | null): string {
   const n = coercePrice(value);
   return Number.isFinite(n) ? n.toFixed(2) : '0.00';
@@ -35,7 +42,9 @@ export interface ProductCardProps {
   reviewCount?: number;
   stock?: number;
   description?: string;
-  showQuickAdd?: boolean; // Show bottom sheet on add to cart
+  showQuickAdd?: boolean;
+  /** grid — ბარათი ჩარჩოთი (სია/გრიდი); inline — სლაიდერებისთვის */
+  variant?: 'grid' | 'inline';
 }
 
 export function ProductCard({
@@ -56,6 +65,7 @@ export function ProductCard({
   stock,
   description,
   showQuickAdd = true,
+  variant = 'grid',
 }: ProductCardProps) {
   const { addToCart } = useCart();
   const { addToFavorites, removeFromFavorites, isFavorite } = useFavorites();
@@ -67,15 +77,14 @@ export function ProductCard({
   const safeOriginalPrice = Number.isFinite(originalNum) ? originalNum : undefined;
   const imageSource = typeof image === 'string' ? { uri: image } : image;
   const isInFavorites = isFavorite(id);
+  const isGrid = variant === 'grid';
 
   const handleAddToCart = () => {
     if (showQuickAdd) {
-      // Show bottom sheet for quick add
       setShowBottomSheet(true);
     } else if (onAddToCart) {
       onAddToCart();
     } else {
-      // Default add to cart behavior
       addToCart({
         id,
         name,
@@ -87,91 +96,77 @@ export function ProductCard({
     }
   };
 
+  const handleFavorite = () => {
+    if (isInFavorites) {
+      removeFromFavorites(id);
+    } else {
+      addToFavorites({
+        id,
+        name,
+        price: safePrice,
+        originalPrice: safeOriginalPrice,
+        discount,
+        image: typeof image === 'string' ? image : '',
+        rating,
+        reviewCount,
+        stock,
+      });
+    }
+    onToggleWishlist?.();
+  };
+
   return (
-    <TouchableOpacity 
-      style={styles.container} 
+    <TouchableOpacity
+      style={[styles.container, isGrid && styles.containerGrid]}
       onPress={onPress}
-      activeOpacity={0.7}
+      activeOpacity={0.85}
     >
-      {/* Product Image Container */}
       <View style={styles.imageContainer}>
-        {/* Discount Badge */}
-        {hasDiscount && (
+        {hasDiscount ? (
           <View style={styles.discountBadge}>
             <Text style={styles.discountText}>-{discount}%</Text>
-            <Ionicons 
-              name="information-circle-outline" 
-              size={14} 
-              color={theme.colors.white} 
-            />
           </View>
-        )}
+        ) : null}
 
-        {/* Favorite Button on Image */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.favoriteOverlay}
-          onPress={() => {
-            if (isInFavorites) {
-              removeFromFavorites(id);
-            } else {
-              addToFavorites({
-                id,
-                name,
-                price: safePrice,
-                originalPrice: safeOriginalPrice,
-                discount,
-                image: typeof image === 'string' ? image : '',
-                rating,
-                reviewCount,
-                stock,
-              });
-            }
-            onToggleWishlist?.();
-          }}
-          activeOpacity={0.7}
+          onPress={handleFavorite}
+          activeOpacity={0.75}
+          hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
         >
           <View style={styles.favoriteIconContainer}>
-            <Ionicons 
-              name={isInFavorites ? "heart" : "heart-outline"}
-              size={20}
-              color={isInFavorites ? theme.colors.error : theme.colors.text.primary}
+            <Ionicons
+              name={isInFavorites ? 'heart' : 'heart-outline'}
+              size={18}
+              color={isInFavorites ? theme.colors.error : theme.colors.gray[1100]}
             />
           </View>
         </TouchableOpacity>
 
-        {/* Product Image */}
         <Image
           source={imageSource}
           style={[
             styles.productImage,
-            { backgroundColor: imageBackgroundColor || theme.colors.white }
+            { backgroundColor: imageBackgroundColor || '#F3F5FA' },
           ]}
           resizeMode="cover"
         />
       </View>
 
-      {/* Content */}
       <View style={styles.content}>
-        {/* Price Section */}
         <View style={styles.priceSection}>
-          <View style={styles.currentPriceContainer}>
-            <Text style={styles.currentPriceText} numberOfLines={1}>
-              {`${formatLari(currentPrice)}₾`}
-            </Text>
-          </View>
-
+          <Text style={styles.currentPriceText} numberOfLines={1}>
+            {`${formatLari(currentPrice)}₾`}
+          </Text>
           {Number.isFinite(originalNum) &&
-            Number.isFinite(priceNum) &&
-            originalNum > priceNum && (
-            <View style={styles.originalPriceContainer}>
-              <Text style={styles.originalPriceText} numberOfLines={1}>
-                {`${formatLari(originalPrice)}₾`}
-              </Text>
-            </View>
-          )}
+          Number.isFinite(priceNum) &&
+          originalNum > priceNum ? (
+            <Text style={styles.originalPriceText} numberOfLines={1}>
+              {`${formatLari(originalPrice)}₾`}
+            </Text>
+          ) : null}
         </View>
 
-        {/* Product Name */}
         <Text style={styles.productName} numberOfLines={2}>
           {name}
         </Text>
@@ -182,20 +177,15 @@ export function ProductCard({
         ) : null}
       </View>
 
-      {/* Add to Cart Button */}
-      <TouchableOpacity 
+      <TouchableOpacity
         style={styles.addToCartButton}
         onPress={handleAddToCart}
-        activeOpacity={0.7}
+        activeOpacity={0.8}
       >
-        <Ionicons 
-          name="cart-outline" 
-          size={20} 
-          color={theme.colors.white} 
-        />
+        <Ionicons name="cart-outline" size={18} color={theme.colors.white} />
+        {isGrid ? <Text style={styles.addToCartText}>კალათაში</Text> : null}
       </TouchableOpacity>
 
-      {/* Bottom Sheet Modal */}
       <ProductBottomSheet
         visible={showBottomSheet}
         product={
@@ -223,7 +213,23 @@ export function ProductCard({
 const styles = StyleSheet.create({
   container: {
     width: '100%',
-    gap: 12,
+    gap: 10,
+  },
+  containerGrid: {
+    backgroundColor: theme.colors.white,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: theme.colors.gray[500],
+    padding: 10,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#1F2021',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 8,
+      },
+      android: { elevation: 1 },
+    }),
   },
   imageContainer: {
     position: 'relative',
@@ -231,28 +237,23 @@ const styles = StyleSheet.create({
   },
   discountBadge: {
     position: 'absolute',
-    top: 12,
-    left: 12,
+    top: 10,
+    left: 10,
     zIndex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: theme.colors.error,
-    backgroundColor: theme.colors.primaryDark,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: theme.colors.error,
   },
   discountText: {
-    fontSize: 13,
-    fontWeight: '400',
+    fontSize: 11,
+    fontWeight: '700',
     color: theme.colors.white,
   },
   productImage: {
     width: '100%',
     aspectRatio: 1,
-    borderRadius: 12,
+    borderRadius: 14,
     overflow: 'hidden',
   },
   favoriteOverlay: {
@@ -262,68 +263,62 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   favoriteIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: theme.colors.gray[500],
   },
   content: {
-    gap: 6,
-    minHeight: 73,
+    gap: 4,
+    minHeight: 64,
   },
   priceSection: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'baseline',
     gap: 8,
-  },
-  currentPriceContainer: {
-    flex: 1,
+    flexWrap: 'wrap',
   },
   currentPriceText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-  },
-  originalPriceContainer: {
-    flex: 1,
+    fontSize: 17,
+    fontWeight: '700',
+    color: theme.colors.gray[1200],
+    letterSpacing: -0.2,
   },
   originalPriceText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.gray[1000],
+    fontSize: 13,
+    fontWeight: '500',
+    color: theme.colors.gray[900],
     textDecorationLine: 'line-through',
   },
   productName: {
-    fontSize: 16,
-    fontWeight: '400',
-    color: theme.colors.text.primary,
-    lineHeight: 22,
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.colors.gray[1200],
+    lineHeight: 19,
   },
   genericName: {
     fontSize: 12,
-    fontWeight: '400',
-    color: theme.colors.text.secondary,
+    fontWeight: '500',
+    color: theme.colors.gray[1000],
     lineHeight: 16,
   },
   addToCartButton: {
     width: '100%',
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: theme.colors.primary,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: theme.colors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 2,
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: theme.colors.primary,
+  },
+  addToCartText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.colors.white,
   },
 });

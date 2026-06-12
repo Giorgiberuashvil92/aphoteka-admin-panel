@@ -65,6 +65,7 @@ export function ProductsSlider({
       <ProductCard
         {...item}
         onPress={() => onProductPress?.(item)}
+        variant="inline"
       />
     </View>
   );

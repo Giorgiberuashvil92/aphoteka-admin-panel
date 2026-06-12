@@ -12,6 +12,7 @@ export default function RegisterPage() {
         )
       }
       onLoginPress={() => router.push('/login' as any)}
+      onGuestPress={() => router.replace('/home' as any)}
     />
   );
 }

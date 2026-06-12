@@ -114,6 +114,7 @@ export function BrandsSlider({
                 <ProductCard
                   {...product}
                   onPress={() => onProductPress?.(product)}
+                  variant="inline"
                 />
               </View>
             ))}

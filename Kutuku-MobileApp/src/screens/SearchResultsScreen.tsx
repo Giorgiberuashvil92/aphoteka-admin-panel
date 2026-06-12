@@ -2,12 +2,23 @@ import { ProductCard } from '@/src/components/ui';
 import { ProductService } from '@/src/services/product.service';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Modal, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  Modal,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type SearchResultsScreenProps = {
   searchQuery: string;
-  /** კატეგორიის მიხედვით პროდუქტები (ადმინში შექმნილი კატეგორია) */
   initialCategory?: string;
   onBack: () => void;
   onProductPress: (productId: string) => void;
@@ -42,7 +53,34 @@ type DisplayMedicine = {
   barcode: string;
 };
 
-export function SearchResultsScreen({ searchQuery, initialCategory, onBack, onProductPress }: SearchResultsScreenProps) {
+const SORT_OPTIONS: SortOption[] = [
+  'ყველა',
+  'ფასი: ზრდადობით',
+  'ფასი: კლებადობით',
+  'რეიტინგი',
+  'სახელი',
+];
+
+const PRICE_RANGES = [
+  { label: '₾0–10', min: 0, max: 10 },
+  { label: '₾10–20', min: 10, max: 20 },
+  { label: '₾20–50', min: 20, max: 50 },
+  { label: '₾50+', min: 50, max: 1000 },
+];
+
+function pageTitle(searchQuery: string, initialCategory?: string): string {
+  if (initialCategory?.trim()) return initialCategory.trim();
+  if (searchQuery?.trim()) return searchQuery.trim();
+  return 'ყველა პროდუქტი';
+}
+
+export function SearchResultsScreen({
+  searchQuery,
+  initialCategory,
+  onBack,
+  onProductPress,
+}: SearchResultsScreenProps) {
+  const insets = useSafeAreaInsets();
   const [products, setProducts] = useState<DisplayMedicine[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<DisplayMedicine[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,8 +90,14 @@ export function SearchResultsScreen({ searchQuery, initialCategory, onBack, onPr
   const [selectedCategory, setSelectedCategory] = useState<string>(initialCategory || 'ყველა');
   const [minPrice, setMinPrice] = useState(0);
   const [maxPrice, setMaxPrice] = useState(50);
-  /** ფილტრის კატეგორიები API-დან */
   const [filterCategories, setFilterCategories] = useState<string[]>(['ყველა']);
+
+  const title = useMemo(() => pageTitle(searchQuery, initialCategory), [searchQuery, initialCategory]);
+  const subtitle = useMemo(() => {
+    if (initialCategory) return 'კატეგორიის პროდუქტები';
+    if (searchQuery?.trim()) return 'საძიებო შედეგები';
+    return 'აფთიაქის კატალოგი';
+  }, [initialCategory, searchQuery]);
 
   const mapApiToDisplay = (p: import('@/src/services/product.service').Product): DisplayMedicine => ({
     id: p.id,
@@ -116,17 +160,13 @@ export function SearchResultsScreen({ searchQuery, initialCategory, onBack, onPr
 
   const applyFilters = useCallback(() => {
     let result = [...products];
-    // ტექსტური სერჩი და კატეგორია უკვე API-დან მოდის (getProductsFiltered)
 
-    // Category filter (ფილტრის მოდალიდან)
     if (selectedCategory !== 'ყველა') {
       result = result.filter((product) => product.category === selectedCategory);
     }
 
-    // Price filter
     result = result.filter((product) => product.price >= minPrice && product.price <= maxPrice);
 
-    // Sorting
     switch (selectedSort) {
       case 'ფასი: ზრდადობით':
         result.sort((a, b) => a.price - b.price);
@@ -141,7 +181,6 @@ export function SearchResultsScreen({ searchQuery, initialCategory, onBack, onPr
         result.sort((a, b) => a.name.localeCompare(b.name, 'ka'));
         break;
       default:
-        // 'ყველა' - no sorting
         break;
     }
 
@@ -159,75 +198,102 @@ export function SearchResultsScreen({ searchQuery, initialCategory, onBack, onPr
 
   const handleResetFilters = () => {
     setSelectedSort('ყველა');
-    setSelectedCategory('ყველა');
+    setSelectedCategory(initialCategory || 'ყველა');
     setMinPrice(0);
     setMaxPrice(50);
   };
 
-  const sortOptions: SortOption[] = ['ყველა', 'ფასი: ზრდადობით', 'ფასი: კლებადობით', 'რეიტინგი', 'სახელი'];
+  const listHeader = (
+    <View style={styles.listHeader}>
+      <View style={styles.intro}>
+        <Text style={styles.title} numberOfLines={2}>
+          {title}
+        </Text>
+        <Text style={styles.subtitle}>{subtitle}</Text>
+      </View>
 
-  const priceRanges = [
-    { label: '₾0-₾10', min: 0, max: 10 },
-    { label: '₾10-₾20', min: 10, max: 20 },
-    { label: '₾20-₾50', min: 20, max: 50 },
-    { label: '₾50+', min: 50, max: 1000 },
-  ];
+      <View style={styles.toolbar}>
+        <View style={styles.countBadge}>
+          <Text style={styles.countBadgeText}>{filteredProducts.length}</Text>
+        </View>
+        <Text style={styles.resultsCount}>{filteredProducts.length} პროდუქტი</Text>
+        <TouchableOpacity
+          style={styles.filterBtn}
+          onPress={() => setShowFilterModal(true)}
+          activeOpacity={0.75}
+        >
+          <Ionicons name="options-outline" size={18} color={theme.colors.primary} />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.sortRow}
+      >
+        {SORT_OPTIONS.map((option) => {
+          const active = selectedSort === option;
+          return (
+            <TouchableOpacity
+              key={option}
+              style={[styles.sortChip, active && styles.sortChipActive]}
+              onPress={() => setSelectedSort(option)}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.sortChipText, active && styles.sortChipTextActive]}>
+                {option}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={theme.colors.white} />
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F8F9FC" />
+      <View style={styles.accentLine} pointerEvents="none" />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Ionicons name="chevron-back" size={24} color={theme.colors.text.primary} />
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={onBack} style={styles.backButton} activeOpacity={0.75}>
+          <Ionicons name="chevron-back" size={22} color={theme.colors.gray[1200]} />
         </TouchableOpacity>
-
-        <View style={styles.searchInfo}>
-          <Ionicons name="search-outline" size={20} color={theme.colors.text.secondary} />
-          <Text style={styles.searchQuery} numberOfLines={1}>
-            {searchQuery || 'ყველა პროდუქტი'}
+        <View style={styles.searchPill}>
+          <Ionicons name="search-outline" size={18} color={theme.colors.gray[900]} />
+          <Text style={styles.searchPillText} numberOfLines={1}>
+            {title}
           </Text>
         </View>
-
-        <TouchableOpacity onPress={() => setShowFilterModal(true)} style={styles.filterButton}>
-          <Ionicons name="options-outline" size={24} color={theme.colors.text.primary} />
-        </TouchableOpacity>
       </View>
 
-      {/* Results Count & Sort */}
-      <View style={styles.resultsBar}>
-        <Text style={styles.resultsCount}>
-          {filteredProducts.length} პროდუქტი
-        </Text>
-        <TouchableOpacity
-          style={styles.sortButton}
-          onPress={() => setShowFilterModal(true)}
-        >
-          <Ionicons name="swap-vertical" size={16} color={theme.colors.primary} />
-          <Text style={styles.sortText}>{selectedSort}</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Products Grid */}
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
       ) : filteredProducts.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="search-outline" size={64} color={theme.colors.gray[300]} />
-          <Text style={styles.emptyTitle}>პროდუქტი ვერ მოიძებნა</Text>
-          <Text style={styles.emptySubtitle}>
-            სცადეთ სხვა საძიებო სიტყვა ან შეცვალეთ ფილტრები
-          </Text>
+        <View style={styles.emptyWrap}>
+          {listHeader}
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIconWrap}>
+              <Ionicons name="search-outline" size={28} color={theme.colors.primary} />
+            </View>
+            <Text style={styles.emptyTitle}>პროდუქტი ვერ მოიძებნა</Text>
+            <Text style={styles.emptySubtitle}>
+              სცადე სხვა საძიებო სიტყვა ან შეცვალე ფილტრები
+            </Text>
+            <TouchableOpacity style={styles.emptyBtn} onPress={handleResetFilters}>
+              <Text style={styles.emptyBtnText}>ფილტრების გასუფთავება</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       ) : (
         <FlatList
           data={filteredProducts}
           keyExtractor={(item) => item.id}
           numColumns={2}
-          contentContainerStyle={styles.productsList}
+          ListHeaderComponent={listHeader}
+          contentContainerStyle={[styles.productsList, { paddingBottom: insets.bottom + 24 }]}
           columnWrapperStyle={styles.productsRow}
           showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
@@ -245,42 +311,41 @@ export function SearchResultsScreen({ searchQuery, initialCategory, onBack, onPr
                 stock={item.stockQuantity}
                 description={item.description}
                 onPress={() => onProductPress(item.id)}
-                showQuickAdd={true}
+                showQuickAdd
+                variant="grid"
               />
             </View>
           )}
         />
       )}
 
-      {/* Filter Modal */}
       <Modal
         visible={showFilterModal}
         animationType="slide"
-        transparent={true}
+        transparent
         onRequestClose={() => setShowFilterModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            {/* Modal Header */}
+          <View style={[styles.modalContent, { paddingBottom: insets.bottom + 20 }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>ფილტრები</Text>
-              <TouchableOpacity onPress={() => setShowFilterModal(false)}>
-                <Ionicons name="close" size={24} color={theme.colors.text.primary} />
+              <TouchableOpacity
+                onPress={() => setShowFilterModal(false)}
+                style={styles.modalClose}
+                hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+              >
+                <Ionicons name="close" size={22} color={theme.colors.gray[1200]} />
               </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Sort Section */}
               <View style={styles.filterSection}>
                 <Text style={styles.filterSectionTitle}>დალაგება</Text>
                 <View style={styles.optionsGrid}>
-                  {sortOptions.map((option) => (
+                  {SORT_OPTIONS.map((option) => (
                     <TouchableOpacity
                       key={option}
-                      style={[
-                        styles.optionChip,
-                        selectedSort === option && styles.optionChipActive,
-                      ]}
+                      style={[styles.optionChip, selectedSort === option && styles.optionChipActive]}
                       onPress={() => setSelectedSort(option)}
                     >
                       <Text
@@ -296,7 +361,6 @@ export function SearchResultsScreen({ searchQuery, initialCategory, onBack, onPr
                 </View>
               </View>
 
-              {/* Category Section */}
               <View style={styles.filterSection}>
                 <Text style={styles.filterSectionTitle}>კატეგორია</Text>
                 <View style={styles.optionsGrid}>
@@ -322,256 +386,350 @@ export function SearchResultsScreen({ searchQuery, initialCategory, onBack, onPr
                 </View>
               </View>
 
-              {/* Price Range Section */}
               <View style={styles.filterSection}>
                 <Text style={styles.filterSectionTitle}>ფასის დიაპაზონი</Text>
                 <View style={styles.optionsGrid}>
-                  {priceRanges.map((range) => (
-                    <TouchableOpacity
-                      key={range.label}
-                      style={[
-                        styles.optionChip,
-                        minPrice === range.min &&
-                          maxPrice === range.max &&
-                          styles.optionChipActive,
-                      ]}
-                      onPress={() => {
-                        setMinPrice(range.min);
-                        setMaxPrice(range.max);
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.optionChipText,
-                          minPrice === range.min &&
-                            maxPrice === range.max &&
-                            styles.optionChipTextActive,
-                        ]}
+                  {PRICE_RANGES.map((range) => {
+                    const active = minPrice === range.min && maxPrice === range.max;
+                    return (
+                      <TouchableOpacity
+                        key={range.label}
+                        style={[styles.optionChip, active && styles.optionChipActive]}
+                        onPress={() => {
+                          setMinPrice(range.min);
+                          setMaxPrice(range.max);
+                        }}
                       >
-                        {range.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                        <Text
+                          style={[styles.optionChipText, active && styles.optionChipTextActive]}
+                        >
+                          {range.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               </View>
             </ScrollView>
 
-            {/* Modal Footer */}
             <View style={styles.modalFooter}>
-              <TouchableOpacity
-                style={styles.resetButton}
-                onPress={handleResetFilters}
-              >
+              <TouchableOpacity style={styles.resetButton} onPress={handleResetFilters}>
                 <Text style={styles.resetButtonText}>გასუფთავება</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.applyButton}
-                onPress={handleApplyFilters}
-              >
+              <TouchableOpacity style={styles.applyButton} onPress={handleApplyFilters}>
                 <Text style={styles.applyButtonText}>გამოყენება</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.white,
+    backgroundColor: '#F8F9FC',
   },
-  header: {
+  accentLine: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: theme.colors.primary,
+    opacity: 0.85,
+    zIndex: 1,
+  },
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.gray[100],
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: theme.colors.white,
+    borderWidth: 1.5,
+    borderColor: theme.colors.gray[500],
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  searchInfo: {
+  searchPill: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.gray[50],
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    height: 48,
-    gap: 8,
+    gap: 10,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: theme.colors.white,
+    borderWidth: 1.5,
+    borderColor: theme.colors.gray[500],
+    paddingHorizontal: 14,
   },
-  searchQuery: {
+  searchPillText: {
     flex: 1,
-    fontSize: 16,
-    color: theme.colors.text.primary,
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.colors.gray[1200],
   },
-  filterButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
+  listHeader: {
+    marginBottom: 6,
   },
-  resultsBar: {
+  intro: {
+    marginBottom: 14,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: theme.colors.gray[1200],
+    letterSpacing: -0.3,
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: theme.colors.gray[1000],
+    lineHeight: 20,
+  },
+  toolbar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    gap: 10,
+    marginBottom: 12,
+  },
+  countBadge: {
+    minWidth: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: theme.colors.purple[100],
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  countBadgeText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.primary,
   },
   resultsCount: {
+    flex: 1,
     fontSize: 14,
     fontWeight: '600',
-    color: theme.colors.text.primary,
+    color: theme.colors.gray[1100],
   },
-  sortButton: {
-    flexDirection: 'row',
+  filterBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: theme.colors.white,
+    borderWidth: 1.5,
+    borderColor: theme.colors.purple[300],
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: theme.colors.gray[50],
+    justifyContent: 'center',
   },
-  sortText: {
+  sortRow: {
+    gap: 8,
+    paddingBottom: 14,
+  },
+  sortChip: {
+    backgroundColor: theme.colors.white,
+    borderWidth: 1.5,
+    borderColor: theme.colors.gray[500],
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  sortChipActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  sortChipText: {
     fontSize: 13,
-    color: theme.colors.primary,
-    fontWeight: '500',
+    fontWeight: '600',
+    color: theme.colors.gray[1100],
+  },
+  sortChipTextActive: {
+    color: theme.colors.white,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  emptyContainer: {
+  emptyWrap: {
     flex: 1,
+    paddingHorizontal: 20,
+  },
+  emptyState: {
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: theme.colors.gray[500],
+    backgroundColor: theme.colors.white,
+    paddingVertical: 36,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  emptyIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 32,
+    backgroundColor: theme.colors.purple[100],
+    marginBottom: 12,
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-    marginTop: 16,
-    marginBottom: 8,
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.colors.gray[1200],
+    marginBottom: 6,
   },
   emptySubtitle: {
-    fontSize: 14,
-    color: theme.colors.text.secondary,
+    fontSize: 13,
+    color: theme.colors.gray[1000],
     textAlign: 'center',
     lineHeight: 20,
+    marginBottom: 16,
+  },
+  emptyBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: theme.colors.purple[100],
+  },
+  emptyBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.colors.primary,
   },
   productsList: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 24,
+    paddingHorizontal: 20,
+    paddingTop: 4,
   },
   productsRow: {
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 12,
+    gap: 12,
   },
   productCardWrapper: {
     width: '48%',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: theme.colors.white,
+    backgroundColor: '#F8F9FC',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingTop: 24,
-    paddingBottom: 40,
-    maxHeight: '85%',
+    paddingTop: 20,
+    maxHeight: '88%',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    marginBottom: 24,
+    paddingHorizontal: 20,
+    marginBottom: 16,
   },
   modalTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: theme.colors.text.primary,
+    color: theme.colors.gray[1200],
+  },
+  modalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: theme.colors.white,
+    borderWidth: 1.5,
+    borderColor: theme.colors.gray[500],
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   filterSection: {
-    paddingHorizontal: 24,
-    marginBottom: 32,
+    paddingHorizontal: 20,
+    marginBottom: 22,
   },
   filterSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-    marginBottom: 16,
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.gray[1100],
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 12,
   },
   optionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 8,
   },
   optionChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: theme.colors.gray[50],
-    borderWidth: 1,
-    borderColor: theme.colors.gray[200],
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: theme.colors.white,
+    borderWidth: 1.5,
+    borderColor: theme.colors.gray[500],
   },
   optionChipActive: {
     backgroundColor: theme.colors.primary,
     borderColor: theme.colors.primary,
   },
   optionChipText: {
-    fontSize: 14,
-    color: theme.colors.text.secondary,
-    fontWeight: '500',
+    fontSize: 13,
+    color: theme.colors.gray[1100],
+    fontWeight: '600',
   },
   optionChipTextActive: {
     color: theme.colors.white,
-    fontWeight: '600',
   },
   modalFooter: {
     flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.gray[100],
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    borderTopWidth: 1.5,
+    borderTopColor: theme.colors.gray[500],
   },
   resetButton: {
     flex: 1,
-    paddingVertical: 16,
-    borderRadius: 12,
-    backgroundColor: theme.colors.gray[100],
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: theme.colors.white,
+    borderWidth: 1.5,
+    borderColor: theme.colors.gray[500],
     alignItems: 'center',
   },
   resetButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
+    fontSize: 15,
+    fontWeight: '700',
+    color: theme.colors.gray[1200],
   },
   applyButton: {
     flex: 1,
-    paddingVertical: 16,
-    borderRadius: 12,
+    paddingVertical: 14,
+    borderRadius: 14,
     backgroundColor: theme.colors.primary,
     alignItems: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: theme.colors.primary,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+      },
+      android: { elevation: 2 },
+    }),
   },
   applyButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     color: theme.colors.white,
   },
 });

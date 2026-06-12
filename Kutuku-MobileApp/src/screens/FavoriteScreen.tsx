@@ -177,6 +177,7 @@ export function FavoriteScreen({
                 stock={item.stock}
                 onPress={() => onProductPress(item.id)}
                 showQuickAdd={true}
+                variant="grid"
               />
             </View>
           )}

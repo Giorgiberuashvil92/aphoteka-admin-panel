@@ -1,6 +1,6 @@
 import { AuthBootstrap } from '@/src/components/auth/AuthBootstrap';
 
-/** სტარტი: ვალიდური სესია → home, სხვა შემთხვევაში → login. */
+/** სტარტი: home (სტუმარი); შესვლა — პროფილიდან / login-იდან. */
 export default function Index() {
   return <AuthBootstrap />;
 }

@@ -4,27 +4,25 @@ import { Redirect } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-type BootstrapTarget = 'loading' | 'home' | 'login';
-
 /**
- * აპის სტარტზე JWT-ის შემოწმება — ვადაგასული/ცრუ ტოკენზე login, ვალიდურზე home.
+ * სტარტი: ყოველთვის home (სტუმარი). ვალიდური JWT — ჩუმად აღდგება სესია.
+ * ავტორიზაცია მხოლოდ დაცულ ქმედებებზე (პროფილი, შეკვეთა და ა.შ.).
  */
 export function AuthBootstrap() {
-  const [target, setTarget] = useState<BootstrapTarget>('loading');
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let active = true;
     (async () => {
-      const user = await UserService.validateSession();
-      if (!active) return;
-      setTarget(user ? 'home' : 'login');
+      await UserService.validateSession();
+      if (active) setReady(true);
     })();
     return () => {
       active = false;
     };
   }, []);
 
-  if (target === 'loading') {
+  if (!ready) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -32,7 +30,7 @@ export function AuthBootstrap() {
     );
   }
 
-  return <Redirect href={target === 'home' ? '/home' : '/login'} />;
+  return <Redirect href="/home" />;
 }
 
 const styles = StyleSheet.create({

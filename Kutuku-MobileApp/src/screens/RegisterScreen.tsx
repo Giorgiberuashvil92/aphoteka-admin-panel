@@ -1,4 +1,4 @@
-import { Button, InputWithIcon } from '@/src/components/ui';
+import { AuthField, Button } from '@/src/components/ui';
 import { EmailService } from '@/src/services/email.service';
 import { UserService, type RegisterMobilePayload } from '@/src/services/user.service';
 import { theme } from '@/src/theme';
@@ -49,9 +49,10 @@ const emptyErrors = (): FieldErrors => ({
 type RegisterScreenProps = {
   onRegister: (email: string, phone: string) => void;
   onLoginPress: () => void;
+  onGuestPress: () => void;
 };
 
-const iconMuted = theme.colors.gray[1000];
+const iconPrimary = theme.colors.primary;
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
@@ -61,7 +62,7 @@ function phoneDigits(raw: string): string {
   return raw.replace(/\D/g, '');
 }
 
-export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps) {
+export function RegisterScreen({ onRegister, onLoginPress, onGuestPress }: RegisterScreenProps) {
   const insets = useSafeAreaInsets();
   const [accountType, setAccountType] = useState<AccountType>('individual');
 
@@ -266,7 +267,7 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
         { text: 'კარგი', onPress: goVerify },
       ]);
     } catch (error: unknown) {
-      Alert.alert('შეცდომა', (error as Error)?.message || 'რაღაც არასწორი მოხდა');
+      Alert.alert('შეცდომა', (error as Error)?.message || 'რაღაც არასწორად მოხდა');
     } finally {
       registerInFlightRef.current = false;
       setLoading(false);
@@ -274,59 +275,85 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
   };
 
   return (
-    <View style={[styles.wrapper, { paddingTop: insets.top }]}>
+    <View style={styles.wrapper}>
+      <View style={styles.accentOrb} pointerEvents="none" />
+      <View style={styles.accentLine} pointerEvents="none" />
+
       <KeyboardAvoidingView
         style={styles.keyboard}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
       >
         <ScrollView
           style={styles.scroll}
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 28 }]}
+          contentContainerStyle={[
+            styles.content,
+            { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 32 },
+          ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.pageTitle}>რეგისტრაცია</Text>
-          <Text style={styles.pageSubtitle}>აირჩიეთ ანგარიშის ტიპი და შეავსეთ ველები</Text>
+          <View style={styles.header}>
+            <TouchableOpacity onPress={onLoginPress} style={styles.backBtn} hitSlop={12}>
+              <Ionicons name="arrow-back" size={22} color={theme.colors.gray[1100]} />
+            </TouchableOpacity>
+            <View style={styles.headerCenter}>
+              <View style={styles.logoMark}>
+                <Ionicons name="medkit" size={20} color={theme.colors.white} />
+              </View>
+              <Text style={styles.brand}>Aphoteka</Text>
+            </View>
+            <View style={styles.backSpacer} />
+          </View>
+
+          <View style={styles.intro}>
+            <Text style={styles.title}>ახალი ანგარიში</Text>
+            <Text style={styles.subtitle}>შეავსეთ მონაცემები რეგისტრაციის დასასრულებლად</Text>
+          </View>
 
           <View style={styles.typeRow}>
             <TouchableOpacity
               style={[styles.typeChip, accountType === 'individual' && styles.typeChipActive]}
               onPress={() => setType('individual')}
-              activeOpacity={0.85}
+              activeOpacity={0.8}
             >
               <Ionicons
                 name="person-outline"
-                size={18}
-                color={accountType === 'individual' ? theme.colors.white : theme.colors.gray[1100]}
+                size={17}
+                color={accountType === 'individual' ? theme.colors.primary : theme.colors.gray[900]}
               />
               <Text
-                style={[styles.typeChipText, accountType === 'individual' && styles.typeChipTextActive]}
+                style={[
+                  styles.typeChipText,
+                  accountType === 'individual' && styles.typeChipTextActive,
+                ]}
               >
-                ფიზიკური პირი
+                ფიზიკური
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.typeChip, accountType === 'legal' && styles.typeChipActive]}
               onPress={() => setType('legal')}
-              activeOpacity={0.85}
+              activeOpacity={0.8}
             >
               <Ionicons
                 name="business-outline"
-                size={18}
-                color={accountType === 'legal' ? theme.colors.white : theme.colors.gray[1100]}
+                size={17}
+                color={accountType === 'legal' ? theme.colors.primary : theme.colors.gray[900]}
               />
-              <Text style={[styles.typeChipText, accountType === 'legal' && styles.typeChipTextActive]}>
-                იურიდიული პირი
+              <Text
+                style={[styles.typeChipText, accountType === 'legal' && styles.typeChipTextActive]}
+              >
+                იურიდიული
               </Text>
             </TouchableOpacity>
           </View>
 
-          <View style={styles.card}>
+          <View style={styles.form}>
             {accountType === 'individual' ? (
               <>
-                <InputWithIcon
+                <AuthField
                   label="სახელი"
                   placeholder="სახელი"
                   value={firstName}
@@ -336,9 +363,9 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
                   }}
                   error={errors.firstName}
                   autoCapitalize="words"
-                  leftIcon={<Ionicons name="person-outline" size={20} color={iconMuted} />}
+                  leftIcon={<Ionicons name="person-outline" size={18} color={iconPrimary} />}
                 />
-                <InputWithIcon
+                <AuthField
                   label="გვარი"
                   placeholder="გვარი"
                   value={lastName}
@@ -348,9 +375,9 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
                   }}
                   error={errors.lastName}
                   autoCapitalize="words"
-                  leftIcon={<Ionicons name="person-outline" size={20} color={iconMuted} />}
+                  leftIcon={<Ionicons name="person-outline" size={18} color={iconPrimary} />}
                 />
-                <InputWithIcon
+                <AuthField
                   label="პირადი ნომერი"
                   placeholder="11 ციფრი"
                   value={personalId}
@@ -360,9 +387,9 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
                   }}
                   keyboardType="number-pad"
                   error={errors.personalId}
-                  leftIcon={<Ionicons name="id-card-outline" size={20} color={iconMuted} />}
+                  leftIcon={<Ionicons name="id-card-outline" size={18} color={iconPrimary} />}
                 />
-                <InputWithIcon
+                <AuthField
                   label="მისამართი"
                   placeholder="ფაქტიური ან იურიდიული მისამართი"
                   value={address}
@@ -372,14 +399,13 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
                   }}
                   multiline
                   numberOfLines={4}
-                  style={styles.addressInput}
                   error={errors.address}
-                  leftIcon={<Ionicons name="location-outline" size={20} color={iconMuted} />}
+                  leftIcon={<Ionicons name="location-outline" size={18} color={iconPrimary} />}
                 />
               </>
             ) : (
               <>
-                <InputWithIcon
+                <AuthField
                   label="შპს / დასახელება"
                   placeholder="კომპანიის სრული დასახელება"
                   value={companyName}
@@ -389,9 +415,9 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
                   }}
                   error={errors.companyName}
                   autoCapitalize="words"
-                  leftIcon={<Ionicons name="business-outline" size={20} color={iconMuted} />}
+                  leftIcon={<Ionicons name="business-outline" size={18} color={iconPrimary} />}
                 />
-                <InputWithIcon
+                <AuthField
                   label="საიდენტიფიკაციო კოდი"
                   placeholder="ს/კ"
                   value={legalId}
@@ -400,9 +426,9 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
                     clearFieldError('legalId');
                   }}
                   error={errors.legalId}
-                  leftIcon={<Ionicons name="barcode-outline" size={20} color={iconMuted} />}
+                  leftIcon={<Ionicons name="barcode-outline" size={18} color={iconPrimary} />}
                 />
-                <InputWithIcon
+                <AuthField
                   label="მისამართი"
                   placeholder="იურიდიული მისამართი"
                   value={address}
@@ -412,11 +438,10 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
                   }}
                   multiline
                   numberOfLines={4}
-                  style={styles.addressInput}
                   error={errors.address}
-                  leftIcon={<Ionicons name="location-outline" size={20} color={iconMuted} />}
+                  leftIcon={<Ionicons name="location-outline" size={18} color={iconPrimary} />}
                 />
-                <InputWithIcon
+                <AuthField
                   label="წარმომადგენელი (არასავალდებულო)"
                   placeholder="სახელი გვარი"
                   value={representative}
@@ -426,12 +451,12 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
                   }}
                   error={errors.representative}
                   autoCapitalize="words"
-                  leftIcon={<Ionicons name="person-circle-outline" size={20} color={iconMuted} />}
+                  leftIcon={<Ionicons name="person-circle-outline" size={18} color={iconPrimary} />}
                 />
               </>
             )}
 
-            <InputWithIcon
+            <AuthField
               label="ქვეყანა (არასავალდებულო)"
               placeholder="მაგ. საქართველო"
               value={country}
@@ -441,10 +466,12 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
               }}
               autoCapitalize="words"
               error={errors.country}
-              leftIcon={<Ionicons name="earth-outline" size={20} color={iconMuted} />}
+              leftIcon={<Ionicons name="earth-outline" size={18} color={iconPrimary} />}
             />
 
-            <InputWithIcon
+            <Text style={styles.sectionLabel}>კონტაქტი და უსაფრთხოება</Text>
+
+            <AuthField
               label="ელფოსტა"
               placeholder="example@mail.com"
               value={email}
@@ -456,12 +483,12 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
               autoCapitalize="none"
               autoCorrect={false}
               error={errors.email}
-              leftIcon={<Ionicons name="mail-outline" size={20} color={iconMuted} />}
+              leftIcon={<Ionicons name="mail-outline" size={18} color={iconPrimary} />}
             />
 
-            <InputWithIcon
+            <AuthField
               label="ტელეფონი"
-              placeholder="მაგ. 557422634 ან +995..."
+              placeholder="5XX XXX XXX"
               value={phone}
               onChangeText={(t) => {
                 setPhone(t);
@@ -469,11 +496,11 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
               }}
               keyboardType="phone-pad"
               error={errors.phone}
-              leftIcon={<Ionicons name="call-outline" size={20} color={iconMuted} />}
+              leftIcon={<Ionicons name="call-outline" size={18} color={iconPrimary} />}
             />
             <Text style={styles.fieldHint}>იმავე ნომრით შეძლებთ შესვლას აპში.</Text>
 
-            <InputWithIcon
+            <AuthField
               label="პაროლი"
               placeholder="მინიმუმ 8 სიმბოლო"
               value={password}
@@ -486,7 +513,7 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
               autoCorrect={false}
               textContentType="newPassword"
               error={errors.password}
-              leftIcon={<Ionicons name="lock-closed-outline" size={20} color={iconMuted} />}
+              leftIcon={<Ionicons name="lock-closed-outline" size={18} color={iconPrimary} />}
               rightIcon={
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
@@ -494,22 +521,43 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
                 >
                   <Ionicons
                     name={showPassword ? 'eye-outline' : 'eye-off-outline'}
-                    size={20}
-                    color={iconMuted}
+                    size={18}
+                    color={theme.colors.gray[900]}
                   />
                 </TouchableOpacity>
               }
             />
 
-            <Button title="რეგისტრაცია" onPress={handleRegister} size="lg" loading={loading} disabled={loading} />
+            <Button
+              title="რეგისტრაცია"
+              onPress={handleRegister}
+              size="lg"
+              loading={loading}
+              disabled={loading}
+            />
           </View>
 
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>უკვე გაქვთ ანგარიში? </Text>
-            <TouchableOpacity onPress={onLoginPress} activeOpacity={0.7}>
-              <Text style={styles.footerLink}>შესვლა</Text>
-            </TouchableOpacity>
+          <View style={styles.dividerRow}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>ან</Text>
+            <View style={styles.dividerLine} />
           </View>
+
+          <TouchableOpacity onPress={onLoginPress} style={styles.secondaryBtn} activeOpacity={0.7}>
+            <Ionicons name="log-in-outline" size={18} color={theme.colors.gray[1100]} />
+            <Text style={styles.secondaryBtnText}>უკვე გაქვთ ანგარიში? შესვლა</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={onGuestPress} style={styles.guestBtn} activeOpacity={0.7}>
+            <View style={styles.guestIconWrap}>
+              <Ionicons name="walk-outline" size={18} color={theme.colors.primary} />
+            </View>
+            <View style={styles.guestTextWrap}>
+              <Text style={styles.guestTitle}>სტუმარად გაგრძელება</Text>
+              <Text style={styles.guestSubtitle}>ავტორიზაცია საჭიროა მხოლოდ შეკვეთისას</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.colors.gray[900]} />
+          </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -519,101 +567,206 @@ export function RegisterScreen({ onRegister, onLoginPress }: RegisterScreenProps
 const styles = StyleSheet.create({
   wrapper: {
     flex: 1,
-    backgroundColor: theme.colors.background.purple.light,
+    backgroundColor: '#F8F9FC',
+  },
+  accentOrb: {
+    position: 'absolute',
+    top: -120,
+    right: -80,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: theme.colors.primary,
+    opacity: 0.06,
+  },
+  accentLine: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: theme.colors.primary,
+    opacity: 0.85,
   },
   keyboard: { flex: 1 },
   scroll: { flex: 1 },
   content: {
-    paddingHorizontal: 22,
-    paddingTop: 12,
+    paddingHorizontal: 28,
+    flexGrow: 1,
   },
-  pageTitle: {
-    fontSize: 26,
-    fontWeight: '800',
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 28,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: theme.colors.white,
+    borderWidth: 1,
+    borderColor: theme.colors.gray[500],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  backSpacer: { width: 40 },
+  logoMark: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: theme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  brand: {
+    fontSize: 16,
+    fontWeight: '700',
     color: theme.colors.gray[1200],
-    marginBottom: 6,
+    letterSpacing: 0.4,
   },
-  pageSubtitle: {
-    fontSize: 14,
-    fontWeight: '500',
+  intro: { marginBottom: 22 },
+  title: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: theme.colors.gray[1200],
+    letterSpacing: -0.3,
+    lineHeight: 32,
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 15,
+    fontWeight: '400',
     color: theme.colors.gray[1000],
-    marginBottom: 18,
-    lineHeight: 20,
+    lineHeight: 22,
   },
   typeRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 16,
+    marginBottom: 22,
   },
   typeChip: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
     paddingVertical: 12,
-    paddingHorizontal: 10,
     borderRadius: 14,
     backgroundColor: theme.colors.white,
-    borderWidth: 1,
-    borderColor: theme.colors.border.light,
+    borderWidth: 1.5,
+    borderColor: theme.colors.gray[500],
   },
   typeChipActive: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primaryDark,
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.purple[100],
   },
   typeChipText: {
     fontSize: 13,
-    fontWeight: '700',
-    color: theme.colors.gray[1100],
+    fontWeight: '600',
+    color: theme.colors.gray[1000],
   },
   typeChipTextActive: {
-    color: theme.colors.white,
+    color: theme.colors.primary,
+    fontWeight: '700',
   },
-  card: {
-    backgroundColor: theme.colors.white,
-    borderRadius: 22,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: theme.colors.border.light,
-    ...Platform.select({
-      ios: {
-        shadowColor: theme.colors.purple[1200],
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.07,
-        shadowRadius: 16,
-      },
-      android: { elevation: 6 },
-    }),
-  },
-  addressInput: {
-    height: 100,
-    textAlignVertical: 'top',
-    paddingTop: 14,
+  form: { marginBottom: 4 },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.colors.gray[900],
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 4,
+    marginTop: 4,
   },
   fieldHint: {
     fontSize: 12,
-    fontWeight: '500',
-    color: theme.colors.gray[1000],
-    marginTop: -8,
-    marginBottom: 4,
+    color: theme.colors.gray[900],
+    marginTop: -10,
+    marginBottom: 8,
+    marginLeft: 4,
     lineHeight: 17,
   },
-  footer: {
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 24,
+    marginBottom: 18,
+    gap: 12,
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: theme.colors.gray[600],
+  },
+  dividerText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: theme.colors.gray[900],
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  secondaryBtn: {
+    height: 52,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: theme.colors.gray[600],
+    backgroundColor: theme.colors.white,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    flexWrap: 'wrap',
-    marginTop: 22,
+    gap: 8,
+    marginBottom: 12,
   },
-  footerText: {
+  secondaryBtnText: {
     fontSize: 15,
     fontWeight: '600',
-    color: theme.colors.gray[1100],
+    color: theme.colors.gray[1200],
   },
-  footerLink: {
+  guestBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: theme.colors.white,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: theme.colors.purple[300],
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    ...Platform.select({
+      ios: {
+        shadowColor: theme.colors.primary,
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.08,
+        shadowRadius: 10,
+      },
+      android: { elevation: 2 },
+    }),
+  },
+  guestIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: theme.colors.purple[100],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  guestTextWrap: { flex: 1 },
+  guestTitle: {
     fontSize: 15,
-    fontWeight: '800',
-    color: theme.colors.primaryDark,
+    fontWeight: '700',
+    color: theme.colors.gray[1200],
+    marginBottom: 2,
+  },
+  guestSubtitle: {
+    fontSize: 12,
+    color: theme.colors.gray[900],
+    lineHeight: 16,
   },
 });

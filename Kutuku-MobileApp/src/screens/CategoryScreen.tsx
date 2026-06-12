@@ -4,12 +4,21 @@ import { CategoryService } from '@/src/services/category.service';
 import type { CategoryItem } from '@/src/services/category.service';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type CategoryScreenProps = {
   onSearch: () => void;
-  /** გადაეცემა კატეგორიის სახელი (ნავიგაცია პროდუქტების სიაზე) */
   onCategoryPress: (categoryName: string) => void;
   onHomePress: () => void;
   onMyOrderPress: () => void;
@@ -18,34 +27,63 @@ type CategoryScreenProps = {
   onCartPress?: () => void;
 };
 
-const DEFAULT_COLOR = '#E8F5E9';
-const DEFAULT_ICON = 'folder';
-const CATEGORY_GRADIENTS = ['#EAF2FF', '#EEF7FF', '#EFFFF4', '#FFF4E8', '#F6EEFF', '#ECFFFC'];
+const CATEGORY_ACCENTS = [
+  theme.colors.purple[100],
+  '#EAF2FF',
+  '#EFFFF4',
+  '#FFF4E8',
+  '#F6EEFF',
+];
 
-const getCategoryVisual = (category: CategoryItem, index: number) => {
-  const name = category.name.toLowerCase();
-  if (name.includes('ვიტამ')) return { icon: 'nutrition-outline', accent: '#DFF4E6' };
-  if (name.includes('გერმან') || name.includes('ბრენ')) return { icon: 'ribbon-outline', accent: '#EDEBFF' };
-  if (name.includes('ბავშვ')) return { icon: 'happy-outline', accent: '#FFEEDB' };
-  if (name.includes('ანტისეპ')) return { icon: 'medkit-outline', accent: '#E8F6FF' };
-  return {
-    icon: (category.icon as string) || DEFAULT_ICON,
-    accent: CATEGORY_GRADIENTS[index % CATEGORY_GRADIENTS.length],
-  };
-};
-const hexToRgba = (hex: string, alpha: number) => {
-  const normalized = hex.replace('#', '');
-  if (normalized.length !== 6) return `rgba(232,245,233,${alpha})`;
-  const r = parseInt(normalized.slice(0, 2), 16);
-  const g = parseInt(normalized.slice(2, 4), 16);
-  const b = parseInt(normalized.slice(4, 6), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-};
+/** DB-ში შეცდომით გაორმაგებული სახელი — ეკრანზე გამოსაჩენად */
+function displayCategoryName(raw: string): string {
+  const t = raw.trim();
+  if (!t) return '—';
+  if (t.length >= 6 && t.length % 2 === 0) {
+    const half = t.length / 2;
+    if (t.slice(0, half) === t.slice(half)) return t.slice(0, half);
+  }
+  return t;
+}
 
-export function CategoryScreen({ onSearch, onCategoryPress, onHomePress, onMyOrderPress, onFavoritePress, onProfilePress, onCartPress }: CategoryScreenProps) {
+function dedupeCategories(list: CategoryItem[]): CategoryItem[] {
+  const seen = new Set<string>();
+  const out: CategoryItem[] = [];
+  for (const c of list) {
+    const key = displayCategoryName(c.name).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...c, name: displayCategoryName(c.name) });
+  }
+  return out;
+}
+
+function getCategoryIcon(name: string): keyof typeof Ionicons.glyphMap {
+  const n = name.toLowerCase();
+  if (n.includes('ვიტამ')) return 'nutrition-outline';
+  if (n.includes('ანტისეპ') || n.includes('სეპტ')) return 'medkit-outline';
+  if (n.includes('ბავშვ')) return 'happy-outline';
+  if (n.includes('ბრენ') || n.includes('გერმან')) return 'ribbon-outline';
+  if (n.includes('კოსმეტ')) return 'sparkles-outline';
+  if (n.includes('აქსესუარ')) return 'bandage-outline';
+  return 'grid-outline';
+}
+
+export function CategoryScreen({
+  onSearch,
+  onCategoryPress,
+  onHomePress,
+  onMyOrderPress,
+  onFavoritePress,
+  onProfilePress,
+  onCartPress,
+}: CategoryScreenProps) {
+  const insets = useSafeAreaInsets();
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const topCategoryNames = categories.slice(0, 3).map((c) => c.name);
+
+  const displayList = useMemo(() => dedupeCategories(categories), [categories]);
+  const topNames = useMemo(() => displayList.slice(0, 6).map((c) => c.name), [displayList]);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,105 +92,107 @@ export function CategoryScreen({ onSearch, onCategoryPress, onHomePress, onMyOrd
       .then((list) => {
         if (!cancelled) setCategories(list);
       })
-      .catch((e) => {
+      .catch(() => {
         if (!cancelled) setCategories([]);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={theme.colors.white} />
-      
-      {/* Aversi Header */}
-      <AversiHeader 
-        onSearchPress={onSearch}
-      />
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F8F9FC" />
+      <View style={styles.accentLine} pointerEvents="none" />
 
-      <ScrollView 
+      <AversiHeader onSearchPress={onSearch} />
+
+      <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.heroCard}>
-          <View style={styles.heroGlowOne} />
-          <View style={styles.heroGlowTwo} />
-          <View>
-            <Text style={styles.heroTitle}>კატეგორიები</Text>
-            <Text style={styles.heroSubtitle}>აირჩიე სასურველი მიმართულება და სწრაფად იპოვე პროდუქტი</Text>
-          </View>
-          <TouchableOpacity style={styles.heroAction} onPress={onMyOrderPress}>
-            <Ionicons name="receipt-outline" size={16} color={theme.colors.primary} />
-            <Text style={styles.heroActionText}>ჩემი შეკვეთები</Text>
-          </TouchableOpacity>
+        <View style={styles.intro}>
+          <Text style={styles.title}>კატეგორიები</Text>
+          <Text style={styles.subtitle}>აირჩიე მიმართულება და იპოვე საჭირო პროდუქტი</Text>
         </View>
 
-        {!loading && categories.length > 0 && (
+        <TouchableOpacity style={styles.ordersBtn} onPress={onMyOrderPress} activeOpacity={0.75}>
+          <Ionicons name="receipt-outline" size={18} color={theme.colors.primary} />
+          <Text style={styles.ordersBtnText}>ჩემი შეკვეთები</Text>
+          <Ionicons name="chevron-forward" size={16} color={theme.colors.gray[900]} />
+        </TouchableOpacity>
+
+        {!loading && displayList.length > 0 ? (
           <>
             <View style={styles.metaRow}>
-              <Text style={styles.metaTitle}>პოპულარული მიმართულებები</Text>
+              <Text style={styles.metaTitle}>პოპულარული</Text>
               <View style={styles.countBadge}>
-                <Text style={styles.countBadgeText}>{categories.length} კატეგორია</Text>
+                <Text style={styles.countBadgeText}>{displayList.length}</Text>
               </View>
             </View>
-            <View style={styles.quickTagsRow}>
-              {topCategoryNames.map((name) => (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipsRow}
+            >
+              {topNames.map((name) => (
                 <TouchableOpacity
                   key={name}
-                  style={styles.quickTag}
-                  activeOpacity={0.85}
+                  style={styles.chip}
+                  activeOpacity={0.8}
                   onPress={() => onCategoryPress(name)}
                 >
-                  <Text style={styles.quickTagText} numberOfLines={1}>{name}</Text>
+                  <Text style={styles.chipText} numberOfLines={1}>
+                    {name}
+                  </Text>
                 </TouchableOpacity>
               ))}
-            </View>
+            </ScrollView>
           </>
-        )}
+        ) : null}
 
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={theme.colors.primary} />
           </View>
-        ) : categories.length === 0 ? (
+        ) : displayList.length === 0 ? (
           <View style={styles.emptyState}>
             <View style={styles.emptyIconWrap}>
               <Ionicons name="grid-outline" size={28} color={theme.colors.primary} />
             </View>
             <Text style={styles.emptyTitle}>კატეგორიები ჯერ არ არის</Text>
-            <Text style={styles.emptyText}>ცოტა ხანში სცადე თავიდან, მონაცემები ახლდება.</Text>
+            <Text style={styles.emptyText}>სცადე თავიდან ცოტა ხანში.</Text>
           </View>
         ) : (
-          <View style={styles.categoriesGrid}>
-            {categories.map((category, index) => {
-              const visual = getCategoryVisual(category, index);
+          <View style={styles.list}>
+            {displayList.map((category, index) => {
+              const accent = CATEGORY_ACCENTS[index % CATEGORY_ACCENTS.length];
+              const icon = getCategoryIcon(category.name);
+              const count = category.productCount ?? 0;
               return (
                 <TouchableOpacity
                   key={category.id}
-                  style={styles.categoryCard}
-                  activeOpacity={0.9}
+                  style={styles.rowCard}
+                  activeOpacity={0.85}
                   onPress={() => onCategoryPress(category.name)}
                 >
-                  <View style={[styles.categoryTopArea, { backgroundColor: hexToRgba(category.color || DEFAULT_COLOR, 0.2) }]}>
-                    <View style={[styles.categoryTopGlow, { backgroundColor: hexToRgba(category.color || DEFAULT_COLOR, 0.35) }]} />
-                    <View style={[styles.categorySoftLayer, { backgroundColor: visual.accent }]} />
-                    <View style={[styles.categoryIconContainer, { backgroundColor: category.color || DEFAULT_COLOR }]}>
-                      <Ionicons name={visual.icon as any} size={30} color={theme.colors.primary} />
-                    </View>
+                  <View style={[styles.rowIcon, { backgroundColor: accent }]}>
+                    <Ionicons name={icon} size={22} color={theme.colors.primary} />
                   </View>
-                  <View style={styles.cardBody}>
-                    <Text style={styles.categoryName} numberOfLines={2}>{category.name}</Text>
-                    <View style={styles.cardFooter}>
-                      <View style={styles.categoryCountBadge}>
-                        <Text style={styles.categoryCount}>{category.productCount} პროდუქტი</Text>
-                      </View>
-                      <View style={styles.cardChevronWrap}>
-                        <Ionicons name="chevron-forward" size={14} color={theme.colors.primary} />
-                      </View>
-                    </View>
+                  <View style={styles.rowBody}>
+                    <Text style={styles.rowTitle} numberOfLines={1} ellipsizeMode="tail">
+                      {category.name}
+                    </Text>
+                    <Text style={[styles.rowCount, count === 0 && styles.rowCountMuted]}>
+                      {count} პროდუქტი
+                    </Text>
+                  </View>
+                  <View style={styles.rowChevron}>
+                    <Ionicons name="chevron-forward" size={18} color={theme.colors.gray[900]} />
                   </View>
                 </TouchableOpacity>
               );
@@ -161,7 +201,6 @@ export function CategoryScreen({ onSearch, onCategoryPress, onHomePress, onMyOrd
         )}
       </ScrollView>
 
-      {/* Bottom Navigation */}
       <BottomNavigation
         activeTab="categories"
         onHomePress={onHomePress}
@@ -172,130 +211,125 @@ export function CategoryScreen({ onSearch, onCategoryPress, onHomePress, onMyOrd
         wishlistCount={0}
         cartCount={0}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAFBFF',
+    backgroundColor: '#F8F9FC',
   },
-  scrollView: {
-    flex: 1,
+  accentLine: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: theme.colors.primary,
+    opacity: 0.85,
+    zIndex: 1,
   },
+  scrollView: { flex: 1 },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 28,
+    paddingHorizontal: 20,
+    paddingTop: 8,
   },
-  heroCard: {
-    borderRadius: 16,
-    padding: 12,
-    backgroundColor: '#F5F9FF',
-    borderWidth: 1,
-    borderColor: '#D9E8FF',
-    marginBottom: 10,
-    gap: 8,
-    overflow: 'hidden',
-    position: 'relative',
+  intro: {
+    marginBottom: 16,
   },
-  heroGlowOne: {
-    position: 'absolute',
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: 'rgba(71,122,255,0.12)',
-    top: -80,
-    right: -50,
-  },
-  heroGlowTwo: {
-    position: 'absolute',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: 'rgba(71,122,255,0.08)',
-    bottom: -52,
-    left: -30,
-  },
-  heroTitle: {
-    fontSize: 19,
+  title: {
+    fontSize: 26,
     fontWeight: '700',
-    color: theme.colors.text.primary,
-    marginBottom: 2,
+    color: theme.colors.gray[1200],
+    letterSpacing: -0.3,
+    marginBottom: 6,
   },
-  heroSubtitle: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: theme.colors.text.secondary,
+  subtitle: {
+    fontSize: 15,
+    color: theme.colors.gray[1000],
+    lineHeight: 22,
   },
-  heroAction: {
-    alignSelf: 'flex-start',
+  ordersBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
+    gap: 10,
     backgroundColor: theme.colors.white,
-    borderWidth: 1,
-    borderColor: '#DCEAFE',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: theme.colors.gray[500],
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 22,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#1F2021',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 8,
+      },
+      android: { elevation: 1 },
+    }),
   },
-  heroActionText: {
-    fontSize: 12,
+  ordersBtnText: {
+    flex: 1,
+    fontSize: 15,
     fontWeight: '600',
-    color: theme.colors.primary,
+    color: theme.colors.gray[1200],
   },
   metaRow: {
-    marginBottom: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  metaTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
-  },
-  countBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    backgroundColor: '#EEF3FF',
-  },
-  countBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: theme.colors.primary,
-  },
-  quickTagsRow: {
-    flexDirection: 'row',
-    gap: 8,
     marginBottom: 10,
   },
-  quickTag: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#DDE7FF',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    maxWidth: '33%',
+  metaTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.gray[1100],
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
-  quickTagText: {
-    fontSize: 11,
-    color: '#3E4A66',
-    fontWeight: '600',
-  },
-  loadingContainer: {
-    paddingVertical: 60,
+  countBadge: {
+    minWidth: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: theme.colors.purple[100],
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  countBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.colors.primary,
+  },
+  chipsRow: {
+    gap: 8,
+    paddingBottom: 18,
+  },
+  chip: {
+    backgroundColor: theme.colors.white,
+    borderWidth: 1.5,
+    borderColor: theme.colors.purple[300],
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    maxWidth: 160,
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: theme.colors.gray[1100],
+  },
+  loadingContainer: {
+    paddingVertical: 48,
+    alignItems: 'center',
   },
   emptyState: {
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.colors.gray[100],
+    borderWidth: 1.5,
+    borderColor: theme.colors.gray[500],
     backgroundColor: theme.colors.white,
     paddingVertical: 36,
     paddingHorizontal: 20,
@@ -304,113 +338,76 @@ const styles = StyleSheet.create({
   emptyIconWrap: {
     width: 56,
     height: 56,
-    borderRadius: 28,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#EEF3FF',
+    backgroundColor: theme.colors.purple[100],
     marginBottom: 12,
   },
   emptyTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: theme.colors.text.primary,
+    color: theme.colors.gray[1200],
     marginBottom: 6,
   },
   emptyText: {
     fontSize: 13,
-    color: theme.colors.text.secondary,
+    color: theme.colors.gray[1000],
     textAlign: 'center',
   },
-  categoriesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+  list: {
+    gap: 10,
   },
-  categoryCard: {
-    width: '48%',
-    backgroundColor: '#FFFFFF',
+  rowCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.white,
     borderRadius: 16,
-    marginBottom: 10,
-    overflow: 'hidden',
-    minHeight: 148,
-    borderWidth: 1,
-    borderColor: theme.colors.gray[100],
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 3,
+    borderWidth: 1.5,
+    borderColor: theme.colors.gray[500],
+    padding: 12,
+    gap: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#1F2021',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 8,
+      },
+      android: { elevation: 1 },
+    }),
   },
-  categoryTopArea: {
-    width: '100%',
-    height: 64,
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  categoryTopGlow: {
-    position: 'absolute',
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    top: -48,
-    right: -22,
-  },
-  categorySoftLayer: {
-    position: 'absolute',
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    bottom: -24,
-    left: -20,
-  },
-  categoryIconContainer: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+  rowIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  cardBody: {
+  rowBody: {
     flex: 1,
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 9,
+    minWidth: 0,
   },
-  categoryName: {
-    fontSize: 13,
+  rowTitle: {
+    fontSize: 16,
     fontWeight: '700',
-    color: theme.colors.text.primary,
-    textAlign: 'left',
-    lineHeight: 17,
-    minHeight: 35,
+    color: theme.colors.gray[1200],
+    marginBottom: 2,
   },
-  cardFooter: {
-    marginTop: 'auto',
-    width: '100%',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 6,
+  rowCount: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: theme.colors.primary,
   },
-  categoryCountBadge: {
-    backgroundColor: '#F3F7FF',
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+  rowCountMuted: {
+    color: theme.colors.gray[900],
   },
-  cardChevronWrap: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+  rowChevron: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: theme.colors.purple[100],
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EDF3FF',
-  },
-  categoryCount: {
-    fontSize: 10,
-    color: '#566384',
-    fontWeight: '600',
   },
 });

@@ -39,7 +39,7 @@ const ADVANTAGES: Advantage[] = [
 export function AdvantagesSection() {
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>რატომ ავირჩიოთ ჩვენ</Text>
+      <Text style={styles.sectionTitle}>რატომ აგვირჩიოთ ჩვენ</Text>
       <Text style={styles.sectionDescription}>
         უმაღლესი ხარისხის მედიკამენტები და სერვისი
       </Text>

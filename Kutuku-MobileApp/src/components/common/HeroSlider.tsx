@@ -18,7 +18,7 @@ interface HeroSlide {
   image: ImageSourcePropType | string;
   title: string;
   description: string;
-  buttonText: string;
+  buttonText?: string;
 }
 
 interface HeroSliderProps {
@@ -93,9 +93,11 @@ export function HeroSlider({
           </View>
 
           {/* Button */}
-          <TouchableOpacity style={styles.button}>
-            <Text style={styles.buttonText}>{item.buttonText}</Text>
-          </TouchableOpacity>
+          {item.buttonText && (
+            <TouchableOpacity style={styles.button}>
+              <Text style={styles.buttonText}>{item.buttonText}</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     );
