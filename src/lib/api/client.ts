@@ -38,7 +38,10 @@ export async function apiRequest<T>(
       path === '/auth' || path.startsWith('/auth/') ||
       path === '/promotions' || path.startsWith('/promotions/') ||
       path === '/categories' || path.startsWith('/categories/') ||
-      path === '/orders' || path.startsWith('/orders/')) {
+      path === '/orders' || path.startsWith('/orders/') ||
+      path === '/section-types' || path.startsWith('/section-types/') ||
+      path === '/home-sections' || path.startsWith('/home-sections/') ||
+      path === '/filter-fields' || path.startsWith('/filter-fields/')) {
     // Skip mock data, go directly to real API
   } else if (USE_MOCK_DATA) {
     // Use mock data for other endpoints if enabled

@@ -200,6 +200,10 @@ function mapApiProductToMedicine(p: any): Product {
     packSize: p.packSize || undefined,
     prescriptionRequired: false,
     manufacturer: p.manufacturer || '',
+    countryOfOrigin:
+      typeof p.countryOfOrigin === 'string' ? p.countryOfOrigin.trim() : '',
+    filterValues:
+      p.filterValues && typeof p.filterValues === 'object' ? p.filterValues : {},
     stockQuantity,
     lowStockThreshold: 10,
     inStock,
@@ -254,10 +258,14 @@ export class ProductServiceClass {
     return this.getProductsFiltered({ search: query || undefined, page, limit });
   }
 
-  /** ძიება + კატეგორია (ორივე ნებისმიერი კომბინაციით). სახელით, კატეგორიით, ყველაფრით. */
+  /** ძიება + მთავარი კატეგორია + Therapeutic Class */
   async getProductsFiltered(params: {
     search?: string;
     category?: string;
+    subcategory?: string;
+    filters?: Record<string, string | string[] | boolean>;
+    minPrice?: number;
+    maxPrice?: number;
     page?: number;
     limit?: number;
   }): Promise<{ data: Product[]; total: number }> {
@@ -270,6 +278,16 @@ export class ProductServiceClass {
       searchParams.set('limit', String(limit));
       if (params.search?.trim()) searchParams.set('search', params.search.trim());
       if (params.category?.trim()) searchParams.set('category', params.category.trim());
+      if (params.subcategory?.trim()) searchParams.set('subcategory', params.subcategory.trim());
+      if (params.filters && Object.keys(params.filters).length > 0) {
+        searchParams.set('filters', JSON.stringify(params.filters));
+      }
+      if (params.minPrice !== undefined) {
+        searchParams.set('minPrice', String(params.minPrice));
+      }
+      if (params.maxPrice !== undefined) {
+        searchParams.set('maxPrice', String(params.maxPrice));
+      }
       const url = `${API_CONFIG.BASE_URL}${API_CONFIG.endpoints.products.list}?${searchParams.toString()}`;
       const res = await fetch(url);
       if (!res.ok) return { data: [], total: 0 };

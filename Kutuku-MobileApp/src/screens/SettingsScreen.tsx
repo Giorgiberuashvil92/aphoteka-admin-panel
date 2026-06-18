@@ -1,506 +1,564 @@
+import { BottomNavigation } from '@/src/components/common/BottomNavigation';
 import { useCart, useFavorites } from '@/src/contexts';
+import { useTabNavigation } from '@/src/hooks/useTabNavigation';
 import { OrdersService } from '@/src/services/orders.service';
 import { UserService } from '@/src/services/user.service';
-import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import {
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const C = {
+  bg: '#FFFFFF',
+  navy: '#2A3A7A',
+  purple: '#5B5FC7',
+  lavender: '#E8EAF6',
+  text: '#1A1A2E',
+  muted: '#9CA3AF',
+  border: '#F3F4F6',
+};
 
 type SettingsScreenProps = {
   onBack: () => void;
-  onEditProfile: () => void;
   onMyOrders: () => void;
-  onAddresses: () => void;
-  onPaymentMethods: () => void;
+  onFavorites: () => void;
   onNotifications: () => void;
   onLanguage: () => void;
   onHelpSupport: () => void;
   onAbout: () => void;
-  onLogout: () => void;
-  /** ექიმის რეჟიმი — პაციენტზე წამლების დანიშვნა */
   onDoctorPrescribe?: () => void;
+  onGoToProfile: () => void;
+  isMainTab?: boolean;
 };
 
 export function SettingsScreen({
   onBack,
-  onEditProfile,
   onMyOrders,
-  onAddresses,
-  onPaymentMethods,
+  onFavorites,
   onNotifications,
   onLanguage,
   onHelpSupport,
   onAbout,
-  onLogout,
   onDoctorPrescribe,
+  onGoToProfile,
+  isMainTab = false,
 }: SettingsScreenProps) {
-  const { itemCount, clearCart } = useCart();
-  const { favoriteCount, clearFavorites } = useFavorites();
-  const [userName, setUserName] = useState('');
-  const [userEmail, setUserEmail] = useState('');
-  const [balanceBuyerUid, setBalanceBuyerUid] = useState('');
+  const insets = useSafeAreaInsets();
+  const { itemCount } = useCart();
+  const { favoriteCount } = useFavorites();
+  const tabNav = useTabNavigation();
+  const [firstName, setFirstName] = useState('');
   const [ordersCount, setOrdersCount] = useState(0);
 
-  const loadUserInfo = useCallback(async () => {
+  const loadData = useCallback(async () => {
     const fresh = await UserService.fetchProfile();
     const user = fresh ?? (await UserService.getCurrentUser());
-    if (user) {
-      setUserName(`${user.firstName} ${user.lastName}`.trim() || 'მომხმარებელი');
-      setUserEmail(user.email);
-      setBalanceBuyerUid(user.balanceBuyerUid?.trim() ?? '');
+    if (user?.firstName) {
+      setFirstName(user.firstName.trim());
     }
-  }, []);
 
-  useEffect(() => {
-    void loadUserInfo();
-  }, [loadUserInfo]);
+    const result = await OrdersService.fetchMyOrders();
+    setOrdersCount(result.ok ? result.orders.length : 0);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      void loadUserInfo();
-      let active = true;
-      (async () => {
-        const result = await OrdersService.fetchMyOrders();
-        if (!active) return;
-        if (result.ok) {
-          setOrdersCount(result.orders.length);
-        } else {
-          setOrdersCount(0);
-        }
-      })();
-      return () => {
-        active = false;
-      };
-    }, [loadUserInfo]),
+      void loadData();
+    }, [loadData]),
   );
 
-  const handleLogout = () => {
-    Alert.alert(
-      'გასვლა',
-      'დარწმუნებული ხართ რომ გსურთ გასვლა?',
-      [
-        { text: 'გაუქმება', style: 'cancel' },
-        {
-          text: 'გასვლა',
-          style: 'destructive',
-          onPress: async () => {
-            await UserService.logout();
-            clearCart();
-            onLogout();
-          },
-        },
-      ]
+  const serviceItems = [
+    { icon: 'notifications-outline' as const, label: 'შეტყობინებები', onPress: onNotifications },
+    { icon: 'language-outline' as const, label: 'ენა', value: 'ქართული', onPress: onLanguage },
+    { icon: 'help-circle-outline' as const, label: 'დახმარება', onPress: onHelpSupport },
+    { icon: 'information-circle-outline' as const, label: 'აპლიკაციის შესახებ', onPress: onAbout },
+  ];
+
+  if (isMainTab) {
+    return (
+      <View style={[styles.cabinetContainer, { paddingTop: insets.top }]}>
+        <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[
+            styles.cabinetScrollContent,
+            { paddingBottom: insets.bottom + 88 },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.cabinetIntro}>
+            <Text style={styles.cabinetGreeting}>
+              {firstName ? `გამარჯობა, ${firstName}` : 'გამარჯობა'}
+            </Text>
+            <Text style={styles.cabinetSub}>
+              შეკვეთები, კალათა და სერვისები ერთ ადგილას
+            </Text>
+          </View>
+
+          <View style={styles.statsRow}>
+            <View style={styles.statChip}>
+              <Text style={styles.statChipValue}>{ordersCount}</Text>
+              <Text style={styles.statChipLabel}>შეკვეთა</Text>
+            </View>
+            <View style={styles.statChip}>
+              <Text style={styles.statChipValue}>{itemCount}</Text>
+              <Text style={styles.statChipLabel}>კალათა</Text>
+            </View>
+            <View style={styles.statChip}>
+              <Text style={styles.statChipValue}>{favoriteCount}</Text>
+              <Text style={styles.statChipLabel}>ფავორიტი</Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={styles.ordersCard}
+            onPress={onMyOrders}
+            activeOpacity={0.88}
+          >
+            <View style={styles.ordersCardIcon}>
+              <Ionicons name="receipt-outline" size={22} color={C.navy} />
+            </View>
+            <View style={styles.ordersCardBody}>
+              <Text style={styles.ordersCardTitle}>ჩემი შეკვეთები</Text>
+              <Text style={styles.ordersCardSub}>
+                {ordersCount > 0
+                  ? `${ordersCount} შეკვეთა ისტორიაში`
+                  : 'შეკვეთების ისტორია ცარიელია'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={C.muted} />
+          </TouchableOpacity>
+
+          <Text style={styles.sectionTitle}>სწრაფი წვდომა</Text>
+          <View style={styles.quickGrid}>
+            <TouchableOpacity
+              style={styles.quickCard}
+              onPress={tabNav.onCartPress}
+              activeOpacity={0.85}
+            >
+              <View style={styles.quickCardIcon}>
+                <Ionicons name="cart-outline" size={20} color={C.navy} />
+              </View>
+              <Text style={styles.quickCardTitle}>კალათა</Text>
+              <Text style={styles.quickCardMeta}>
+                {itemCount > 0 ? `${itemCount} პროდუქტი` : 'ცარიელი'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickCard}
+              onPress={onFavorites}
+              activeOpacity={0.85}
+            >
+              <View style={styles.quickCardIcon}>
+                <Ionicons name="heart-outline" size={20} color={C.purple} />
+              </View>
+              <Text style={styles.quickCardTitle}>ფავორიტები</Text>
+              <Text style={styles.quickCardMeta}>
+                {favoriteCount > 0 ? `${favoriteCount} პროდუქტი` : 'ცარიელი'}
+              </Text>
+            </TouchableOpacity>
+
+            {onDoctorPrescribe ? (
+              <TouchableOpacity
+                style={styles.quickCard}
+                onPress={onDoctorPrescribe}
+                activeOpacity={0.85}
+              >
+                <View style={styles.quickCardIcon}>
+                  <Ionicons name="medkit-outline" size={20} color={C.navy} />
+                </View>
+                <Text style={styles.quickCardTitle}>ექიმის რეჟიმი</Text>
+                <Text style={styles.quickCardMeta}>დანიშნულება</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            <TouchableOpacity
+              style={styles.quickCard}
+              onPress={onNotifications}
+              activeOpacity={0.85}
+            >
+              <View style={styles.quickCardIcon}>
+                <Ionicons name="notifications-outline" size={20} color={C.navy} />
+              </View>
+              <Text style={styles.quickCardTitle}>შეტყობინებები</Text>
+              <Text style={styles.quickCardMeta}>ცენტრი</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.sectionTitle}>სერვისები</Text>
+          <View style={styles.serviceCard}>
+            {serviceItems.map((item, index) => (
+              <TouchableOpacity
+                key={item.label}
+                style={[
+                  styles.serviceItem,
+                  index < serviceItems.length - 1 && styles.serviceItemBorder,
+                ]}
+                onPress={item.onPress}
+                activeOpacity={0.8}
+              >
+                <View style={styles.serviceItemLeft}>
+                  <Ionicons name={item.icon} size={18} color={C.navy} />
+                  <Text style={styles.serviceItemLabel}>{item.label}</Text>
+                </View>
+                <View style={styles.serviceItemRight}>
+                  {item.value ? (
+                    <Text style={styles.serviceItemValue}>{item.value}</Text>
+                  ) : null}
+                  <Ionicons name="chevron-forward" size={16} color={C.muted} />
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <TouchableOpacity
+            style={styles.profileCard}
+            onPress={onGoToProfile}
+            activeOpacity={0.85}
+          >
+            <View style={styles.profileCardIcon}>
+              <Ionicons name="person-circle-outline" size={22} color={C.purple} />
+            </View>
+            <View style={styles.profileCardBody}>
+              <Text style={styles.profileCardTitle}>პროფილი და ანგარიში</Text>
+              <Text style={styles.profileCardSub}>
+                პირადი მონაცემები, მისამართები, გადახდა
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={C.muted} />
+          </TouchableOpacity>
+
+          <Text style={styles.versionText}>ვერსია 1.0.0</Text>
+        </ScrollView>
+
+        <BottomNavigation
+          activeTab="cabinet"
+          onHomePress={tabNav.onHomePress}
+          onCategoriesPress={tabNav.onCategoriesPress}
+          onCabinetPress={undefined}
+          onCartPress={tabNav.onCartPress}
+          onProfilePress={tabNav.onProfilePress}
+          cartCount={tabNav.cartCount}
+        />
+      </View>
     );
-  };
-
-  type MenuItem = {
-    icon: string;
-    label: string;
-    onPress: () => void;
-    badge?: string;
-    value?: string;
-  };
-
-  type MenuSection = {
-    title: string;
-    items: MenuItem[];
-  };
-
-  const menuSections: MenuSection[] = useMemo(
-    () => [
-    {
-      title: 'ანგარიში',
-      items: [
-        {
-          icon: 'person-outline',
-          label: 'პროფილის რედაქტირება',
-          onPress: onEditProfile,
-        },
-        {
-          icon: 'receipt-outline',
-          label: 'ჩემი შეკვეთები',
-          onPress: onMyOrders,
-          ...(ordersCount > 0 ? { badge: String(ordersCount) } : {}),
-        },
-        {
-          icon: 'location-outline',
-          label: 'მისამართები',
-          onPress: onAddresses,
-        },
-        {
-          icon: 'card-outline',
-          label: 'გადახდის მეთოდები',
-          onPress: onPaymentMethods,
-        },
-        ...(onDoctorPrescribe
-          ? [
-              {
-                icon: 'medkit-outline' as const,
-                label: 'ექიმის რეჟიმი (დანიშნულებები)',
-                onPress: onDoctorPrescribe,
-              },
-            ]
-          : []),
-      ],
-    },
-    {
-      title: 'პარამეტრები',
-      items: [
-        {
-          icon: 'notifications-outline',
-          label: 'შეტყობინებები',
-          onPress: onNotifications,
-        },
-        {
-          icon: 'language-outline',
-          label: 'ენა',
-          onPress: onLanguage,
-          value: 'ქართული',
-        },
-      ],
-    },
-    {
-      title: 'დახმარება',
-      items: [
-        {
-          icon: 'help-circle-outline',
-          label: 'დახმარება და მხარდაჭერა',
-          onPress: onHelpSupport,
-        },
-        {
-          icon: 'information-circle-outline',
-          label: 'აპლიკაციის შესახებ',
-          onPress: onAbout,
-        },
-      ],
-    },
-  ],
-    [onMyOrders, onDoctorPrescribe, onEditProfile, onAddresses, onPaymentMethods, onNotifications, onLanguage, onHelpSupport, onAbout, ordersCount]
-  );
+  }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={theme.colors.white} />
-      
-      {/* Header */}
+    <View style={[styles.settingsContainer, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F8F9FC" />
+
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
-          <Ionicons name="chevron-back" size={24} color={theme.colors.text.primary} />
+        <TouchableOpacity style={styles.headerSide} onPress={onBack}>
+          <Ionicons name="chevron-back" size={22} color="#1F2021" />
         </TouchableOpacity>
-        <Text style={styles.title}>პარამეტრები</Text>
-        <View style={styles.backButton} />
+        <Text style={styles.headerTitle}>პარამეტრები</Text>
+        <View style={styles.headerSide} />
       </View>
 
-      <ScrollView 
-        style={styles.scrollView}
+      <ScrollView
+        style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Profile Card */}
-        <TouchableOpacity style={styles.profileCard} onPress={onEditProfile}>
-          <View style={styles.profileAvatar}>
-            <Text style={styles.profileAvatarText}>
-              {userName.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}
-            </Text>
-          </View>
-          <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{userName || 'მომხმარებელი'}</Text>
-            <Text style={styles.profileEmail}>{userEmail || 'email@example.com'}</Text>
-            {balanceBuyerUid ? (
-              <Text style={styles.balanceUid} selectable>
-                Balance: {balanceBuyerUid}
-              </Text>
-            ) : null}
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={theme.colors.text.tertiary} />
-        </TouchableOpacity>
-
-        {/* Stats Cards */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <View style={styles.statIconContainer}>
-              <Ionicons name="cart" size={24} color={theme.colors.primary} />
-            </View>
-            <Text style={styles.statValue}>{itemCount}</Text>
-            <Text style={styles.statLabel}>კალათაში</Text>
-          </View>
-          <View style={styles.statCard}>
-            <View style={styles.statIconContainer}>
-              <Ionicons name="heart" size={24} color={theme.colors.error} />
-            </View>
-            <Text style={styles.statValue}>{favoriteCount}</Text>
-            <Text style={styles.statLabel}>ფავორიტები</Text>
-          </View>
-          <View style={styles.statCard}>
-            <View style={styles.statIconContainer}>
-              <Ionicons name="receipt" size={24} color={theme.colors.success} />
-            </View>
-            <Text style={styles.statValue}>{ordersCount}</Text>
-            <Text style={styles.statLabel}>შეკვეთები</Text>
-          </View>
+        <View style={styles.serviceList}>
+          {serviceItems.map((item) => (
+            <TouchableOpacity
+              key={item.label}
+              style={styles.serviceRow}
+              onPress={item.onPress}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.serviceRowLabel}>{item.label}</Text>
+              <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+            </TouchableOpacity>
+          ))}
         </View>
 
-        {/* Menu Sections */}
-        {menuSections.map((section, sectionIndex) => (
-          <View key={sectionIndex} style={styles.section}>
-            <Text style={styles.sectionTitle}>{section.title}</Text>
-            <View style={styles.menuList}>
-              {section.items.map((item, itemIndex) => (
-                <TouchableOpacity
-                  key={itemIndex}
-                  style={[
-                    styles.menuItem,
-                    itemIndex === section.items.length - 1 && styles.menuItemLast,
-                  ]}
-                  onPress={item.onPress}
-                >
-                  <View style={styles.menuItemLeft}>
-                    <View style={styles.menuIconContainer}>
-                      <Ionicons name={item.icon as any} size={22} color={theme.colors.primary} />
-                    </View>
-                    <Text style={styles.menuItemLabel}>{item.label}</Text>
-                  </View>
-                  <View style={styles.menuItemRight}>
-                    {item.badge && (
-                      <View style={styles.badge}>
-                        <Text style={styles.badgeText}>{item.badge}</Text>
-                      </View>
-                    )}
-                    {item.value && (
-                      <Text style={styles.menuItemValue}>{item.value}</Text>
-                    )}
-                    <Ionicons name="chevron-forward" size={20} color={theme.colors.text.tertiary} />
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        ))}
-
-        {/* Logout Button */}
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={22} color={theme.colors.error} />
-          <Text style={styles.logoutButtonText}>გასვლა</Text>
-        </TouchableOpacity>
-
-        {/* App Version */}
         <Text style={styles.versionText}>ვერსია 1.0.0</Text>
-
-        <View style={{ height: 40 }} />
+        <View style={{ height: 12 }} />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  cabinetContainer: {
     flex: 1,
-    backgroundColor: theme.colors.gray[50],
+    backgroundColor: C.bg,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  settingsContainer: {
+    flex: 1,
+    backgroundColor: '#F8F9FC',
+  },
+  scroll: { flex: 1 },
+  cabinetScrollContent: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: theme.colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.gray[100],
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-  },
-  scrollView: {
-    flex: 1,
+    paddingTop: 8,
   },
   scrollContent: {
-    paddingTop: 16,
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
+  cabinetIntro: {
+    marginBottom: 16,
+    paddingTop: 4,
+  },
+  cabinetGreeting: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: C.text,
+    marginBottom: 4,
+  },
+  cabinetSub: {
+    fontSize: 14,
+    fontWeight: '400',
+    color: C.muted,
+    lineHeight: 20,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  statChip: {
+    flex: 1,
+    backgroundColor: C.lavender,
+    borderRadius: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+  },
+  statChipValue: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: C.purple,
+    marginBottom: 2,
+  },
+  statChipLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: C.navy,
+  },
+  ordersCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: C.bg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 14,
+    marginBottom: 20,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#2A3A7A',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+      },
+      android: { elevation: 2 },
+    }),
+  },
+  ordersCardIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: C.lavender,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ordersCardBody: {
+    flex: 1,
+  },
+  ordersCardTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: C.text,
+    marginBottom: 2,
+  },
+  ordersCardSub: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: C.muted,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: C.navy,
+    marginBottom: 10,
+  },
+  quickGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 20,
+  },
+  quickCard: {
+    width: '47.5%',
+    backgroundColor: C.bg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 14,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#2A3A7A',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 6,
+      },
+      android: { elevation: 1 },
+    }),
+  },
+  quickCardIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: C.lavender,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  quickCardTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: C.text,
+    marginBottom: 2,
+  },
+  quickCardMeta: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: C.purple,
+  },
+  serviceCard: {
+    backgroundColor: C.bg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginBottom: 16,
+    overflow: 'hidden',
+  },
+  serviceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  serviceItemBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  serviceItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  serviceItemLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: C.text,
+  },
+  serviceItemRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  serviceItemValue: {
+    fontSize: 13,
+    color: C.muted,
   },
   profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.white,
-    marginHorizontal: 16,
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  profileAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: theme.colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  profileAvatarText: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: theme.colors.white,
-  },
-  profileInfo: {
-    flex: 1,
-  },
-  profileName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-    marginBottom: 4,
-  },
-  profileEmail: {
-    fontSize: 14,
-    color: theme.colors.text.secondary,
-  },
-  balanceUid: {
-    marginTop: 6,
-    fontSize: 11,
-    color: theme.colors.text.tertiary,
-  },
-  statsContainer: {
-    flexDirection: 'row',
     gap: 12,
-    paddingHorizontal: 16,
-    marginBottom: 24,
+    backgroundColor: C.lavender,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
   },
-  statCard: {
-    flex: 1,
-    backgroundColor: theme.colors.white,
-    padding: 16,
+  profileCardIcon: {
+    width: 44,
+    height: 44,
     borderRadius: 12,
+    backgroundColor: C.bg,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  statIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: theme.colors.gray[50],
     justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
   },
-  statValue: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
-    marginBottom: 4,
+  profileCardBody: {
+    flex: 1,
   },
-  statLabel: {
-    fontSize: 12,
-    color: theme.colors.text.secondary,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
+  profileCardTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: theme.colors.text.secondary,
-    marginBottom: 12,
-    paddingHorizontal: 16,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    color: C.navy,
+    marginBottom: 2,
   },
-  menuList: {
-    backgroundColor: theme.colors.white,
-    marginHorizontal: 16,
-    borderRadius: 12,
-    overflow: 'hidden',
+  profileCardSub: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: C.muted,
+    lineHeight: 17,
   },
-  menuItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.gray[100],
-  },
-  menuItemLast: {
-    borderBottomWidth: 0,
-  },
-  menuItemLeft: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  menuIconContainer: {
+  headerSide: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: theme.colors.primary + '15',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  menuItemLabel: {
-    fontSize: 16,
-    color: theme.colors.text.primary,
-    fontWeight: '500',
-  },
-  menuItemRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  badge: {
-    backgroundColor: theme.colors.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-    minWidth: 20,
-    alignItems: 'center',
-  },
-  badgeText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: theme.colors.white,
-  },
-  menuItemValue: {
-    fontSize: 14,
-    color: theme.colors.text.secondary,
-  },
-  logoutButton: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: theme.colors.white,
-    marginHorizontal: 16,
-    paddingVertical: 16,
-    borderRadius: 12,
+  },
+  headerTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1F2021',
+  },
+  serviceList: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: theme.colors.error + '30',
+    borderColor: '#E5E7EB',
     marginBottom: 16,
+    overflow: 'hidden',
   },
-  logoutButtonText: {
-    fontSize: 16,
+  serviceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  serviceRowLabel: {
+    fontSize: 15,
     fontWeight: '600',
-    color: theme.colors.error,
+    color: '#1F2021',
   },
   versionText: {
     fontSize: 12,
-    color: theme.colors.text.tertiary,
+    color: C.muted,
     textAlign: 'center',
-    marginBottom: 8,
+    marginTop: 4,
   },
 });

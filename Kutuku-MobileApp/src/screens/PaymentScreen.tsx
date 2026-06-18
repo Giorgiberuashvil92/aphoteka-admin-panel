@@ -4,11 +4,7 @@ import {
   BUILTIN_PAYMENT_METHODS,
 } from '@/src/config/paymentMethods.config';
 import { useCart } from '@/src/contexts';
-import {
-  DeliveryAddressService,
-  formatShippingAddressLine,
-  type DeliveryAddress,
-} from '@/src/services/deliveryAddress.service';
+import type { SelectedDelivery } from '@/src/services/delivery.service';
 import { OrdersService } from '@/src/services/orders.service';
 import {
   PaymentService,
@@ -17,6 +13,7 @@ import {
 import { UserService } from '@/src/services/user.service';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useRef, useState } from 'react';
 import {
@@ -92,12 +89,7 @@ type PaymentScreenProps = {
   onOrderPlaced: (orderId: string, meta?: PaymentOrderPlacedMeta) => void;
   /** JWT არ არის — გადასვლა შესვლაზე */
   onLoginRequired: () => void;
-  onEditAddress: () => void;
   onAddPaymentMethod: () => void;
-  /**
-   * კალათიდან დევ-ნაკადი: BOG WebView-ის ნაცვლად სერვერზე სტატიკური `completed` + Balance Sale.
-   * ბექი: `balanceSaleTestPutEnabled()` უნდა იყოს ჩართული.
-   */
   bogDevSimulate?: boolean;
 };
 
@@ -105,7 +97,6 @@ export function PaymentScreen({
   onBack,
   onOrderPlaced,
   onLoginRequired,
-  onEditAddress,
   onAddPaymentMethod,
   bogDevSimulate = false,
 }: PaymentScreenProps) {
@@ -116,15 +107,12 @@ export function PaymentScreen({
   const [paymentRows, setPaymentRows] = useState<PaymentMethodRow[]>([]);
   const [paymentMethodsLoading, setPaymentMethodsLoading] = useState(true);
   const [placingOrder, setPlacingOrder] = useState(false);
-  const [delivery, setDelivery] = useState<DeliveryAddress | null>(null);
-  /** BOG გადახდის გვერდი მოდალში (WebView) */
+  const [selectedDelivery, setSelectedDelivery] = useState<SelectedDelivery | null>(null);
   const [bogCheckoutUrl, setBogCheckoutUrl] = useState<string | null>(null);
   const [bogWebLoading, setBogWebLoading] = useState(true);
   const [bogVerifying, setBogVerifying] = useState(false);
-  /** BOG დადასტურების შემდეგ — ღილაკით გაგრძელება (order-success) */
   const [bogSuccessOrderId, setBogSuccessOrderId] = useState<string | null>(null);
   const bogOrderIdRef = useRef<string | null>(null);
-  /** ორმაგი navigation-ისგან დასაცავად */
   const bogFinalizeOnceRef = useRef(false);
 
   const takeBogSessionOnce = useCallback((): string | null => {
@@ -214,7 +202,9 @@ export function PaymentScreen({
   );
 
   const subtotal = totalPrice;
-  const shipping = 5.0;
+  const shipping = selectedDelivery
+    ? selectedDelivery.selectedPrice.amount + selectedDelivery.provider.serviceFee
+    : 5.0;
   const total = subtotal + shipping;
 
   useFocusEffect(
@@ -223,13 +213,25 @@ export function PaymentScreen({
       setPaymentMethodsLoading(true);
       void (async () => {
         try {
-          const [del, rows] = await Promise.all([
-            DeliveryAddressService.get(),
+          const [rows, deliveryJson] = await Promise.all([
             PaymentService.getPaymentRows(),
+            AsyncStorage.getItem('selectedDelivery'),
           ]);
           if (cancelled) return;
-          setDelivery(del);
           setPaymentRows(rows);
+          
+          if (deliveryJson) {
+            try {
+              const parsedDelivery: SelectedDelivery = JSON.parse(deliveryJson);
+              setSelectedDelivery(parsedDelivery);
+            } catch (error) {
+              console.error('Error parsing selected delivery:', error);
+              setSelectedDelivery(null);
+            }
+          } else {
+            setSelectedDelivery(null);
+          }
+          
           setSelectedPayment((prev) =>
             rows.some((r) => r.id === prev) ? prev : DEFAULT_PAYMENT_METHOD_ID,
           );
@@ -270,10 +272,6 @@ export function PaymentScreen({
       return;
     }
 
-    const latest = await DeliveryAddressService.get();
-    const line = latest ? formatShippingAddressLine(latest) : '';
-    const phoneForOrder = latest?.phone.replace(/\s/g, '').trim() ?? '';
-
     for (const item of cartItems) {
       if (!MONGO_OBJECT_ID_RE.test(String(item.id).trim())) {
         Alert.alert(
@@ -294,6 +292,13 @@ export function PaymentScreen({
 
     setPlacingOrder(true);
     try {
+      // Get user phone for delivery
+      const [currentUser, userPhoneFromStorage] = await Promise.all([
+        UserService.getCurrentUser().catch(() => null),
+        AsyncStorage.getItem('userPhone').catch(() => null),
+      ]);
+      const userPhone = currentUser?.phoneNumber || userPhoneFromStorage || '';
+
       const result = await OrdersService.createOrder({
         items: cartItems.map((item) => ({
           productId: String(item.id).trim(),
@@ -303,9 +308,18 @@ export function PaymentScreen({
           imageUrl: item.image?.trim() || undefined,
           packSize: item.packageSize,
         })),
-        shippingAddress: line,
-        phoneNumber: phoneForOrder,
-        comment: `${paymentNote}; მიწოდების საფასური (შეფასება აპში): ${shipping.toFixed(2)}₾; ჯამი აპში (პროდუქტები+მიწოდება): ${total.toFixed(2)}₾`,
+        shippingAddress: '',
+        phoneNumber: userPhone,
+        comment: `${paymentNote}; მიტანა: ${selectedDelivery ? `${selectedDelivery.provider.providerName} (${selectedDelivery.selectedPrice.deliverySpeedName})` : 'სტანდარტული'} — ${shipping.toFixed(2)}₾; ჯამი (პროდუქტები+მიტანა): ${total.toFixed(2)}₾`,
+        deliveryProvider: selectedDelivery ? {
+          providerId: selectedDelivery.provider.providerId,
+          providerName: selectedDelivery.provider.providerName,
+          providerLogoUrl: selectedDelivery.provider.providerLogoUrl,
+        } : undefined,
+        deliveryAddress: selectedDelivery ? selectedDelivery.toAddress : undefined,
+        deliveryPrice: selectedDelivery ? selectedDelivery.selectedPrice.amount : undefined,
+        deliveryServiceFee: selectedDelivery ? selectedDelivery.provider.serviceFee : undefined,
+        deliverySpeed: selectedDelivery ? selectedDelivery.selectedPrice.deliverySpeedName : undefined,
       });
 
       if (!result.ok) {
@@ -411,52 +425,7 @@ export function PaymentScreen({
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Address Card */}
-        <View style={styles.card}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionTitleRow}>
-              <Ionicons name="location-outline" size={20} color={theme.colors.primary} />
-              <Text style={styles.sectionTitle}>მიწოდების მისამართი</Text>
-            </View>
-            <TouchableOpacity onPress={onEditAddress} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={styles.editButton}>ცვლილება</Text>
-            </TouchableOpacity>
-          </View>
-          <View
-            style={[
-              styles.addressCard,
-              !delivery && styles.addressCardWarning,
-            ]}
-          >
-            <View style={styles.addressIcon}>
-              <Ionicons name="home-outline" size={26} color={theme.colors.primary} />
-            </View>
-            <View style={styles.addressInfo}>
-              {delivery ? (
-                <>
-                  <Text style={styles.addressType}>{delivery.label}</Text>
-                  <Text style={styles.addressStreet}>{delivery.street}</Text>
-                  <Text style={styles.addressCity}>
-                    {delivery.city}
-                    {delivery.building ? ` · ${delivery.building}` : ''}
-                    {delivery.floor ? ` · ${delivery.floor}` : ''}
-                  </Text>
-                  <Text style={styles.addressPhone}>ტელ: {delivery.phone}</Text>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.addressType}>მისამართი არ არის შენახული</Text>
-                  <Text style={styles.addressStreet}>
-                    დააჭირეთ „ცვლილება“ — შეავსეთ ან შეინახეთ მისამართი (არასავალდებულოა).
-                  </Text>
-                </>
-              )}
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.colors.gray[500]} />
-          </View>
-        </View>
 
-        {/* Products Card */}
         <View style={styles.card}>
           <View style={styles.sectionTitleRow}>
             <Ionicons name="bag-outline" size={20} color={theme.colors.primary} />
@@ -586,6 +555,52 @@ export function PaymentScreen({
             </>
           )}
         </View>
+
+        {/* Delivery Info Card */}
+        {selectedDelivery && (
+          <View style={styles.card}>
+            <View style={styles.sectionTitleRow}>
+              <Ionicons name="cube-outline" size={20} color={theme.colors.primary} />
+              <Text style={styles.sectionTitle}>მიტანის ინფორმაცია</Text>
+            </View>
+            <View style={styles.deliveryInfoContainer}>
+              <Image
+                source={{ uri: selectedDelivery.provider.providerLogoUrl }}
+                style={styles.deliveryProviderLogo}
+                resizeMode="contain"
+              />
+              <View style={styles.deliveryDetails}>
+                <Text style={styles.deliveryProviderName}>
+                  {selectedDelivery.provider.providerName}
+                </Text>
+                <View style={styles.deliveryMetaRow}>
+                  <Ionicons
+                    name={
+                      selectedDelivery.selectedPrice.deliverySpeedName.includes('min')
+                        ? 'flash'
+                        : 'time-outline'
+                    }
+                    size={14}
+                    color={
+                      selectedDelivery.selectedPrice.deliverySpeedName.includes('min')
+                        ? '#FF9500'
+                        : '#666'
+                    }
+                  />
+                  <Text style={styles.deliveryMetaText}>
+                    {selectedDelivery.selectedPrice.deliverySpeedName}
+                  </Text>
+                </View>
+                <Text style={styles.deliveryAddress}>
+                  {selectedDelivery.toAddress.streetName}
+                </Text>
+                <Text style={styles.deliveryDistance}>
+                  მანძილი: {selectedDelivery.distance.toFixed(2)} კმ
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
 
         {/* Promo Card */}
         <View style={styles.card}>
@@ -816,52 +831,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.colors.primary,
     fontWeight: '600',
-  },
-  addressCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.gray[50],
-    borderRadius: theme.borderRadius.md,
-    padding: 14,
-    gap: 14,
-    borderWidth: 1,
-    borderColor: theme.colors.gray[300],
-  },
-  addressCardWarning: {
-    borderColor: theme.colors.primary,
-    backgroundColor: theme.colors.primary + '0F',
-  },
-  addressIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: theme.borderRadius.md,
-    backgroundColor: theme.colors.purple[100],
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  addressInfo: {
-    flex: 1,
-  },
-  addressType: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-    marginBottom: 4,
-  },
-  addressStreet: {
-    fontSize: 14,
-    color: theme.colors.text.secondary,
-    marginBottom: 2,
-  },
-  addressCity: {
-    fontSize: 13,
-    color: theme.colors.text.secondary,
-  },
-  addressPhone: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-    marginTop: 4,
   },
   countBadge: {
     backgroundColor: theme.colors.primary,
@@ -1217,5 +1186,47 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: theme.colors.white,
+  },
+  deliveryInfoContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingTop: 12,
+  },
+  deliveryProviderLogo: {
+    width: 56,
+    height: 56,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.gray[100],
+  },
+  deliveryDetails: {
+    flex: 1,
+  },
+  deliveryProviderName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    marginBottom: 6,
+  },
+  deliveryMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  deliveryMetaText: {
+    fontSize: 13,
+    color: theme.colors.text.secondary,
+    fontWeight: '500',
+  },
+  deliveryAddress: {
+    fontSize: 13,
+    color: theme.colors.text.secondary,
+    marginTop: 4,
+  },
+  deliveryDistance: {
+    fontSize: 12,
+    color: theme.colors.text.tertiary,
+    marginTop: 2,
   },
 });

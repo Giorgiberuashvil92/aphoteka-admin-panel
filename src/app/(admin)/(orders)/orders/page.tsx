@@ -50,6 +50,7 @@ function OrdersPageContent() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [warehouseOptions, setWarehouseOptions] = useState<Warehouse[]>([]);
   const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [sendingToQuickshipper, setSendingToQuickshipper] = useState<string | null>(null);
 
   const warehouseNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -84,7 +85,9 @@ function OrdersPageContent() {
       : ordersApi.getAll();
     loader
       .then((response) => {
-        if (!cancelled) setOrders(response.data ?? []);
+        if (!cancelled) {
+          setOrders(response.data ?? []);
+        }
       })
       .catch((err: unknown) => {
         if (!cancelled) {
@@ -124,6 +127,55 @@ function OrdersPageContent() {
       setAssigningId(null);
     }
   }, []);
+
+  const handleSendToQuickshipper = useCallback(async (orderId: string) => {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+
+    // Validation
+    if (!order.deliveryProvider) {
+      window.alert("შეკვეთას არ აქვს Quickshipper მიწოდების ინფორმაცია");
+      return;
+    }
+
+    if (order.quickshipperOrderId) {
+      window.alert("შეკვეთა უკვე გაგზავნილია Quickshipper-ზე");
+      return;
+    }
+
+    if (order.status !== OrderStatus.CONFIRMED) {
+      window.alert("შეკვეთა უნდა იყოს 'დადასტურებული' სტატუსში");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `გსურთ შეკვეთის გაგზავნა Quickshipper-ზე?\n\nპროვაიდერი: ${order.deliveryProvider.providerName}\nღირებულება: ${order.deliveryPrice}₾ + ${order.deliveryServiceFee}₾`
+    );
+
+    if (!confirmed) return;
+
+    setSendingToQuickshipper(orderId);
+    try {
+      await ordersApi.sendToQuickshipper(orderId);
+      // Reload orders to get updated data with tracking ID
+      const loader = warehouseId
+        ? ordersApi.getAdminByWarehouse(warehouseId)
+        : ordersApi.getAll();
+      const response = await loader;
+      setOrders(response.data ?? []);
+      window.alert("შეკვეთა წარმატებით გაიგზავნა Quickshipper-ზე!");
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === "object" && "data" in err
+          ? JSON.stringify((err as { data?: unknown }).data)
+          : err instanceof Error
+            ? err.message
+            : "Quickshipper-ზე გაგზავნა ვერ მოხერხდა";
+      window.alert("შეცდომა: " + msg);
+    } finally {
+      setSendingToQuickshipper(null);
+    }
+  }, [orders, warehouseId]);
 
   const filteredOrders = orders.filter((order) => {
     const q = searchTerm.toLowerCase();
@@ -280,8 +332,13 @@ function OrdersPageContent() {
                       >
                         {order.id}
                       </div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">
-                        {order.items.length} პოზიცია
+                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                        <span>{order.items.length} პოზიცია</span>
+                        {order.deliveryProvider ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                            🚚 Quickshipper
+                          </span>
+                        ) : null}
                       </div>
                       <div
                         className="mt-1 line-clamp-2 max-w-[min(100%,320px)] text-xs leading-snug text-gray-600 dark:text-gray-300"
@@ -380,14 +437,31 @@ function OrdersPageContent() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <Link
-                        href={`/orders/${order.id}`}
-                        className="inline-flex items-center gap-1 rounded p-1 text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-                        title="ნახვა"
-                      >
-                        <EyeIcon className="h-4 w-4" />
-                        <span className="text-sm">ნახვა</span>
-                      </Link>
+                      <div className="flex items-center justify-end gap-2">
+                        {order.deliveryProvider && !order.quickshipperOrderId ? (
+                          <button
+                            type="button"
+                            onClick={() => handleSendToQuickshipper(order.id)}
+                            disabled={sendingToQuickshipper === order.id || order.status !== OrderStatus.CONFIRMED}
+                            className="inline-flex items-center gap-1 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                            title={order.status !== OrderStatus.CONFIRMED ? "შეკვეთა უნდა იყოს დადასტურებული" : "გაგზავნა Quickshipper-ზე"}
+                          >
+                            {sendingToQuickshipper === order.id ? "გაგზავნა..." : "🚚 გაგზავნა"}
+                          </button>
+                        ) : order.quickshipperOrderId ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200" title={`Tracking: ${order.quickshipperOrderId}`}>
+                            ✓ გაგზავნილია
+                          </span>
+                        ) : null}
+                        <Link
+                          href={`/orders/${order.id}`}
+                          className="inline-flex items-center gap-1 rounded p-1 text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+                          title="ნახვა"
+                        >
+                          <EyeIcon className="h-4 w-4" />
+                          <span className="text-sm">ნახვა</span>
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                   );

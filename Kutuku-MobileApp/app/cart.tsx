@@ -8,8 +8,8 @@ export default function Cart() {
     <CartScreen
       onBack={() => router.back()}
       onCheckout={() => {
-        console.log('Checkout pressed');
-        router.push('/payment' as any);
+        // Go to delivery address selection first
+        router.push('/delivery-address' as any);
       }}
       onDevBogSimulateToPayment={
         typeof __DEV__ !== 'undefined' && __DEV__
@@ -21,24 +21,7 @@ export default function Cart() {
           : undefined
       }
       onSearch={() => {
-        console.log('Search pressed');
         router.push('/search' as any);
-      }}
-      onHomePress={() => {
-        console.log('Home pressed');
-        router.push('/home' as any);
-      }}
-      onWishlistPress={() => {
-        console.log('Wishlist pressed');
-        router.push('/favorite' as any);
-      }}
-      onCategoriesPress={() => {
-        console.log('Categories pressed');
-        router.push('/category' as any);
-      }}
-      onProfilePress={() => {
-        console.log('Profile pressed');
-        router.push('/settings' as any);
       }}
     />
   );

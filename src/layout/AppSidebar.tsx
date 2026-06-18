@@ -124,7 +124,12 @@ const othersItems: NavItem[] = [
   {
     icon: <BoxCubeIcon />,
     name: "მობილური აპლიკაცია",
-    path: "/mobile-app",
+    subItems: [
+      { name: "სექციის ტიპები", path: "/section-types", pro: false },
+      { name: "ფილტრები", path: "/filters", pro: false },
+      { name: "მთავარი გვერდის სექციები", path: "/home-sections", pro: false },
+      { name: "პარამეტრები", path: "/mobile-app", pro: false },
+    ],
   },
 ];
 

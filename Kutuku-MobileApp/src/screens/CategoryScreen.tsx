@@ -1,41 +1,29 @@
-import { AversiHeader } from '@/src/components/common/AversiHeader';
 import { BottomNavigation } from '@/src/components/common/BottomNavigation';
+import { CategoryFilterModal } from '@/src/components/common/CategoryFilterModal';
+import { MAIN_CATEGORY_API_NAMES, type MainCategoryType } from '@/src/components/common/MainCategoryCard';
 import { CategoryService } from '@/src/services/category.service';
-import type { CategoryItem } from '@/src/services/category.service';
+import type { CategoryItem, SubcategoryItem } from '@/src/services/category.service';
 import { theme } from '@/src/theme';
-import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  ImageBackground,
 } from 'react-native';
+import { useTabNavigation } from '@/src/hooks/useTabNavigation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type CategoryScreenProps = {
-  onSearch: () => void;
-  onCategoryPress: (categoryName: string) => void;
+  onCategoryPress: (categoryName: string, subcategories?: string[]) => void;
   onHomePress: () => void;
-  onMyOrderPress: () => void;
-  onFavoritePress?: () => void;
-  onProfilePress?: () => void;
-  onCartPress?: () => void;
+  initialMainCategory?: MainCategoryType;
 };
 
-const CATEGORY_ACCENTS = [
-  theme.colors.purple[100],
-  '#EAF2FF',
-  '#EFFFF4',
-  '#FFF4E8',
-  '#F6EEFF',
-];
-
-/** DB-ში შეცდომით გაორმაგებული სახელი — ეკრანზე გამოსაჩენად */
 function displayCategoryName(raw: string): string {
   const t = raw.trim();
   if (!t) return '—';
@@ -58,32 +46,22 @@ function dedupeCategories(list: CategoryItem[]): CategoryItem[] {
   return out;
 }
 
-function getCategoryIcon(name: string): keyof typeof Ionicons.glyphMap {
-  const n = name.toLowerCase();
-  if (n.includes('ვიტამ')) return 'nutrition-outline';
-  if (n.includes('ანტისეპ') || n.includes('სეპტ')) return 'medkit-outline';
-  if (n.includes('ბავშვ')) return 'happy-outline';
-  if (n.includes('ბრენ') || n.includes('გერმან')) return 'ribbon-outline';
-  if (n.includes('კოსმეტ')) return 'sparkles-outline';
-  if (n.includes('აქსესუარ')) return 'bandage-outline';
-  return 'grid-outline';
-}
-
 export function CategoryScreen({
-  onSearch,
   onCategoryPress,
   onHomePress,
-  onMyOrderPress,
-  onFavoritePress,
-  onProfilePress,
-  onCartPress,
+  initialMainCategory,
 }: CategoryScreenProps) {
   const insets = useSafeAreaInsets();
+  const tabNav = useTabNavigation();
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedCategory, setSelectedCategory] = useState<CategoryItem | null>(null);
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [subcategories, setSubcategories] = useState<SubcategoryItem[]>([]);
+  const [subcategoriesLoading, setSubcategoriesLoading] = useState(false);
+  const [initialCategoryHandled, setInitialCategoryHandled] = useState(false);
 
   const displayList = useMemo(() => dedupeCategories(categories), [categories]);
-  const topNames = useMemo(() => displayList.slice(0, 6).map((c) => c.name), [displayList]);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,96 +81,89 @@ export function CategoryScreen({
     };
   }, []);
 
+  const handleCategoryPress = async (category: CategoryItem) => {
+    setSelectedCategory(category);
+    setFilterModalVisible(true);
+    setSubcategoriesLoading(true);
+    setSubcategories([]);
+    
+    try {
+      const subs = await CategoryService.getSubcategories(category.id);
+      setSubcategories(subs);
+    } catch (error) {
+      console.error('Error loading subcategories:', error);
+      setSubcategories([]);
+    } finally {
+      setSubcategoriesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!initialMainCategory || loading || initialCategoryHandled || displayList.length === 0) {
+      return;
+    }
+
+    const targetName = MAIN_CATEGORY_API_NAMES[initialMainCategory];
+    const match = displayList.find(
+      (category) =>
+        category.name === targetName ||
+        displayCategoryName(category.name) === targetName,
+    );
+
+    if (match) {
+      setInitialCategoryHandled(true);
+      void handleCategoryPress(match);
+    }
+  }, [initialMainCategory, loading, initialCategoryHandled, displayList]);
+
+  const handleApplyFilter = (selectedSubcategoryIds: string[]) => {
+    if (!selectedCategory) return;
+    const selectedNames = subcategories
+      .filter((s) => selectedSubcategoryIds.includes(s.id))
+      .map((s) => s.name);
+    onCategoryPress(selectedCategory.name, selectedNames.length > 0 ? selectedNames : undefined);
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8F9FC" />
-      <View style={styles.accentLine} pointerEvents="none" />
-
-      <AversiHeader onSearchPress={onSearch} />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 88 }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.intro}>
-          <Text style={styles.title}>კატეგორიები</Text>
-          <Text style={styles.subtitle}>აირჩიე მიმართულება და იპოვე საჭირო პროდუქტი</Text>
-        </View>
-
-        <TouchableOpacity style={styles.ordersBtn} onPress={onMyOrderPress} activeOpacity={0.75}>
-          <Ionicons name="receipt-outline" size={18} color={theme.colors.primary} />
-          <Text style={styles.ordersBtnText}>ჩემი შეკვეთები</Text>
-          <Ionicons name="chevron-forward" size={16} color={theme.colors.gray[900]} />
-        </TouchableOpacity>
-
-        {!loading && displayList.length > 0 ? (
-          <>
-            <View style={styles.metaRow}>
-              <Text style={styles.metaTitle}>პოპულარული</Text>
-              <View style={styles.countBadge}>
-                <Text style={styles.countBadgeText}>{displayList.length}</Text>
-              </View>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.chipsRow}
-            >
-              {topNames.map((name) => (
-                <TouchableOpacity
-                  key={name}
-                  style={styles.chip}
-                  activeOpacity={0.8}
-                  onPress={() => onCategoryPress(name)}
-                >
-                  <Text style={styles.chipText} numberOfLines={1}>
-                    {name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </>
-        ) : null}
-
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={theme.colors.primary} />
           </View>
         ) : displayList.length === 0 ? (
           <View style={styles.emptyState}>
-            <View style={styles.emptyIconWrap}>
-              <Ionicons name="grid-outline" size={28} color={theme.colors.primary} />
-            </View>
             <Text style={styles.emptyTitle}>კატეგორიები ჯერ არ არის</Text>
-            <Text style={styles.emptyText}>სცადე თავიდან ცოტა ხანში.</Text>
           </View>
         ) : (
-          <View style={styles.list}>
-            {displayList.map((category, index) => {
-              const accent = CATEGORY_ACCENTS[index % CATEGORY_ACCENTS.length];
-              const icon = getCategoryIcon(category.name);
-              const count = category.productCount ?? 0;
+          <View style={styles.gridContainer}>
+            {displayList.map((category) => {
+              const imageUrl = category.imageUrl || 'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=400';
+              
               return (
                 <TouchableOpacity
                   key={category.id}
-                  style={styles.rowCard}
-                  activeOpacity={0.85}
-                  onPress={() => onCategoryPress(category.name)}
+                  style={styles.gridCard}
+                  activeOpacity={0.8}
+                  onPress={() => handleCategoryPress(category)}
                 >
-                  <View style={[styles.rowIcon, { backgroundColor: accent }]}>
-                    <Ionicons name={icon} size={22} color={theme.colors.primary} />
-                  </View>
-                  <View style={styles.rowBody}>
-                    <Text style={styles.rowTitle} numberOfLines={1} ellipsizeMode="tail">
+                  <ImageBackground
+                    source={{ uri: imageUrl }}
+                    style={styles.cardImage}
+                    imageStyle={styles.cardImageStyle}
+                  >
+                    <View style={styles.overlay} />
+                  </ImageBackground>
+                  <View style={styles.cardContent}>
+                    <Text style={styles.gridTitle} numberOfLines={2}>
                       {category.name}
                     </Text>
-                    <Text style={[styles.rowCount, count === 0 && styles.rowCountMuted]}>
-                      {count} პროდუქტი
-                    </Text>
-                  </View>
-                  <View style={styles.rowChevron}>
-                    <Ionicons name="chevron-forward" size={18} color={theme.colors.gray[900]} />
                   </View>
                 </TouchableOpacity>
               );
@@ -201,15 +172,23 @@ export function CategoryScreen({
         )}
       </ScrollView>
 
+      <CategoryFilterModal
+        visible={filterModalVisible}
+        categoryName={selectedCategory?.name || ''}
+        subcategories={subcategories}
+        loading={subcategoriesLoading}
+        onClose={() => setFilterModalVisible(false)}
+        onApply={handleApplyFilter}
+      />
+
       <BottomNavigation
         activeTab="categories"
         onHomePress={onHomePress}
-        onWishlistPress={onFavoritePress}
         onCategoriesPress={undefined}
-        onCartPress={onCartPress}
-        onProfilePress={onProfilePress}
-        wishlistCount={0}
-        cartCount={0}
+        onCabinetPress={tabNav.onCabinetPress}
+        onCartPress={tabNav.onCartPress}
+        onProfilePress={tabNav.onProfilePress}
+        cartCount={tabNav.cartCount}
       />
     </View>
   );
@@ -218,196 +197,62 @@ export function CategoryScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FC',
-  },
-  accentLine: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-    backgroundColor: theme.colors.primary,
-    opacity: 0.85,
-    zIndex: 1,
+    backgroundColor: '#FFFFFF',
   },
   scrollView: { flex: 1 },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-  },
-  intro: {
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: theme.colors.gray[1200],
-    letterSpacing: -0.3,
-    marginBottom: 6,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: theme.colors.gray[1000],
-    lineHeight: 22,
-  },
-  ordersBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: theme.colors.white,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: theme.colors.gray[500],
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 22,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#1F2021',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.04,
-        shadowRadius: 8,
-      },
-      android: { elevation: 1 },
-    }),
-  },
-  ordersBtnText: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '600',
-    color: theme.colors.gray[1200],
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  metaTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: theme.colors.gray[1100],
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  countBadge: {
-    minWidth: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: theme.colors.purple[100],
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-  },
-  countBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: theme.colors.primary,
-  },
-  chipsRow: {
-    gap: 8,
-    paddingBottom: 18,
-  },
-  chip: {
-    backgroundColor: theme.colors.white,
-    borderWidth: 1.5,
-    borderColor: theme.colors.purple[300],
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    maxWidth: 160,
-  },
-  chipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: theme.colors.gray[1100],
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
   loadingContainer: {
     paddingVertical: 48,
     alignItems: 'center',
   },
   emptyState: {
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: theme.colors.gray[500],
-    backgroundColor: theme.colors.white,
     paddingVertical: 36,
     paddingHorizontal: 20,
     alignItems: 'center',
   },
-  emptyIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: theme.colors.purple[100],
-    marginBottom: 12,
-  },
   emptyTitle: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     color: theme.colors.gray[1200],
-    marginBottom: 6,
   },
-  emptyText: {
-    fontSize: 13,
-    color: theme.colors.gray[1000],
-    textAlign: 'center',
-  },
-  list: {
-    gap: 10,
-  },
-  rowCard: {
+  gridContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+    paddingBottom: 16,
+  },
+  gridCard: {
+    width: '48%',
     backgroundColor: theme.colors.white,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: theme.colors.gray[500],
-    padding: 12,
-    gap: 12,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#1F2021',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.04,
-        shadowRadius: 8,
-      },
-      android: { elevation: 1 },
-    }),
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
-  rowIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    justifyContent: 'center',
+  cardImage: {
+    width: '100%',
+    height: 90,
+  },
+  cardImageStyle: {
+    borderTopLeftRadius: 11,
+    borderTopRightRadius: 11,
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  cardContent: {
+    padding: 10,
     alignItems: 'center',
   },
-  rowBody: {
-    flex: 1,
-    minWidth: 0,
-  },
-  rowTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: theme.colors.gray[1200],
-    marginBottom: 2,
-  },
-  rowCount: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: theme.colors.primary,
-  },
-  rowCountMuted: {
-    color: theme.colors.gray[900],
-  },
-  rowChevron: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: theme.colors.purple[100],
-    alignItems: 'center',
-    justifyContent: 'center',
+  gridTitle: {
+    fontSize: 11,
+    fontWeight: '400',
+    color: theme.colors.gray[1100],
+    textAlign: 'center',
+    lineHeight: 14,
   },
 });

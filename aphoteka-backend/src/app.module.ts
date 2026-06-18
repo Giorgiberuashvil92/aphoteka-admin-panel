@@ -17,6 +17,10 @@ import { PromotionsModule } from './promotions/promotions.module';
 import { CategoriesModule } from './categories/categories.module';
 import { PrescriptionsModule } from './prescriptions/prescriptions.module';
 import { SmsModule } from './sms/sms.module';
+import { HomeSectionsModule } from './home-sections/home-sections.module';
+import { SectionTypesModule } from './section-types/section-types.module';
+import { FilterFieldsModule } from './filter-fields/filter-fields.module';
+import { QuickshipperModule } from './quickshipper/quickshipper.module';
 
 /**
  * BOG / OPAY (საქართველოს ბანკი) — OAuth: client_id + client_secret
@@ -78,6 +82,10 @@ function balanceEnvFilePaths(): string[] {
     CategoriesModule,
     PrescriptionsModule,
     SmsModule,
+    HomeSectionsModule,
+    SectionTypesModule,
+    FilterFieldsModule,
+    QuickshipperModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -202,14 +202,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   title: {
-    fontSize: 31,
+    fontSize: 28,
     fontWeight: '600',
     color: theme.colors.white,
     textAlign: 'center',
     textTransform: 'uppercase',
   },
   description: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '400',
     color: theme.colors.white,
     textAlign: 'center',
@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
     borderRadius: 100,
   },
   buttonText: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '500',
     color: theme.colors.black,
     textTransform: 'uppercase',

@@ -113,6 +113,49 @@ export class Order {
   /** ბოლო `test-balance-sale` ენდპოინტის PUT (BOG-ის გარეშე) */
   @Prop({ type: Date })
   balanceSaleTestPutAt?: Date;
+
+  // ==================== Quickshipper Delivery ====================
+
+  /** არჩეული Quickshipper delivery provider */
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  deliveryProvider?: {
+    providerId: number;
+    providerName: string;
+    providerLogoUrl?: string;
+  };
+
+  /** მიტანის მისამართი */
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  deliveryAddress?: {
+    streetName: string;
+    cityName: string;
+    latitude: number;
+    longitude: number;
+  };
+
+  /** მიტანის ფასი (amount) */
+  @Prop({ type: Number })
+  deliveryPrice?: number;
+
+  /** მიტანის სერვისის საკომისიო */
+  @Prop({ type: Number })
+  deliveryServiceFee?: number;
+
+  /** მიტანის სისწრაფე */
+  @Prop()
+  deliverySpeed?: string;
+
+  /** Quickshipper order tracking ID */
+  @Prop()
+  quickshipperOrderId?: string;
+
+  /** Quickshipper order status */
+  @Prop()
+  quickshipperStatus?: string;
+
+  /** Quickshipper-ზე გაგზავნის დრო */
+  @Prop({ type: Date })
+  quickshipperSentAt?: Date;
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);

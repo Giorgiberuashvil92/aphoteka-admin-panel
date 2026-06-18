@@ -1,6 +1,7 @@
 import { BottomNavigation } from '@/src/components/common/BottomNavigation';
 import { ProductCard } from '@/src/components/ui';
-import { useCart, useFavorites } from '@/src/contexts';
+import { useFavorites } from '@/src/contexts';
+import { useTabNavigation } from '@/src/hooks/useTabNavigation';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
@@ -10,25 +11,19 @@ type FavoriteScreenProps = {
   onSearch: () => void;
   onCategories: () => void;
   onProductPress: (productId: string) => void;
-  onHomePress: () => void;
   onMyOrderPress: () => void;
-  onProfilePress?: () => void;
-  onCartPress?: () => void;
 };
 
 type SortOption = 'ყველა' | 'ფასი: ზრდადობით' | 'ფასი: კლებადობით' | 'რეიტინგი' | 'სახელი';
 
-export function FavoriteScreen({ 
-  onSearch, 
-  onCategories, 
-  onProductPress, 
-  onHomePress, 
-  onMyOrderPress, 
-  onProfilePress, 
-  onCartPress,
+export function FavoriteScreen({
+  onSearch,
+  onCategories,
+  onProductPress,
+  onMyOrderPress,
 }: FavoriteScreenProps) {
   const { favorites, favoriteCount, clearFavorites } = useFavorites();
-  const { itemCount } = useCart();
+  const tabNav = useTabNavigation();
   const [filteredFavorites, setFilteredFavorites] = useState(favorites);
   const [selectedSort, setSelectedSort] = useState<SortOption>('ყველა');
   const [searchQuery, setSearchQuery] = useState('');
@@ -143,7 +138,7 @@ export function FavoriteScreen({
           <Text style={styles.emptySubtitle}>
             დაამატეთ პროდუქტები ფავორიტებში რომ შეინახოთ მოგვიანებით
           </Text>
-          <TouchableOpacity style={styles.browseButton} onPress={onHomePress}>
+          <TouchableOpacity style={styles.browseButton} onPress={tabNav.onHomePress}>
             <Text style={styles.browseButtonText}>პროდუქტების დათვალიერება</Text>
           </TouchableOpacity>
         </View>
@@ -186,14 +181,13 @@ export function FavoriteScreen({
 
       {/* Bottom Navigation */}
       <BottomNavigation
-        activeTab="wishlist"
-        onHomePress={onHomePress}
-        onWishlistPress={undefined}
+        activeTab="home"
+        onHomePress={tabNav.onHomePress}
         onCategoriesPress={onCategories}
-        onCartPress={onCartPress}
-        onProfilePress={onProfilePress}
-        wishlistCount={favoriteCount}
-        cartCount={itemCount}
+        onCabinetPress={tabNav.onCabinetPress}
+        onCartPress={tabNav.onCartPress}
+        onProfilePress={tabNav.onProfilePress}
+        cartCount={tabNav.cartCount}
       />
     </SafeAreaView>
   );

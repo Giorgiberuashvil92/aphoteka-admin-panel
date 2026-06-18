@@ -49,6 +49,23 @@ type ApiOrder = {
   bogPaymentStatus?: string;
   bogLastCallbackAt?: string | Date;
   bogLastCallbackRaw?: Record<string, unknown>;
+  deliveryProvider?: {
+    providerId: number;
+    providerName: string;
+    providerLogoUrl?: string;
+  };
+  deliveryAddress?: {
+    streetName: string;
+    cityName: string;
+    latitude: number;
+    longitude: number;
+  };
+  deliveryPrice?: number;
+  deliveryServiceFee?: number;
+  deliverySpeed?: string;
+  quickshipperOrderId?: string;
+  quickshipperStatus?: string;
+  quickshipperSentAt?: string | Date;
 };
 
 function parseDate(raw: string | Date | undefined): Date | undefined {
@@ -266,6 +283,14 @@ export function normalizeOrderFromApi(raw: ApiOrder): Order {
       !Array.isArray(raw.bogLastCallbackRaw)
         ? raw.bogLastCallbackRaw
         : undefined,
+    deliveryProvider: raw.deliveryProvider,
+    deliveryAddress_quickshipper: raw.deliveryAddress,
+    deliveryPrice: raw.deliveryPrice,
+    deliveryServiceFee: raw.deliveryServiceFee,
+    deliverySpeed: raw.deliverySpeed,
+    quickshipperOrderId: raw.quickshipperOrderId?.trim() || undefined,
+    quickshipperStatus: raw.quickshipperStatus?.trim() || undefined,
+    quickshipperSentAt: parseDate(raw.quickshipperSentAt),
     createdAt: raw.createdAt ? new Date(raw.createdAt) : new Date(),
     updatedAt: raw.updatedAt ? new Date(raw.updatedAt) : new Date(),
     items,
@@ -395,5 +420,14 @@ export const ordersApi = {
 
   cancel: async (id: string, _reason?: string): Promise<OrderResponse> => {
     return ordersApi.updateStatus(id, OrderStatus.CANCELLED);
+  },
+
+  /** ადმინი: შეკვეთის გაგზავნა Quickshipper-ზე */
+  sendToQuickshipper: async (id: string): Promise<{ ok: boolean; message: string }> => {
+    const result = await api.post<{ ok: boolean; message: string }>(
+      `/orders/admin/${encodeURIComponent(id)}/send-to-quickshipper`,
+      {},
+    );
+    return result;
   },
 };

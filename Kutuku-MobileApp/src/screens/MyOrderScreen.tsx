@@ -1,5 +1,5 @@
 import { BottomNavigation } from '@/src/components/common/BottomNavigation';
-import { useCart, useFavorites } from '@/src/contexts';
+import { useTabNavigation } from '@/src/hooks/useTabNavigation';
 import { getOrderStatusColor, getOrderStatusText } from '@/src/data/mockOrders';
 import { OrdersService, type MyOrderListItem } from '@/src/services/orders.service';
 import { theme } from '@/src/theme';
@@ -21,11 +21,6 @@ import {
 type MyOrderScreenProps = {
   onBack: () => void;
   onOrderPress: (orderId: string) => void;
-  onHomePress: () => void;
-  onWishlistPress: () => void;
-  onCategoriesPress: () => void;
-  onCartPress: () => void;
-  onProfilePress: () => void;
   /** თუ API 401 / ტოკენი არ არის — შესვლის გვერდზე გადასვლა */
   onLoginPress?: () => void;
 };
@@ -45,15 +40,9 @@ function matchesFilter(order: MyOrderListItem, tab: FilterTab): boolean {
 export function MyOrderScreen({
   onBack,
   onOrderPress,
-  onHomePress,
-  onWishlistPress,
-  onCategoriesPress,
-  onCartPress,
-  onProfilePress,
   onLoginPress,
 }: MyOrderScreenProps) {
-  const { itemCount } = useCart();
-  const { favoriteCount } = useFavorites();
+  const tabNav = useTabNavigation();
 
   const [orders, setOrders] = useState<MyOrderListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -190,7 +179,7 @@ export function MyOrderScreen({
                   ? 'თქვენ ჯერ არ გაქვთ შეკვეთები'
                   : `არ არის ${filterTabs.find((t) => t.key === activeFilter)?.label} შეკვეთები`}
               </Text>
-              <TouchableOpacity style={styles.browseButton} onPress={onHomePress}>
+              <TouchableOpacity style={styles.browseButton} onPress={tabNav.onHomePress}>
                 <Text style={styles.browseButtonText}>პროდუქტების დათვალიერება</Text>
               </TouchableOpacity>
             </View>
@@ -288,14 +277,13 @@ export function MyOrderScreen({
       )}
 
       <BottomNavigation
-        activeTab="home"
-        onHomePress={onHomePress}
-        onWishlistPress={onWishlistPress}
-        onCategoriesPress={onCategoriesPress}
-        onCartPress={onCartPress}
-        onProfilePress={onProfilePress}
-        wishlistCount={favoriteCount}
-        cartCount={itemCount}
+        activeTab="cabinet"
+        onHomePress={tabNav.onHomePress}
+        onCategoriesPress={tabNav.onCategoriesPress}
+        onCabinetPress={tabNav.onCabinetPress}
+        onCartPress={tabNav.onCartPress}
+        onProfilePress={tabNav.onProfilePress}
+        cartCount={tabNav.cartCount}
       />
     </SafeAreaView>
   );

@@ -1,53 +1,69 @@
-import { AversiHeader } from '@/src/components/common/AversiHeader';
 import { BottomNavigation } from '@/src/components/common/BottomNavigation';
+import { useTabNavigation } from '@/src/hooks/useTabNavigation';
 import { UserService } from '@/src/services/user.service';
-import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Image, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const C = {
+  bg: '#FFFFFF',
+  navy: '#2A3A7A',
+  purple: '#5B5FC7',
+  lavender: '#E8EAF6',
+  text: '#1A1A2E',
+  muted: '#9CA3AF',
+  border: '#F3F4F6',
+  error: '#EF4444',
+};
 
 interface MenuItem {
   id: string;
   title: string;
   icon: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
+  value?: string;
 }
 
 interface ProfileScreenProps {
   onLogout: () => void;
-  onSearch: () => void;
-  onHomePress: () => void;
-  onWishlistPress: () => void;
-  onCategoriesPress: () => void;
-  onCartPress: () => void;
-  onMyOrdersPress: () => void;
   onPersonalInfoPress: () => void;
   onAddressesPress: () => void;
   onPaymentMethodsPress: () => void;
+  onChangePasswordPress: () => void;
   onNotificationSettingsPress: () => void;
+  onLanguagePress: () => void;
   onHelpSupportPress: () => void;
+  onAboutPress: () => void;
 }
 
 export function ProfileScreen({
   onLogout,
-  onSearch,
-  onHomePress,
-  onWishlistPress,
-  onCategoriesPress,
-  onCartPress,
-  onMyOrdersPress,
   onPersonalInfoPress,
   onAddressesPress,
   onPaymentMethodsPress,
+  onChangePasswordPress,
   onNotificationSettingsPress,
+  onLanguagePress,
   onHelpSupportPress,
+  onAboutPress,
 }: ProfileScreenProps) {
+  const insets = useSafeAreaInsets();
+  const tabNav = useTabNavigation();
   const [user, setUser] = useState<{
     firstName: string;
     lastName?: string;
     email: string;
-    imageUrl?: string;
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -63,7 +79,6 @@ export function ProfileScreen({
               firstName: profile.firstName,
               lastName: profile.lastName,
               email: profile.email,
-              imageUrl: '',
             });
           } else if (!cancelled) {
             setUser(null);
@@ -81,258 +96,285 @@ export function ProfileScreen({
     }, []),
   );
 
-  const displayName = user ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}`.trim() || 'მომხმარებელი' : 'სტუმარი';
-  const displayEmail = user?.email || '';
+  const displayName = user
+    ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}`.trim() || 'მომხმარებელი'
+    : 'მომხმარებელი';
 
-  const profileMenuItems: MenuItem[] = [
-    {
-      id: 'personal-info',
-      title: 'პირადი ინფორმაცია',
-      icon: 'person-outline',
-      onPress: onPersonalInfoPress,
-    },
-    {
-      id: 'addresses',
-      title: 'მისამართები',
-      icon: 'location-outline',
-      onPress: onAddressesPress,
-    },
-    {
-      id: 'orders',
-      title: 'ჩემი შეკვეთები',
-      icon: 'receipt-outline',
-      onPress: onMyOrdersPress,
-    },
+  const accountItems: MenuItem[] = [
+    { id: 'personal', title: 'პირადი ინფორმაცია', icon: 'person-outline', onPress: onPersonalInfoPress },
+    { id: 'addresses', title: 'მისამართები', icon: 'location-outline', onPress: onAddressesPress },
+    { id: 'payment', title: 'გადახდის მეთოდები', icon: 'card-outline', onPress: onPaymentMethodsPress },
+    { id: 'password', title: 'პაროლის შეცვლა', icon: 'lock-closed-outline', onPress: onChangePasswordPress },
   ];
 
-  const settingsMenuItems: MenuItem[] = [
-    {
-      id: 'settings',
-      title: 'პარამეტრები',
-      icon: 'settings-outline',
-      onPress: onNotificationSettingsPress,
-    },
-    {
-      id: 'help',
-      title: 'დახმარება',
-      icon: 'help-circle-outline',
-      onPress: onHelpSupportPress,
-    },
-    {
-      id: 'about',
-      title: 'აპლიკაციის შესახებ',
-      icon: 'information-circle-outline',
-      onPress: () => {},
-    },
+  const settingsItems: MenuItem[] = [
+    { id: 'notifications', title: 'შეტყობინებები', icon: 'notifications-outline', onPress: onNotificationSettingsPress },
+    { id: 'language', title: 'ენა', icon: 'language-outline', onPress: onLanguagePress, value: 'ქართული' },
+    { id: 'help', title: 'დახმარება', icon: 'help-circle-outline', onPress: onHelpSupportPress },
+    { id: 'about', title: 'აპლიკაციის შესახებ', icon: 'information-circle-outline', onPress: onAboutPress },
   ];
 
-  const getUserInitial = () => {
-    return (displayName && displayName.charAt(0).toUpperCase()) || '?';
-  };
+  const initials = displayName
+    .split(' ')
+    .filter(Boolean)
+    .map((p) => p[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
+  const renderMenu = (items: MenuItem[]) => (
+    <View style={styles.menuCard}>
+      {items.map((item, index) => (
+        <TouchableOpacity
+          key={item.id}
+          style={[styles.menuRow, index < items.length - 1 && styles.menuRowBorder]}
+          onPress={item.onPress}
+          activeOpacity={0.8}
+        >
+          <View style={styles.menuRowLeft}>
+            <View style={styles.menuIcon}>
+              <Ionicons name={item.icon} size={18} color={C.navy} />
+            </View>
+            <Text style={styles.menuLabel}>{item.title}</Text>
+          </View>
+          <View style={styles.menuRowRight}>
+            {item.value ? <Text style={styles.menuValue}>{item.value}</Text> : null}
+            <Ionicons name="chevron-forward" size={16} color={C.muted} />
+          </View>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={theme.colors.white} />
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
 
-      {/* Header */}
-      <AversiHeader
-        onSearchPress={onSearch}
-      />
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: insets.bottom + 88 },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.intro}>
+          <Text style={styles.pageTitle}>პროფილი</Text>
+          <Text style={styles.pageSub}>ანგარიში და პარამეტრები</Text>
+        </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* User Info */}
-        <View style={styles.userInfoContainer}>
+        <TouchableOpacity
+          style={styles.profileCard}
+          onPress={onPersonalInfoPress}
+          activeOpacity={0.88}
+        >
           {loading ? (
-            <ActivityIndicator size="large" color={theme.colors.primary} style={styles.loader} />
+            <ActivityIndicator size="small" color={C.purple} />
           ) : (
             <>
-              {user?.imageUrl ? (
-                <Image source={{ uri: user.imageUrl }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <Text style={styles.avatarText}>{getUserInitial()}</Text>
-                </View>
-              )}
-              <Text style={styles.userName}>{displayName}</Text>
-              {displayEmail ? (
-                <Text style={styles.userEmail}>{displayEmail}</Text>
-              ) : null}
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{initials || '?'}</Text>
+              </View>
+              <View style={styles.profileBody}>
+                <Text style={styles.profileName} numberOfLines={1}>
+                  {displayName}
+                </Text>
+                {user?.email ? (
+                  <Text style={styles.profileEmail} numberOfLines={1}>
+                    {user.email}
+                  </Text>
+                ) : null}
+              </View>
+              <View style={styles.editPill}>
+                <Text style={styles.editPillText}>რედაქტირება</Text>
+              </View>
             </>
           )}
-        </View>
-
-        {/* Profile Menu */}
-        <View style={styles.menuSection}>
-          {profileMenuItems.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.menuItem}
-              onPress={item.onPress}
-            >
-              <View style={styles.menuItemLeft}>
-                <View style={styles.iconContainer}>
-                  <Ionicons name={item.icon} size={24} color={theme.colors.text.primary} />
-                </View>
-                <Text style={styles.menuItemText}>{item.title}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={theme.colors.text.tertiary} />
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Settings Section */}
-        <View style={styles.sectionDivider} />
-        <Text style={styles.sectionTitle}>პროფილის დეტალები</Text>
-
-        <View style={styles.menuSection}>
-          {settingsMenuItems.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.menuItem}
-              onPress={item.onPress}
-            >
-              <View style={styles.menuItemLeft}>
-                <View style={styles.iconContainer}>
-                  <Ionicons name={item.icon} size={24} color={theme.colors.text.primary} />
-                </View>
-                <Text style={styles.menuItemText}>{item.title}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={theme.colors.text.tertiary} />
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Logout Button */}
-        <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
-          <Ionicons name="log-out-outline" size={20} color={theme.colors.error} />
-          <Text style={styles.logoutButtonText}>გასვლა</Text>
         </TouchableOpacity>
+
+        <Text style={styles.sectionTitle}>ანგარიში</Text>
+        {renderMenu(accountItems)}
+
+        <Text style={styles.sectionTitle}>პარამეტრები</Text>
+        {renderMenu(settingsItems)}
+
+        <TouchableOpacity style={styles.logoutBtn} onPress={onLogout} activeOpacity={0.85}>
+          <Ionicons name="log-out-outline" size={18} color={C.error} />
+          <Text style={styles.logoutText}>გასვლა</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.versionText}>ვერსია 1.0.0</Text>
       </ScrollView>
 
-      {/* Bottom Navigation */}
       <BottomNavigation
         activeTab="profile"
-        onHomePress={onHomePress}
-        onWishlistPress={onWishlistPress}
-        onCategoriesPress={onCategoriesPress}
-        onCartPress={onCartPress}
+        onHomePress={tabNav.onHomePress}
+        onCategoriesPress={tabNav.onCategoriesPress}
+        onCabinetPress={tabNav.onCabinetPress}
+        onCartPress={tabNav.onCartPress}
         onProfilePress={undefined}
-        wishlistCount={0}
-        cartCount={0}
+        cartCount={tabNav.cartCount}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.white,
+    backgroundColor: C.bg,
   },
-  userInfoContainer: {
-    alignItems: 'center',
-    paddingVertical: 32,
+  scrollContent: {
     paddingHorizontal: 16,
+    paddingTop: 8,
   },
-  loader: {
-    marginVertical: 24,
+  intro: {
+    marginBottom: 16,
+    paddingTop: 4,
+  },
+  pageTitle: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: C.text,
+    marginBottom: 4,
+  },
+  pageSub: {
+    fontSize: 14,
+    fontWeight: '400',
+    color: C.muted,
+    lineHeight: 20,
+  },
+  profileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: C.lavender,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 20,
+    minHeight: 84,
   },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 2,
-    borderColor: theme.colors.gray[600],
-    backgroundColor: theme.colors.gray[200],
-  },
-  avatarPlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 2,
-    borderColor: theme.colors.gray[600],
-    backgroundColor: theme.colors.gray[200],
-    justifyContent: 'center',
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: C.navy,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarText: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: theme.colors.text.secondary,
-  },
-  userName: {
     fontSize: 18,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
-    marginTop: 16,
-    textTransform: 'uppercase',
+    fontWeight: '600',
+    color: C.bg,
   },
-  userEmail: {
+  profileBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  profileName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: C.navy,
+    marginBottom: 2,
+  },
+  profileEmail: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: C.muted,
+  },
+  editPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: C.bg,
+  },
+  editPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: C.purple,
+  },
+  sectionTitle: {
     fontSize: 14,
-    color: theme.colors.text.secondary,
-    marginTop: 4,
+    fontWeight: '500',
+    color: C.navy,
+    marginBottom: 10,
   },
-  menuSection: {
-    paddingHorizontal: 16,
+  menuCard: {
+    backgroundColor: C.bg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginBottom: 20,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#2A3A7A',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 6,
+      },
+      android: { elevation: 1 },
+    }),
   },
-  menuItem: {
+  menuRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.gray[200],
+    paddingHorizontal: 14,
+    paddingVertical: 14,
   },
-  menuItemLeft: {
+  menuRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  menuRowLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
     flex: 1,
-    gap: 16,
   },
-  iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: theme.colors.gray[100],
-    justifyContent: 'center',
+  menuIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: C.lavender,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  menuItemText: {
-    fontSize: 16,
+  menuLabel: {
+    fontSize: 14,
     fontWeight: '500',
-    color: theme.colors.text.primary,
-    flex: 1,
+    color: C.text,
   },
-  sectionDivider: {
-    height: 8,
-    backgroundColor: theme.colors.gray[100],
-    marginVertical: 24,
+  menuRowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: theme.colors.text.secondary,
-    paddingHorizontal: 16,
-    marginBottom: 8,
-    textTransform: 'uppercase',
+  menuValue: {
+    fontSize: 13,
+    color: C.muted,
   },
-  logoutButton: {
+  logoutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    marginHorizontal: 16,
-    marginTop: 32,
-    marginBottom: 24,
-    paddingVertical: 12,
-    borderRadius: 6,
+    paddingVertical: 14,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: theme.colors.error,
-    backgroundColor: theme.colors.purple[100],
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+    marginBottom: 12,
   },
-  logoutButtonText: {
-    fontSize: 16,
+  logoutText: {
+    fontSize: 14,
     fontWeight: '600',
-    color: theme.colors.error,
+    color: C.error,
+  },
+  versionText: {
+    fontSize: 12,
+    color: C.muted,
+    textAlign: 'center',
+    marginBottom: 8,
   },
 });

@@ -58,9 +58,6 @@ export default function Payment() {
             goTrack();
         }
       }}
-      onEditAddress={() => {
-        router.push('/address' as any);
-      }}
       onAddPaymentMethod={() => {
         router.push('/add-card' as any);
       }}

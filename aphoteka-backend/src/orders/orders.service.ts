@@ -11,6 +11,7 @@ import { Order, OrderDocument, OrderStatus } from './schemas/order.schema';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { BogBalanceSaleService } from '../bog/bog-balance-sale.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
+import { QuickshipperService } from '../quickshipper/quickshipper.service';
 
 /** საწყობის თანამშრომლისთვის დაშვებული სტატუსის გადასვლები (Nest enum) */
 const WAREHOUSE_STATUS_FLOW: Record<OrderStatus, OrderStatus[]> = {
@@ -30,6 +31,7 @@ export class OrdersService {
     private orderModel: Model<OrderDocument>,
     private readonly bogBalanceSale: BogBalanceSaleService,
     private readonly warehousesService: WarehousesService,
+    private readonly quickshipperService: QuickshipperService,
   ) {}
 
   async create(userId: string, dto: CreateOrderDto) {
@@ -45,10 +47,33 @@ export class OrdersService {
     }));
     const totalAmount = items.reduce((sum, i) => sum + i.totalPrice, 0);
 
-    const warehouseId =
-      dto.warehouseId && Types.ObjectId.isValid(dto.warehouseId)
-        ? new Types.ObjectId(dto.warehouseId)
-        : undefined;
+    // Auto-assign warehouse based on delivery location
+    let warehouseId: Types.ObjectId | undefined;
+
+    if (dto.warehouseId && Types.ObjectId.isValid(dto.warehouseId)) {
+      // Manual warehouse assignment (if provided)
+      warehouseId = new Types.ObjectId(dto.warehouseId);
+    } else if (
+      dto.deliveryAddress?.latitude &&
+      dto.deliveryAddress?.longitude
+    ) {
+      // Auto-assign based on closest warehouse
+      try {
+        const closestWarehouse = await this.findClosestWarehouse(
+          dto.deliveryAddress.latitude,
+          dto.deliveryAddress.longitude,
+        );
+        if (closestWarehouse) {
+          warehouseId = new Types.ObjectId(closestWarehouse.id);
+          this.logger.log(
+            `Auto-assigned order to closest warehouse: ${closestWarehouse.name} (${closestWarehouse.distance?.toFixed(2)}km away)`,
+          );
+        }
+      } catch (error) {
+        this.logger.error('Error finding closest warehouse:', error);
+        // Continue without warehouse assignment
+      }
+    }
 
     const order = await this.orderModel.create({
       userId: new Types.ObjectId(userId),
@@ -59,8 +84,78 @@ export class OrdersService {
       phoneNumber: dto.phoneNumber,
       comment: dto.comment,
       warehouseId,
+      deliveryProvider: dto.deliveryProvider,
+      deliveryAddress: dto.deliveryAddress,
+      deliveryPrice: dto.deliveryPrice,
+      deliveryServiceFee: dto.deliveryServiceFee,
+      deliverySpeed: dto.deliverySpeed,
     });
     return order;
+  }
+
+  /**
+   * Calculate distance between two points using Haversine formula
+   * Returns distance in kilometers
+   */
+  private calculateDistance(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ): number {
+    const R = 6371; // Earth's radius in km
+    const dLat = this.toRadians(lat2 - lat1);
+    const dLon = this.toRadians(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(this.toRadians(lat1)) *
+        Math.cos(this.toRadians(lat2)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  private toRadians(degrees: number): number {
+    return degrees * (Math.PI / 180);
+  }
+
+  /**
+   * Find the closest active warehouse to a delivery location
+   */
+  private async findClosestWarehouse(
+    deliveryLat: number,
+    deliveryLon: number,
+  ): Promise<{ id: string; name: string; distance: number } | null> {
+    // Get all active warehouses with coordinates
+    const { data: warehouses } = await this.warehousesService.findAll({
+      active: true,
+    });
+
+    const warehousesWithCoordinates = warehouses.filter(
+      (w: any) => w.latitude != null && w.longitude != null,
+    );
+
+    if (warehousesWithCoordinates.length === 0) {
+      this.logger.warn('No warehouses with coordinates found');
+      return null;
+    }
+
+    const warehousesWithDistances = warehousesWithCoordinates.map((w: any) => ({
+      id: w.id,
+      name: w.name,
+      distance: this.calculateDistance(
+        deliveryLat,
+        deliveryLon,
+        w.latitude,
+        w.longitude,
+      ),
+    }));
+
+    // Sort by distance and return closest
+    warehousesWithDistances.sort((a, b) => a.distance - b.distance);
+
+    return warehousesWithDistances[0] || null;
   }
 
   async findAllByUser(userId: string) {
@@ -344,5 +439,131 @@ export class OrdersService {
     }
 
     return this.findOneForAdmin(orderId);
+  }
+
+  /**
+   * Send order to Quickshipper delivery service
+   * Called when order status is changed to "ready" (CONFIRMED)
+   */
+  async sendToQuickshipper(orderId: string): Promise<void> {
+    if (!Types.ObjectId.isValid(orderId)) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const order = await this.orderModel.findById(orderId).lean().exec();
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // Check if delivery info exists
+    if (
+      !order.deliveryProvider ||
+      !order.deliveryAddress ||
+      !order.deliveryPrice
+    ) {
+      throw new BadRequestException(
+        'შეკვეთას არ აქვს მიტანის ინფორმაცია (Quickshipper)',
+      );
+    }
+
+    // Check if already sent
+    if (order.quickshipperOrderId) {
+      throw new BadRequestException(
+        `შეკვეთა უკვე გაგზავნილია Quickshipper-ზე: ${order.quickshipperOrderId}`,
+      );
+    }
+
+    try {
+      // TODO: Get actual pharmacy/warehouse address
+      // For now, using mock address
+      const pickupAddress = {
+        address: 'კოსტავას 71',
+        city: 'თბილისი',
+        latitude: 41.7151,
+        longitude: 44.7664,
+      };
+
+      this.logger.log(
+        `Sending order ${orderId} to Quickshipper (provider: ${order.deliveryProvider.providerName})`,
+      );
+
+      const response = await this.quickshipperService.createOrder({
+        carDelivery: false,
+        comment: `Aphoteka Order ${orderId}`,
+        parcelDimensionId: '0',
+        scheduledTime: undefined,
+        dropOffInfo: {
+          address: order.deliveryAddress.streetName,
+          longitude: order.deliveryAddress.longitude,
+          latitude: order.deliveryAddress.latitude,
+          addressComment: order.comment || '',
+          name: 'Customer', // TODO: Get actual customer name
+          phonePrefix: '+995',
+          phone: order.phoneNumber || '',
+          city: order.deliveryAddress.cityName,
+          country: 'Georgia',
+        },
+        pickUpInfo: {
+          address: pickupAddress.address,
+          longitude: pickupAddress.longitude,
+          latitude: pickupAddress.latitude,
+          addressComment: 'Aphoteka Pharmacy',
+          name: 'Aphoteka',
+          phonePrefix: '+995',
+          phone: '555422634', // TODO: Get from config
+          city: pickupAddress.city,
+          country: 'Georgia',
+        },
+        provider: {
+          providerId: order.deliveryProvider.providerId,
+          providerFeeId: order.deliveryProvider.providerId.toString(),
+        },
+        parcels: [
+          {
+            fields: [
+              {
+                id: '0',
+                value: `${order.items.length} items`,
+                type: 'string',
+              },
+            ],
+          },
+        ],
+        generalFields: [],
+      });
+
+      // Check if API returned explicit error (only for responses with success field)
+      if (response.success === false) {
+        throw new Error(
+          `Quickshipper API returned error: ${response.userMessage || response.developerMessage || 'Unknown error'}`,
+        );
+      }
+
+      // Update order with tracking info
+      // Note: 204 responses don't have trackingNumber, so generate a fallback ID
+      const trackingId =
+        response.trackingNumber ||
+        response.orderId ||
+        `QS-${orderId.slice(-12)}`;
+      await this.orderModel.findByIdAndUpdate(orderId, {
+        quickshipperOrderId: trackingId,
+        quickshipperStatus: 'sent',
+        quickshipperSentAt: new Date(),
+      });
+
+      this.logger.log(
+        `Order ${orderId} successfully sent to Quickshipper. Tracking: ${trackingId}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to send order ${orderId} to Quickshipper:`,
+        error,
+      );
+      throw new BadRequestException(
+        error instanceof Error
+          ? error.message
+          : 'Quickshipper-ზე გაგზავნა ვერ მოხერხდა',
+      );
+    }
   }
 }

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { Product } from "@/types";
 import { productsApi, categoriesApi } from "@/lib/api";
 import type { AdminCategory } from "@/lib/api/categories";
+import { filterFieldsApi, type FilterField } from "@/lib/api/filter-fields";
 
 interface ProductFormModalProps {
   isOpen: boolean;
@@ -44,20 +45,53 @@ export default function ProductFormModal({
     dosageForm: "",
     packSize: "",
     packagingType: "",
-    category: "",
+    mainCategory: "",
+    therapeuticClass: "",
   };
 
   const [formData, setFormData] = useState(initialFormData);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [categories, setCategories] = useState<AdminCategory[]>([]);
+  const [filterFields, setFilterFields] = useState<FilterField[]>([]);
+  const [filterValues, setFilterValues] = useState<
+    Record<string, string | string[] | boolean>
+  >({});
 
   useEffect(() => {
     let cancelled = false;
     categoriesApi.getAll({ active: true }).then((list) => {
       if (!cancelled) setCategories(Array.isArray(list) ? list : []);
     });
+    filterFieldsApi.getActive().then((list) => {
+      if (!cancelled) setFilterFields(Array.isArray(list) ? list : []);
+    });
     return () => { cancelled = true; };
   }, []);
+
+  const resolveCategoryFields = (
+    p: Product,
+    mainCategoryNames: Set<string>,
+  ): { mainCategory: string; therapeuticClass: string } => {
+    if (p.mainCategory?.trim()) {
+      return {
+        mainCategory: p.mainCategory.trim(),
+        therapeuticClass: p.category?.trim() || p.subcategory?.trim() || "",
+      };
+    }
+
+    const cat = p.category?.trim() || "";
+    if (cat && mainCategoryNames.has(cat)) {
+      return {
+        mainCategory: cat,
+        therapeuticClass: p.subcategory?.trim() || "",
+      };
+    }
+
+    return {
+      mainCategory: "",
+      therapeuticClass: cat || p.subcategory?.trim() || "",
+    };
+  };
 
   // Load product data when editing
   useEffect(() => {
@@ -68,6 +102,11 @@ export default function ProductFormModal({
     };
 
     if (product) {
+      const mainCategoryNames = new Set(categories.map((c) => c.name));
+      const { mainCategory, therapeuticClass } = resolveCategoryFields(
+        product,
+        mainCategoryNames,
+      );
       setFormData({
         productCode: product.productCode || "",
         name: product.name || "",
@@ -98,8 +137,10 @@ export default function ProductFormModal({
         dosageForm: product.dosageForm || "",
         packSize: product.packSize || "",
         packagingType: product.packagingType || "",
-        category: product.category || "",
+        mainCategory,
+        therapeuticClass,
       });
+      setFilterValues(product.filterValues ?? {});
     } else {
       setFormData({
         productCode: "",
@@ -127,10 +168,49 @@ export default function ProductFormModal({
         dosageForm: "",
         packSize: "",
         packagingType: "",
-        category: "",
+        mainCategory: "",
+        therapeuticClass: "",
       });
+      setFilterValues({});
     }
-  }, [product]);
+  }, [product, categories]);
+
+  const setFilterValue = (
+    key: string,
+    value: string | string[] | boolean | undefined,
+  ) => {
+    setFilterValues((prev) => {
+      const next = { ...prev };
+      if (
+        value === undefined ||
+        value === "" ||
+        (Array.isArray(value) && value.length === 0)
+      ) {
+        delete next[key];
+      } else {
+        next[key] = value;
+      }
+      return next;
+    });
+  };
+
+  const toggleMultiFilter = (key: string, option: string) => {
+    setFilterValues((prev) => {
+      const current = prev[key];
+      const list = Array.isArray(current)
+        ? [...current]
+        : typeof current === "string"
+          ? [current]
+          : [];
+      const idx = list.indexOf(option);
+      if (idx >= 0) list.splice(idx, 1);
+      else list.push(option);
+      const next = { ...prev };
+      if (list.length === 0) delete next[key];
+      else next[key] = list;
+      return next;
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -154,7 +234,8 @@ export default function ProductFormModal({
         name: formData.name,
         description: formData.description || undefined,
         price: priceNum,
-        category: formData.category || undefined,
+        mainCategory: formData.mainCategory || undefined,
+        category: formData.therapeuticClass || undefined,
         active: formData.active,
         sku: formData.sku || formData.productCode || `AUTO-${Date.now()}`,
         genericName: formData.genericName || undefined,
@@ -187,6 +268,8 @@ export default function ProductFormModal({
               .filter(Boolean)
           : undefined,
         storageConditions: formData.storageConditions || undefined,
+        filterValues:
+          Object.keys(filterValues).length > 0 ? filterValues : undefined,
       };
 
       if (product && productId) {
@@ -201,6 +284,7 @@ export default function ProductFormModal({
       
       // Reset form
       setFormData(initialFormData);
+      setFilterValues({});
       
       onSuccess();
       onClose();
@@ -622,8 +706,8 @@ export default function ProductFormModal({
                 კატეგორია
               </label>
               <select
-                value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                value={formData.mainCategory}
+                onChange={(e) => setFormData({ ...formData, mainCategory: e.target.value })}
                 className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               >
                 <option value="">— არ არის არჩეული —</option>
@@ -637,6 +721,125 @@ export default function ProductFormModal({
                 კატეგორიების დამატება/რედაქტირება: კატეგორიები მენიუ
               </p>
             </div>
+
+            {/* 6. Therapeutic Class — მთავარი კატეგორიის საბკატეგორია */}
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Therapeutic Class (საბკატეგორია)
+              </label>
+              <input
+                type="text"
+                value={formData.therapeuticClass}
+                onChange={(e) => setFormData({ ...formData, therapeuticClass: e.target.value })}
+                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                placeholder="მაგ: ბავშვის კვება, ტკივილგამაყუჩებელი"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                მობილურ აპში გამოჩნდება არჩეული კატეგორიის ქვეკატეგორიებად
+              </p>
+            </div>
+
+            {filterFields.length > 0 && (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-600 dark:bg-gray-900/40">
+                <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-white">
+                  ფილტრები (მობაილური აპი)
+                </h3>
+                <div className="space-y-4">
+                  {filterFields.map((field) => {
+                    const key = field.key;
+                    const value = filterValues[key];
+                    if (field.type === "boolean") {
+                      return (
+                        <div key={key}>
+                          <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                            {field.label}
+                          </label>
+                          <select
+                            value={
+                              value === true
+                                ? "true"
+                                : value === false
+                                  ? "false"
+                                  : ""
+                            }
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setFilterValue(
+                                key,
+                                v === "true"
+                                  ? true
+                                  : v === "false"
+                                    ? false
+                                    : undefined,
+                              );
+                            }}
+                            className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                          >
+                            <option value="">— არ არის —</option>
+                            <option value="true">კი</option>
+                            <option value="false">არა</option>
+                          </select>
+                        </div>
+                      );
+                    }
+                    if (field.type === "range") {
+                      return null;
+                    }
+                    if (field.type === "multi") {
+                      return (
+                        <div key={key}>
+                          <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                            {field.label}
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            {(field.options ?? []).map((opt) => {
+                              const selected = Array.isArray(value)
+                                ? value.includes(opt)
+                                : value === opt;
+                              return (
+                                <button
+                                  key={opt}
+                                  type="button"
+                                  onClick={() => toggleMultiFilter(key, opt)}
+                                  className={`rounded-full px-3 py-1 text-xs font-medium ${
+                                    selected
+                                      ? "bg-brand-500 text-white"
+                                      : "bg-white text-gray-700 ring-1 ring-gray-300 dark:bg-gray-700 dark:text-gray-200"
+                                  }`}
+                                >
+                                  {opt}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={key}>
+                        <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {field.label}
+                        </label>
+                        <select
+                          value={typeof value === "string" ? value : ""}
+                          onChange={(e) =>
+                            setFilterValue(key, e.target.value || undefined)
+                          }
+                          className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                        >
+                          <option value="">— არ არის არჩეული —</option>
+                          {(field.options ?? []).map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
           </div>
 

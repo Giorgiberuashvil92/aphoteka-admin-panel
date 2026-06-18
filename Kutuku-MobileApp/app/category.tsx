@@ -1,37 +1,32 @@
 import { CategoryScreen } from '@/src/screens';
-import { useRouter } from 'expo-router';
+import type { MainCategoryType } from '@/src/components/common/MainCategoryCard';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+
+const MAIN_CATEGORY_TYPES = new Set<MainCategoryType>([
+  'medications',
+  'cosmetics',
+  'mother-child',
+]);
 
 export default function Category() {
   const router = useRouter();
+  const { main } = useLocalSearchParams<{ main?: string }>();
+  const initialMainCategory = MAIN_CATEGORY_TYPES.has(main as MainCategoryType)
+    ? (main as MainCategoryType)
+    : undefined;
 
   return (
     <CategoryScreen
-      onSearch={() => {
-        console.log('Search pressed');
-        router.push('/search' as any);
-      }}
-      onCategoryPress={(categoryName: string) => {
-        router.push(`/search-results?category=${encodeURIComponent(categoryName)}` as any);
+      initialMainCategory={initialMainCategory}
+      onCategoryPress={(categoryName: string, subcategories?: string[]) => {
+        const params = new URLSearchParams({ category: categoryName });
+        if (subcategories?.length) {
+          params.set('subcategory', subcategories.join(','));
+        }
+        router.push(`/search-results?${params.toString()}` as any);
       }}
       onHomePress={() => {
-        console.log('Home pressed');
-        router.back();
-      }}
-      onMyOrderPress={() => {
-        console.log('My Order pressed');
-        router.push('/my-order' as any);
-      }}
-      onFavoritePress={() => {
-        console.log('Favorite pressed');
-        router.push('/favorite' as any);
-      }}
-      onProfilePress={() => {
-        console.log('Profile pressed');
-        router.push('/settings' as any);
-      }}
-      onCartPress={() => {
-        console.log('Cart pressed');
-        router.push('/cart' as any);
+        router.push('/home' as any);
       }}
     />
   );

@@ -77,9 +77,19 @@ export class ProductsService {
   }
 
   async findAll(query: QueryProductDto) {
-    const { page = 1, limit = 100, search, category, active } = query;
+    const {
+      page = 1,
+      limit = 100,
+      search,
+      category,
+      subcategory,
+      active,
+      filters,
+      minPrice,
+      maxPrice,
+    } = query;
 
-    const filter: any = {};
+    const filter: Record<string, unknown> = {};
 
     if (search) {
       filter.$or = [
@@ -90,11 +100,65 @@ export class ProductsService {
     }
 
     if (category) {
-      filter.category = category;
+      const categoryOr = [
+        { mainCategory: category },
+        { mainCategory: { $in: [null, ''] }, category },
+      ];
+      if (filter.$or) {
+        filter.$and = [{ $or: filter.$or }, { $or: categoryOr }];
+        delete filter.$or;
+      } else {
+        filter.$or = categoryOr;
+      }
+    }
+
+    if (subcategory) {
+      filter.category = subcategory;
     }
 
     if (active !== undefined) {
       filter.active = active;
+    }
+
+    if (minPrice !== undefined || maxPrice !== undefined) {
+      filter.price = {};
+      if (minPrice !== undefined) {
+        (filter.price as Record<string, number>).$gte = minPrice;
+      }
+      if (maxPrice !== undefined) {
+        (filter.price as Record<string, number>).$lte = maxPrice;
+      }
+    }
+
+    if (filters?.trim()) {
+      try {
+        const parsed = JSON.parse(filters) as Record<
+          string,
+          string | string[] | boolean | number
+        >;
+        const attrFilters: Record<string, unknown>[] = [];
+        for (const [key, value] of Object.entries(parsed)) {
+          if (value === undefined || value === null || value === '') continue;
+          if (Array.isArray(value)) {
+            if (value.length === 0) continue;
+            attrFilters.push({ [`filterValues.${key}`]: { $in: value } });
+          } else {
+            attrFilters.push({ [`filterValues.${key}`]: value });
+          }
+        }
+        if (attrFilters.length > 0) {
+          if (filter.$and) {
+            (filter.$and as unknown[]).push(...attrFilters);
+          } else if (filter.$or) {
+            filter.$and = [{ $or: filter.$or }, ...attrFilters];
+            delete filter.$or;
+          } else {
+            filter.$and = attrFilters;
+          }
+        }
+      } catch {
+        /* ignore invalid JSON */
+      }
     }
 
     const skip = (page - 1) * limit;
@@ -160,7 +224,51 @@ export class ProductsService {
 
   /** პროდუქტების რაოდენობა კატეგორიის სახელის მიხედვით */
   async countByCategoryName(categoryName: string): Promise<number> {
-    return this.productModel.countDocuments({ category: categoryName, active: true }).exec();
+    return this.productModel
+      .countDocuments({
+        active: true,
+        $or: [
+          { mainCategory: categoryName },
+          {
+            mainCategory: { $in: [null, ''] },
+            category: categoryName,
+          },
+        ],
+      })
+      .exec();
+  }
+
+  /** მობილური: კატეგორიის Therapeutic Class-ები */
+  async getSubcategoriesByCategoryName(
+    categoryName: string,
+  ): Promise<{ id: string; name: string }[]> {
+    const [fromTherapeuticClass, fromLegacySubcategory] = await Promise.all([
+      this.productModel
+        .distinct('category', {
+          mainCategory: categoryName,
+          active: true,
+          category: { $exists: true, $nin: [null, ''] },
+        })
+        .exec(),
+      this.productModel
+        .distinct('subcategory', {
+          category: categoryName,
+          active: true,
+          subcategory: { $exists: true, $nin: [null, ''] },
+        })
+        .exec(),
+    ]);
+
+    const names = new Set<string>();
+    for (const value of [...fromTherapeuticClass, ...fromLegacySubcategory]) {
+      if (typeof value === 'string' && value.trim()) {
+        names.add(value.trim());
+      }
+    }
+
+    return [...names]
+      .sort((a, b) => a.localeCompare(b, 'ka'))
+      .map((name) => ({ id: name, name }));
   }
 
   async findOne(id: string) {

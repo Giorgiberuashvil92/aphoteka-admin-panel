@@ -1,10 +1,12 @@
 import { AversiHeader } from '@/src/components/common/AversiHeader';
 import { BottomNavigation } from '@/src/components/common/BottomNavigation';
 import { useCart } from '@/src/contexts';
+import { useTabNavigation } from '@/src/hooks/useTabNavigation';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useRef, useState } from 'react';
-import { Animated, Image, SafeAreaView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Animated, Image, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface CartScreenProps {
   onBack: () => void;
@@ -12,10 +14,6 @@ interface CartScreenProps {
   /** __DEV__ — კალათიდან გადახდაზე BOG-ის იმიტაციის რეჟიმით */
   onDevBogSimulateToPayment?: () => void;
   onSearch: () => void;
-  onHomePress: () => void;
-  onWishlistPress: () => void;
-  onCategoriesPress: () => void;
-  onProfilePress: () => void;
 }
 
 export function CartScreen({
@@ -23,15 +21,11 @@ export function CartScreen({
   onCheckout,
   onDevBogSimulateToPayment,
   onSearch,
-  onHomePress,
-  onWishlistPress,
-  onCategoriesPress,
-  onProfilePress,
 }: CartScreenProps) {
   const { items: cartItems, removeFromCart, updateQuantity, clearCart, itemCount, totalPrice } = useCart();
+  const tabNav = useTabNavigation();
   const [promoCode, setPromoCode] = useState('');
   const [appliedPromo, setAppliedPromo] = useState<{code: string; discount: number} | null>(null);
-  const [selectedGift, setSelectedGift] = useState<string | null>(null);
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const handleRemoveItem = (id: string) => {
@@ -82,12 +76,12 @@ export function CartScreen({
   const subtotal = totalPrice;
   const shipping = 5.0;
   const discount = appliedPromo ? (subtotal * appliedPromo.discount / 100) : 0;
-  const total = subtotal + shipping - discount;
+  const total = subtotal
 
   const isEmpty = cartItems.length === 0;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor={theme.colors.background.secondary} />
 
       {/* Header */}
@@ -104,7 +98,7 @@ export function CartScreen({
           </Text>
           <TouchableOpacity
             style={styles.continueShoppingButton}
-            onPress={onHomePress}
+            onPress={tabNav.onHomePress}
             activeOpacity={0.85}
           >
             <Ionicons name="storefront-outline" size={20} color={theme.colors.white} />
@@ -193,41 +187,6 @@ export function CartScreen({
               ))}
             </View>
 
-            {/* Gift block */}
-            {subtotal >= 50 && (
-              <View style={styles.giftSection}>
-                <View style={styles.giftHeader}>
-                  <Ionicons name="gift-outline" size={22} color={theme.colors.primary} />
-                  <Text style={styles.giftTitle}>საჩუქარი 50₾+</Text>
-                </View>
-                <Text style={styles.giftSubtitle}>
-                  აირჩიეთ ერთი საჩუქარი შეძენისას
-                </Text>
-                <View style={styles.giftProducts}>
-                  {[
-                    { id: 'gift1', name: 'ვიტამინი C 500mg', image: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=200' },
-                    { id: 'gift2', name: 'სახის ნიღაბი', image: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=200' },
-                    { id: 'gift3', name: 'ხელის კრემი', image: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=200' },
-                  ].map((gift) => (
-                    <TouchableOpacity
-                      key={gift.id}
-                      style={[styles.giftCard, selectedGift === gift.id && styles.giftCardSelected]}
-                      onPress={() => setSelectedGift(selectedGift === gift.id ? null : gift.id)}
-                      activeOpacity={0.8}
-                    >
-                      {selectedGift === gift.id && (
-                        <View style={styles.giftCheck}>
-                          <Ionicons name="checkmark" size={14} color={theme.colors.white} />
-                        </View>
-                      )}
-                      <Image source={{ uri: gift.image }} style={styles.giftImage} />
-                      <Text style={styles.giftName} numberOfLines={2}>{gift.name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            )}
-
             {/* Promo card */}
             <View style={styles.promoCard}>
               <Ionicons name="pricetag-outline" size={20} color={theme.colors.primary} />
@@ -273,10 +232,7 @@ export function CartScreen({
                 <Text style={styles.summaryLabel}>ქვეჯამი</Text>
                 <Text style={styles.summaryValue}>{subtotal.toFixed(2)}₾</Text>
               </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>მიწოდება</Text>
-                <Text style={styles.summaryValue}>{shipping.toFixed(2)}₾</Text>
-              </View>
+             
               {appliedPromo ? (
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>ფასდაკლება</Text>
@@ -319,12 +275,11 @@ export function CartScreen({
 
       <BottomNavigation
         activeTab="cart"
-        onHomePress={onHomePress}
-        onWishlistPress={onWishlistPress}
-        onCategoriesPress={onCategoriesPress}
+        onHomePress={tabNav.onHomePress}
+        onCategoriesPress={tabNav.onCategoriesPress}
+        onCabinetPress={tabNav.onCabinetPress}
         onCartPress={undefined}
-        onProfilePress={onProfilePress}
-        wishlistCount={0}
+        onProfilePress={tabNav.onProfilePress}
         cartCount={itemCount}
       />
     </SafeAreaView>
@@ -501,74 +456,6 @@ const styles = StyleSheet.create({
   removeButton: {
     padding: 4,
     marginLeft: 4,
-  },
-  giftSection: {
-    marginTop: 24,
-    marginHorizontal: 20,
-    backgroundColor: theme.colors.white,
-    borderRadius: theme.borderRadius.lg,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: theme.colors.purple[200],
-    ...theme.shadows.xs,
-  },
-  giftHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  giftTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
-  },
-  giftSubtitle: {
-    fontSize: 13,
-    color: theme.colors.text.secondary,
-    marginBottom: 14,
-  },
-  giftProducts: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  giftCard: {
-    flex: 1,
-    backgroundColor: theme.colors.gray[50],
-    borderRadius: theme.borderRadius.md,
-    padding: 12,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'transparent',
-    position: 'relative',
-  },
-  giftCardSelected: {
-    borderColor: theme.colors.primary,
-    backgroundColor: theme.colors.purple[100],
-  },
-  giftCheck: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: theme.colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1,
-  },
-  giftImage: {
-    width: 56,
-    height: 56,
-    borderRadius: theme.borderRadius.sm,
-    marginBottom: 6,
-  },
-  giftName: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: theme.colors.text.primary,
-    textAlign: 'center',
   },
   promoCard: {
     flexDirection: 'row',

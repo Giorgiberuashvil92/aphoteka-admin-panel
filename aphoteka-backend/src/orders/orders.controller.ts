@@ -76,6 +76,17 @@ export class OrdersController {
     return this.ordersService.updateForAdmin(id, body.status);
   }
 
+  @Post('admin/:id/send-to-quickshipper')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  async sendToQuickshipper(@Param('id') id: string) {
+    await this.ordersService.sendToQuickshipper(id);
+    return {
+      ok: true,
+      message: 'შეკვეთა წარმატებით გაიგზავნა Quickshipper-ზე',
+    };
+  }
+
   /** საწყობის თანამშრომლის შეკვეთების სია (`warehouse/:id`-ს არ ეჯახება) */
   @Get('assigned-to-me')
   @UseGuards(JwtAuthGuard, RolesGuard)

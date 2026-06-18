@@ -4,6 +4,8 @@ import { Category, CategorySchema } from './schemas/category.schema';
 import { CategoriesService } from './categories.service';
 import { CategoriesController } from './categories.controller';
 import { ProductsModule } from '../products/products.module';
+import { CategoryImageSeeder } from '../seed/seed-category-images';
+import { CategorySeeder } from '../seed/seed-categories';
 
 @Module({
   imports: [
@@ -13,7 +15,7 @@ import { ProductsModule } from '../products/products.module';
     ProductsModule,
   ],
   controllers: [CategoriesController],
-  providers: [CategoriesService],
-  exports: [CategoriesService],
+  providers: [CategoriesService, CategoryImageSeeder, CategorySeeder],
+  exports: [CategoriesService, CategorySeeder],
 })
 export class CategoriesModule {}

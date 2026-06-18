@@ -53,6 +53,8 @@ export interface Medicine {
   packSize?: string; // ბაზიდან, მაგ. "10 tablets", "20 აბი"
   prescriptionRequired: boolean;
   manufacturer: string;
+  countryOfOrigin?: string;
+  filterValues?: Record<string, string | string[] | boolean>;
   stockQuantity: number;
   lowStockThreshold: number;
   inStock: boolean;

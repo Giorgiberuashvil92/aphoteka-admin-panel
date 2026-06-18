@@ -103,7 +103,9 @@ export interface Product {
   description?: string;
   price: number;
   active: boolean;
+  mainCategory?: string;
   category?: string;
+  subcategory?: string;
   imageUrl?: string;
   
   // Specific product information
@@ -172,6 +174,7 @@ export interface Product {
   sideEffects?: string[]; // გვერდითი მოვლენები
   contraindications?: string[]; // უკუჩვენებები
   storageConditions?: string; // შენახვის პირობები
+  filterValues?: Record<string, string | string[] | boolean>;
 
   createdAt: Date;
   updatedAt: Date;
@@ -265,6 +268,24 @@ export interface Order {
   bogLastCallbackAt?: Date;
   /** ბოლო callback-ის სრული payload (აუდიტი) */
   bogLastCallbackRaw?: Record<string, unknown>;
+  // Quickshipper delivery
+  deliveryProvider?: {
+    providerId: number;
+    providerName: string;
+    providerLogoUrl?: string;
+  };
+  deliveryAddress_quickshipper?: {
+    streetName: string;
+    cityName: string;
+    latitude: number;
+    longitude: number;
+  };
+  deliveryPrice?: number;
+  deliveryServiceFee?: number;
+  deliverySpeed?: string;
+  quickshipperOrderId?: string;
+  quickshipperStatus?: string;
+  quickshipperSentAt?: Date;
   createdAt: Date;
   updatedAt: Date;
   confirmedAt?: Date;

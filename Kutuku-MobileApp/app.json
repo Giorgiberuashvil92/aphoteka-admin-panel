@@ -24,7 +24,11 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "output": "static",
@@ -59,9 +63,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "eacb31d7-9a70-4d30-87aa-c2096e714d5a"
+        "projectId": "d94c7285-6692-4551-b248-deafded006fa"
       }
     },
-    "owner": "gioberuashvili15"
+    "owner": "ntsulik"
   }
 }

@@ -134,8 +134,16 @@ export class Product {
   @Prop({ default: true })
   active: boolean;
 
+  /** მთავარი კატეგორია (ადმინის კატეგორიების სიიდან) */
+  @Prop()
+  mainCategory?: string;
+
+  /** Therapeutic Class — მთავარი კატეგორიის საბკატეგორია */
   @Prop()
   category?: string;
+
+  @Prop()
+  subcategory?: string;
 
   @Prop()
   imageUrl?: string;
@@ -302,6 +310,10 @@ export class Product {
 
   @Prop()
   storageConditions?: string; // შენახვის პირობები
+
+  /** ადმინის ფილტრებიდან მინიჭებული მნიშვნელობები — key → string | string[] | boolean */
+  @Prop({ type: Object, default: {} })
+  filterValues?: Record<string, string | string[] | boolean>;
 }
 
 export const ProductSchema = SchemaFactory.createForClass(Product);

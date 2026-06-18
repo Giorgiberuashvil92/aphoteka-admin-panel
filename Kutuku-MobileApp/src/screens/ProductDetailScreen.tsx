@@ -1,6 +1,7 @@
 import { BottomNavigation } from '@/src/components/common/BottomNavigation';
 import { ProductsSlider } from '@/src/components/common/ProductsSlider';
 import { useCart, useFavorites } from '@/src/contexts';
+import { useTabNavigation } from '@/src/hooks/useTabNavigation';
 import { ProductService } from '@/src/services/product.service';
 import type { Product } from '@/src/services/product.service';
 import { theme } from '@/src/theme';
@@ -99,26 +100,17 @@ interface ProductDetailScreenProps {
   onBack: () => void;
   onSearch: () => void;
   onProductPress: (productId: string) => void;
-  onHomePress: () => void;
-  onWishlistPress: () => void;
-  onCategoriesPress: () => void;
-  onCartPress: () => void;
-  onProfilePress: () => void;
 }
 
-export function ProductDetailScreen({ 
-  productId, 
-  onBack, 
+export function ProductDetailScreen({
+  productId,
+  onBack,
   onSearch,
   onProductPress,
-  onHomePress,
-  onWishlistPress,
-  onCategoriesPress,
-  onCartPress, 
-  onProfilePress,
 }: ProductDetailScreenProps) {
   const { addToCart, itemCount } = useCart();
-  const { addToFavorites, removeFromFavorites, isFavorite, favoriteCount } = useFavorites();
+  const { addToFavorites, removeFromFavorites, isFavorite } = useFavorites();
+  const tabNav = useTabNavigation();
   const [product, setProduct] = useState<DisplayMedicine | null>(null);
   const [loading, setLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
@@ -537,12 +529,11 @@ export function ProductDetailScreen({
       {/* Bottom Navigation */}
       <BottomNavigation
         activeTab="home"
-        onHomePress={onHomePress}
-        onWishlistPress={onWishlistPress}
-        onCategoriesPress={onCategoriesPress}
-        onCartPress={onCartPress}
-        onProfilePress={onProfilePress}
-        wishlistCount={favoriteCount}
+        onHomePress={tabNav.onHomePress}
+        onCategoriesPress={tabNav.onCategoriesPress}
+        onCabinetPress={tabNav.onCabinetPress}
+        onCartPress={tabNav.onCartPress}
+        onProfilePress={tabNav.onProfilePress}
         cartCount={itemCount}
       />
     </SafeAreaView>

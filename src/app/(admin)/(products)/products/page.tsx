@@ -1156,10 +1156,9 @@ function ProductsPageContent() {
 
       {/* Balance – ნაშთები (Stocks) – აკეცვადი */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
-        <button
-          type="button"
+        <div
           onClick={() => setBalanceStocksCollapsed((c) => !c)}
-          className="flex w-full flex-wrap items-center justify-between gap-2 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700/50"
+          className="flex w-full flex-wrap items-center justify-between gap-2 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer"
         >
           <div className="flex items-center gap-2">
             <span
@@ -1183,7 +1182,7 @@ function ProductsPageContent() {
           >
             {syncLoading ? "იტვირთება..." : "განახლება ბაზა"}
           </button>
-        </button>
+        </div>
         {!balanceStocksCollapsed && (
         <div className="border-t border-gray-200 px-4 pb-4 pt-0 dark:border-gray-700">
         {syncResult && (

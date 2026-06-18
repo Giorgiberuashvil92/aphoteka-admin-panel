@@ -20,6 +20,9 @@ export class Category {
   @Prop({ default: 'folder' })
   icon?: string;
 
+  @Prop()
+  imageUrl?: string;
+
   @Prop({ default: true })
   active: boolean;
 

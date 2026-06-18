@@ -25,6 +25,12 @@ export class CategoriesController {
     return this.categoriesService.findForMobile();
   }
 
+  /** მობილური: კატეგორიის subcategories */
+  @Get(':id/subcategories')
+  findSubcategories(@Param('id') id: string) {
+    return this.categoriesService.findSubcategories(id);
+  }
+
   /** ადმინი: ყველა კატეგორია (?active=true|false) */
   @Get()
   findAll(@Query('active') active?: string) {

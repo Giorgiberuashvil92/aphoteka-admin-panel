@@ -154,6 +154,25 @@ export type CreateOrderInput = {
   comment?: string;
   /** Balance Sale-ისთვის: არჩეული საწყობის Mongo id */
   warehouseId?: string;
+  /** Quickshipper delivery provider info */
+  deliveryProvider?: {
+    providerId: number;
+    providerName: string;
+    providerLogoUrl?: string;
+  };
+  /** Quickshipper delivery address */
+  deliveryAddress?: {
+    streetName: string;
+    cityName: string;
+    latitude: number;
+    longitude: number;
+  };
+  /** Quickshipper delivery price (amount) */
+  deliveryPrice?: number;
+  /** Quickshipper service fee */
+  deliveryServiceFee?: number;
+  /** Quickshipper delivery speed name */
+  deliverySpeed?: string;
 };
 
 export type CreateOrderResult =
@@ -221,6 +240,11 @@ export const OrdersService = {
           phoneNumber: input.phoneNumber,
           comment: input.comment,
           warehouseId: input.warehouseId?.trim() || undefined,
+          deliveryProvider: input.deliveryProvider,
+          deliveryAddress: input.deliveryAddress,
+          deliveryPrice: input.deliveryPrice,
+          deliveryServiceFee: input.deliveryServiceFee,
+          deliverySpeed: input.deliverySpeed,
         }),
       });
 

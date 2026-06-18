@@ -1,38 +1,50 @@
-import { AversiHeader } from '@/src/components/common/AversiHeader';
 import { BottomNavigation } from '@/src/components/common/BottomNavigation';
 import { Notification, NotificationService } from '@/src/services/notification.service';
-import { theme } from '@/src/theme';
+import { useTabNavigation } from '@/src/hooks/useTabNavigation';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useState } from 'react';
-import { ActivityIndicator, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const C = {
+  bg: '#FFFFFF',
+  navy: '#2A3A7A',
+  purple: '#5B5FC7',
+  lavender: '#E8EAF6',
+  text: '#1A1A2E',
+  muted: '#9CA3AF',
+  border: '#F3F4F6',
+};
 
 interface NotificationScreenProps {
   onBack: () => void;
   onNotificationPress?: (notification: Notification) => void;
-  onSearch: () => void;
-  onHomePress: () => void;
-  onWishlistPress: () => void;
-  onCartPress: () => void;
-  onProfilePress: () => void;
+  onSearch?: () => void;
 }
 
 export function NotificationScreen({
   onBack,
   onNotificationPress,
-  onSearch,
-  onHomePress,
-  onWishlistPress,
-  onCartPress,
-  onProfilePress,
 }: NotificationScreenProps) {
+  const insets = useSafeAreaInsets();
+  const tabNav = useTabNavigation();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
 
   useFocusEffect(
     React.useCallback(() => {
       loadNotifications();
-    }, [])
+    }, []),
   );
 
   const loadNotifications = async () => {
@@ -59,33 +71,21 @@ export function NotificationScreen({
     loadNotifications();
   };
 
-  const getNotificationIcon = (type: string) => {
+  const getNotificationIcon = (type: string): keyof typeof Ionicons.glyphMap => {
     switch (type) {
       case 'order':
+      case 'purchase':
         return 'receipt-outline';
       case 'promotion':
+      case 'sale':
         return 'pricetag-outline';
       case 'delivery':
+      case 'shipping':
         return 'car-outline';
       case 'system':
         return 'information-circle-outline';
       default:
         return 'notifications-outline';
-    }
-  };
-
-  const getNotificationColor = (type: string) => {
-    switch (type) {
-      case 'order':
-        return theme.colors.info;
-      case 'promotion':
-        return theme.colors.success;
-      case 'delivery':
-        return theme.colors.warning;
-      case 'system':
-        return theme.colors.primary;
-      default:
-        return theme.colors.gray[600];
     }
   };
 
@@ -101,129 +101,169 @@ export function NotificationScreen({
     if (diffMins < 60) return `${diffMins} წუთის წინ`;
     if (diffHours < 24) return `${diffHours} საათის წინ`;
     if (diffDays < 7) return `${diffDays} დღის წინ`;
-    
-    return date.toLocaleDateString('ka-GE', { 
-      day: 'numeric', 
-      month: 'long' 
+
+    return date.toLocaleDateString('ka-GE', {
+      day: 'numeric',
+      month: 'long',
     });
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={theme.colors.white} />
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
 
-      {/* Header */}
-      <AversiHeader
-        onSearchPress={onSearch}
-      />
+      <View style={styles.headerRow}>
+        <TouchableOpacity
+          onPress={onBack}
+          style={styles.backButton}
+          activeOpacity={0.75}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="chevron-back" size={24} color={C.navy} />
+        </TouchableOpacity>
+        <View style={styles.intro}>
+          <Text style={styles.pageTitle}>შეტყობინებები</Text>
+          <Text style={styles.pageSub}>
+            {unreadCount > 0
+              ? `${unreadCount} ახალი შეტყობინება`
+              : 'ყველა შეტყობინება წაკითხულია'}
+          </Text>
+        </View>
+      </View>
 
-      {/* Title & Actions */}
-      <View style={styles.titleContainer}>
-        <Text style={styles.title}>შეტყობინებები</Text>
-        {unreadCount > 0 && (
-          <TouchableOpacity onPress={handleMarkAllAsRead}>
-            <Text style={styles.markAllReadText}>ყველას წაკითხვა</Text>
+      <View style={styles.topBar}>
+        {unreadCount > 0 ? (
+          <TouchableOpacity
+            style={styles.markAllBtn}
+            onPress={handleMarkAllAsRead}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.markAllText}>ყველას წაკითხვა</Text>
           </TouchableOpacity>
-        )}
+        ) : null}
       </View>
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <ActivityIndicator size="large" color={C.purple} />
         </View>
       ) : notifications.length === 0 ? (
-        /* Empty State */
         <View style={styles.emptyContainer}>
-          <Ionicons name="notifications-outline" size={80} color={theme.colors.gray[400]} />
+          <View style={styles.emptyIconWrap}>
+            <Ionicons name="notifications-outline" size={36} color={C.purple} />
+          </View>
           <Text style={styles.emptyTitle}>შეტყობინებები არ არის</Text>
-          <Text style={styles.emptySubtitle}>თქვენ არ გაქვთ ახალი შეტყობინებები</Text>
+          <Text style={styles.emptySubtitle}>
+            ახალი შეტყობინებები აქ გამოჩნდება
+          </Text>
         </View>
       ) : (
-        /* Notifications List */
-        <ScrollView showsVerticalScrollIndicator={false}>
-          <View style={styles.notificationsContainer}>
-            {notifications.map((notification) => (
-              <TouchableOpacity
-                key={notification.id}
-                style={[
-                  styles.notificationCard,
-                  !notification.read && styles.notificationCardUnread,
-                ]}
-                onPress={() => handleNotificationPress(notification)}
-              >
-                {/* Icon */}
-                <View
-                  style={[
-                    styles.iconContainer,
-                    { backgroundColor: getNotificationColor(notification.type) + '20' },
-                  ]}
-                >
-                  <Ionicons
-                    name={getNotificationIcon(notification.type) as any}
-                    size={24}
-                    color={getNotificationColor(notification.type)}
-                  />
-                </View>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: insets.bottom + 88 },
+          ]}
+        >
+          {notifications.map((notification) => (
+            <TouchableOpacity
+              key={notification.id}
+              style={[
+                styles.notificationCard,
+                !notification.read && styles.notificationCardUnread,
+              ]}
+              onPress={() => handleNotificationPress(notification)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.iconWrap}>
+                <Ionicons
+                  name={getNotificationIcon(notification.type)}
+                  size={20}
+                  color={C.navy}
+                />
+              </View>
 
-                {/* Content */}
-                <View style={styles.notificationContent}>
-                  <Text style={styles.notificationTitle}>{notification.title}</Text>
-                  <Text style={styles.notificationMessage} numberOfLines={2}>
-                    {notification.message}
-                  </Text>
-                  <Text style={styles.notificationDate}>
-                    {formatDate(notification.timestamp)}
-                  </Text>
-                </View>
+              <View style={styles.notificationBody}>
+                <Text style={styles.notificationTitle}>{notification.title}</Text>
+                <Text style={styles.notificationMessage} numberOfLines={2}>
+                  {notification.message}
+                </Text>
+                <Text style={styles.notificationDate}>
+                  {formatDate(notification.timestamp)}
+                </Text>
+              </View>
 
-                {/* Unread Indicator */}
-                {!notification.read && <View style={styles.unreadDot} />}
-              </TouchableOpacity>
-            ))}
-          </View>
+              {!notification.read ? <View style={styles.unreadDot} /> : null}
+            </TouchableOpacity>
+          ))}
         </ScrollView>
       )}
 
-      {/* Bottom Navigation */}
       <BottomNavigation
         activeTab="home"
-        onHomePress={onHomePress}
-        onWishlistPress={onWishlistPress}
-        onCategoriesPress={() => {}}
-        onCartPress={onCartPress}
-        onProfilePress={onProfilePress}
-        wishlistCount={0}
-        cartCount={0}
+        onHomePress={tabNav.onHomePress}
+        onCategoriesPress={tabNav.onCategoriesPress}
+        onCabinetPress={tabNav.onCabinetPress}
+        onCartPress={tabNav.onCartPress}
+        onProfilePress={tabNav.onProfilePress}
+        cartCount={tabNav.cartCount}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.white,
+    backgroundColor: C.bg,
   },
-  titleContainer: {
+  headerRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingTop: 4,
+    paddingBottom: 4,
+  },
+  backButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topBar: {
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.gray[200],
+    paddingBottom: 12,
+    gap: 12,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
+  intro: {
+    flex: 1,
+    gap: 4,
   },
-  markAllReadText: {
+  pageTitle: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: C.text,
+  },
+  pageSub: {
     fontSize: 14,
-    fontWeight: '500',
-    color: theme.colors.primary,
+    fontWeight: '400',
+    color: C.muted,
+    lineHeight: 20,
+  },
+  markAllBtn: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: C.lavender,
+  },
+  markAllText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: C.purple,
   },
   loadingContainer: {
     flex: 1,
@@ -234,75 +274,93 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 80,
-    paddingHorizontal: 20,
+    paddingHorizontal: 32,
+    paddingBottom: 80,
+  },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: C.lavender,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
   },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
-    marginTop: 24,
-    marginBottom: 8,
+    fontSize: 15,
+    fontWeight: '600',
+    color: C.text,
+    marginBottom: 6,
   },
   emptySubtitle: {
-    fontSize: 14,
-    color: theme.colors.text.secondary,
+    fontSize: 13,
+    fontWeight: '400',
+    color: C.muted,
     textAlign: 'center',
+    lineHeight: 20,
   },
-  notificationsContainer: {
-    padding: 16,
-    gap: 12,
+  listContent: {
+    paddingHorizontal: 16,
+    gap: 10,
   },
   notificationCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: theme.colors.white,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.colors.gray[200],
-    padding: 16,
     gap: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    backgroundColor: C.bg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 14,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#2A3A7A',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 6,
+      },
+      android: { elevation: 1 },
+    }),
   },
   notificationCardUnread: {
-    backgroundColor: theme.colors.primary + '05',
-    borderColor: theme.colors.primary + '20',
+    backgroundColor: C.lavender,
+    borderColor: '#D5D9F0',
   },
-  iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
+  iconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: C.bg,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  notificationContent: {
+  notificationBody: {
     flex: 1,
+    minWidth: 0,
   },
   notificationTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: theme.colors.text.primary,
+    color: C.text,
     marginBottom: 4,
   },
   notificationMessage: {
     fontSize: 13,
-    color: theme.colors.text.secondary,
+    fontWeight: '400',
+    color: C.muted,
     lineHeight: 18,
     marginBottom: 8,
   },
   notificationDate: {
     fontSize: 12,
-    color: theme.colors.text.tertiary,
+    fontWeight: '500',
+    color: C.purple,
   },
   unreadDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: theme.colors.primary,
-    marginTop: 4,
+    backgroundColor: C.purple,
+    marginTop: 6,
   },
 });

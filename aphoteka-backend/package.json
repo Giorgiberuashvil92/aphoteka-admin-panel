@@ -18,7 +18,9 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "seed": "ts-node -r tsconfig-paths/register src/seed/seed.ts"
+    "seed": "ts-node -r tsconfig-paths/register src/seed/seed.ts",
+    "seed:categories": "ts-node -r tsconfig-paths/register src/seed/seed-categories-direct.ts",
+    "seed:filters": "ts-node -r tsconfig-paths/register src/seed/seed-filter-fields.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

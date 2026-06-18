@@ -55,7 +55,6 @@ export const API_CONFIG = {
       byId: (id: string) => `/orders/${id}`,
       bogPayment: (id: string) =>
         `/orders/${encodeURIComponent(id)}/payment/bog`,
-      /** დევ: BOG callback-ის იმიტაცია (იგივე ჩართვა რაც ბექის testPut) */
       bogDevSimulateCompleted: (id: string) =>
         `/orders/${encodeURIComponent(id)}/payment/bog/dev-simulate-completed`,
     },
@@ -74,8 +73,11 @@ export const API_CONFIG = {
     categories: {
       mobile: '/categories/mobile',
     },
+    homeSections: {
+      visible: '/home-sections/visible',
+    },
   },
-};
+} as const;
 
 export const getAuthHeaders = (accessToken: string) => ({
   Authorization: `Bearer ${accessToken}`,

@@ -6,6 +6,7 @@ import {
   ValidateNested,
   Min,
   IsMongoId,
+  IsObject,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -60,4 +61,38 @@ export class CreateOrderDto {
   @IsOptional()
   @IsMongoId()
   warehouseId?: string;
+
+  /** Quickshipper delivery provider info */
+  @IsOptional()
+  @IsObject()
+  deliveryProvider?: {
+    providerId: number;
+    providerName: string;
+    providerLogoUrl?: string;
+  };
+
+  /** Quickshipper delivery address */
+  @IsOptional()
+  @IsObject()
+  deliveryAddress?: {
+    streetName: string;
+    cityName: string;
+    latitude: number;
+    longitude: number;
+  };
+
+  /** Quickshipper delivery price (amount) */
+  @IsOptional()
+  @IsNumber()
+  deliveryPrice?: number;
+
+  /** Quickshipper service fee */
+  @IsOptional()
+  @IsNumber()
+  deliveryServiceFee?: number;
+
+  /** Quickshipper delivery speed name */
+  @IsOptional()
+  @IsString()
+  deliverySpeed?: string;
 }

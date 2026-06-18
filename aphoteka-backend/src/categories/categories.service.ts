@@ -22,6 +22,7 @@ export class CategoriesService {
       productCount: number;
       color?: string;
       icon?: string;
+      imageUrl?: string;
     }[]
   > {
     const list = await this.categoryModel
@@ -36,9 +37,20 @@ export class CategoriesService {
         productCount: await this.productsService.countByCategoryName(c.name),
         color: c.color,
         icon: c.icon,
+        imageUrl: c.imageUrl,
       })),
     );
     return result;
+  }
+
+  /** მობილური: კატეგორიის subcategories (პროდუქტების Therapeutic Class) */
+  async findSubcategories(
+    parentId: string,
+  ): Promise<{ id: string; name: string }[]> {
+    const parent = await this.categoryModel.findById(parentId).lean().exec();
+    if (!parent) throw new NotFoundException(`Category ${parentId} not found`);
+
+    return this.productsService.getSubcategoriesByCategoryName(parent.name);
   }
 
   /** ადმინი: ყველა კატეგორია (პროდუქტების რაოდენობით) */
@@ -50,6 +62,7 @@ export class CategoriesService {
       parentId?: string;
       color?: string;
       icon?: string;
+      imageUrl?: string;
       active: boolean;
       sortOrder: number;
       productCount: number;
@@ -70,6 +83,7 @@ export class CategoriesService {
         parentId: c.parentId?.toString?.() ?? c.parentId,
         color: c.color,
         icon: c.icon,
+        imageUrl: c.imageUrl,
         active: c.active ?? true,
         sortOrder: c.sortOrder ?? 0,
         productCount: await this.productsService.countByCategoryName(c.name),
@@ -89,6 +103,7 @@ export class CategoriesService {
       parentId: c.parentId?.toString?.() ?? c.parentId,
       color: c.color,
       icon: c.icon,
+      imageUrl: c.imageUrl,
       active: c.active ?? true,
       sortOrder: c.sortOrder ?? 0,
       productCount: await this.productsService.countByCategoryName(c.name),
@@ -101,6 +116,7 @@ export class CategoriesService {
       description: dto.description,
       color: dto.color ?? '#E8F5E9',
       icon: dto.icon ?? 'folder',
+      imageUrl: dto.imageUrl,
       active: dto.active ?? true,
       sortOrder: dto.sortOrder ?? 0,
     };

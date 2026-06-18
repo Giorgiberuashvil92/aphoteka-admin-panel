@@ -8,6 +8,7 @@ import {
   IsUUID,
   Min,
   ValidateNested,
+  Allow,
 } from 'class-validator';
 import { BalanceItemSeriesLineDto } from './balance-item-series-line.dto';
 import { BalanceStockBreakdownLineDto } from './balance-stock-breakdown-line.dto';
@@ -41,7 +42,15 @@ export class UpdateProductDto {
 
   @IsString()
   @IsOptional()
+  mainCategory?: string;
+
+  @IsString()
+  @IsOptional()
   category?: string;
+
+  @IsString()
+  @IsOptional()
+  subcategory?: string;
 
   @IsString()
   @IsOptional()
@@ -222,4 +231,8 @@ export class UpdateProductDto {
   @IsString()
   @IsOptional()
   storageConditions?: string;
+
+  @Allow()
+  @IsOptional()
+  filterValues?: Record<string, string | string[] | boolean>;
 }

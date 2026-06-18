@@ -56,6 +56,7 @@ export default function OrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [panelUser, setPanelUser] = useState<User | null>(null);
+  const [sendingToQuickshipper, setSendingToQuickshipper] = useState(false);
 
   const loadOrder = useCallback(async () => {
     if (!orderId) {
@@ -122,6 +123,41 @@ export default function OrderDetailPage() {
       window.alert(msg);
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleSendToQuickshipper = async () => {
+    if (!orderId || !order) return;
+
+    if (!order.deliveryProvider || !order.deliveryAddress_quickshipper) {
+      window.alert("შეკვეთას არ აქვს Quickshipper მიტანის ინფორმაცია");
+      return;
+    }
+
+    if (order.quickshipperOrderId) {
+      window.alert(
+        `შეკვეთა უკვე გაგზავნილია Quickshipper-ზე: ${order.quickshipperOrderId}`,
+      );
+      return;
+    }
+
+    if (!window.confirm("დარწმუნებული ხართ რომ გსურთ შეკვეთის გაგზავნა Quickshipper-ზე?")) {
+      return;
+    }
+
+    setSendingToQuickshipper(true);
+    try {
+      const result = await ordersApi.sendToQuickshipper(orderId);
+      window.alert(result.message || "შეკვეთა წარმატებით გაიგზავნა!");
+      await loadOrder(); // Reload to show updated status
+    } catch (e) {
+      const msg =
+        e instanceof ApiError && typeof e.data?.message === "string"
+          ? e.data.message
+          : "Quickshipper-ზე გაგზავნა ვერ მოხერხდა";
+      window.alert(msg);
+    } finally {
+      setSendingToQuickshipper(false);
     }
   };
 
@@ -264,6 +300,96 @@ export default function OrderDetailPage() {
               </div>
             </div>
           </div>
+
+          {order.deliveryProvider && order.deliveryAddress_quickshipper ? (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-6 shadow-sm dark:border-blue-900 dark:bg-blue-950/30">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  Quickshipper მიტანა 🚚
+                </h2>
+                {order.quickshipperOrderId ? (
+                  <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
+                    გაგზავნილია
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-yellow-100 px-3 py-1 text-xs font-medium text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+                    მოლოდინში
+                  </span>
+                )}
+              </div>
+              <div className="space-y-3 text-sm">
+                <div className="flex items-center gap-2">
+                  {order.deliveryProvider.providerLogoUrl ? (
+                    <img
+                      src={order.deliveryProvider.providerLogoUrl}
+                      alt={order.deliveryProvider.providerName}
+                      className="h-8 w-8 rounded object-contain"
+                    />
+                  ) : null}
+                  <div>
+                    <div className="font-semibold text-gray-900 dark:text-white">
+                      {order.deliveryProvider.providerName}
+                    </div>
+                    <div className="text-gray-600 dark:text-gray-400">
+                      {order.deliverySpeed || "სტანდარტული"}
+                    </div>
+                  </div>
+                </div>
+                <div className="border-t border-blue-200 pt-2 dark:border-blue-800">
+                  <div className="text-gray-700 dark:text-gray-300">
+                    📍 {order.deliveryAddress_quickshipper.streetName}, {order.deliveryAddress_quickshipper.cityName}
+                  </div>
+                </div>
+                {order.deliveryPrice !== undefined ? (
+                  <div>
+                    <span className="text-gray-600 dark:text-gray-400">მიტანის ღირებულება: </span>
+                    <span className="font-semibold text-gray-900 dark:text-white">
+                      ₾{(order.deliveryPrice + (order.deliveryServiceFee || 0)).toFixed(2)}
+                    </span>
+                    {order.deliveryServiceFee ? (
+                      <span className="ml-2 text-xs text-gray-500">
+                        (საკომისიო: ₾{order.deliveryServiceFee.toFixed(2)})
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {order.quickshipperOrderId ? (
+                  <div className="rounded-lg bg-blue-100 p-3 dark:bg-blue-900/50">
+                    <div className="text-xs text-gray-600 dark:text-gray-400">Tracking ID:</div>
+                    <div className="font-mono text-sm font-semibold text-gray-900 dark:text-white">
+                      {order.quickshipperOrderId}
+                    </div>
+                    {order.quickshipperStatus ? (
+                      <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                        სტატუსი: {order.quickshipperStatus}
+                      </div>
+                    ) : null}
+                    {order.quickshipperSentAt ? (
+                      <div className="mt-1 text-xs text-gray-500">
+                        გაგზავნილია: {order.quickshipperSentAt.toLocaleString("ka-GE")}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={handleSendToQuickshipper}
+                      disabled={sendingToQuickshipper || order.status !== OrderStatus.CONFIRMED}
+                      className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                      {sendingToQuickshipper ? "გაგზავნა..." : "გაგზავნა Quickshipper-ზე"}
+                    </button>
+                    {order.status !== OrderStatus.CONFIRMED ? (
+                      <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                        * შეკვეთა უნდა იყოს &ldquo;დადასტურებული&rdquo; სტატუსში
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
 
           {hasBogDisplayData(order) ? (
             <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
