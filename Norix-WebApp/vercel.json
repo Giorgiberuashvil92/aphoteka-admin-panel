@@ -1,0 +1,12 @@
+{
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "regions": ["fra1"],
+  "build": {
+    "env": {
+      "NEXT_PUBLIC_API_URL": "https://aphoteka-admin-panel-production.up.railway.app/api"
+    }
+  }
+}
