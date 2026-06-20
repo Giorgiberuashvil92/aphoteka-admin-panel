@@ -28,8 +28,6 @@ import { UserProfileDropdown } from "./UserProfileDropdown";
 import { CategoriesPanel } from "./CategoriesPanel";
 import { HeaderSearchSlot } from "./HeaderSearchSlot";
 
-const UTILITY_LINKS = [] as const;
-
 interface SiteHeaderClientProps {
   categories: Category[];
 }
@@ -230,15 +228,6 @@ export function SiteHeaderClient({ categories }: SiteHeaderClientProps) {
             </div>
 
             <div className="hidden items-center gap-5 lg:flex">
-              {UTILITY_LINKS.map((link) => (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className="text-sm text-norix-gray-400 transition-colors hover:text-norix-gray-600 md:text-base"
-                >
-                  {link.label}
-                </Link>
-              ))}
               <button
                 type="button"
                 className="flex items-center gap-1.5 text-sm text-norix-gray-400 transition-colors hover:text-norix-gray-600 md:text-base"
