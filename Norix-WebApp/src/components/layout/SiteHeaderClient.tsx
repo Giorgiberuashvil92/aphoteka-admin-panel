@@ -28,7 +28,7 @@ import { UserProfileDropdown } from "./UserProfileDropdown";
 import { CategoriesPanel } from "./CategoriesPanel";
 import { HeaderSearchSlot } from "./HeaderSearchSlot";
 
-const UTILITY_LINKS = [{ label: "ვაკანსიები", href: "/vacancies" }] as const;
+const UTILITY_LINKS = [] as const;
 
 interface SiteHeaderClientProps {
   categories: Category[];

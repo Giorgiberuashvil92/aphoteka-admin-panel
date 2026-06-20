@@ -22,9 +22,11 @@ function buildCorsOptions(): CorsOptions {
         .filter(Boolean)
     : [];
   const always = new Set(
-    ['https://aphoteka-admin-panel.vercel.app', ...fromEnv].map(
-      normalizeOrigin,
-    ),
+    [
+      'https://aphoteka-admin-panel.vercel.app',
+      'https://norix-coral.vercel.app',
+      ...fromEnv,
+    ].map(normalizeOrigin),
   );
 
   const origin: CorsOptions['origin'] =
@@ -40,11 +42,12 @@ function buildCorsOptions(): CorsOptions {
             cb(null, true);
             return;
           }
-          // Vercel preview: *--*.vercel.app ან aphoteka-admin-panel-*.vercel.app
+          // Vercel preview: *--*.vercel.app ან aphoteka-admin-panel-*.vercel.app / norix-*.vercel.app
           if (/\.vercel\.app$/i.test(o)) {
             if (
               /^https:\/\/[\w-]+--[\w-]+\.vercel\.app$/i.test(o) ||
-              /^https:\/\/aphoteka-admin-panel[\w.-]*\.vercel\.app$/i.test(o)
+              /^https:\/\/aphoteka-admin-panel[\w.-]*\.vercel\.app$/i.test(o) ||
+              /^https:\/\/norix[\w.-]*\.vercel\.app$/i.test(o)
             ) {
               cb(null, true);
               return;

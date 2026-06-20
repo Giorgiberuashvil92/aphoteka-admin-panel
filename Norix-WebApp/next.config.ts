@@ -9,6 +9,14 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: "https",
+        hostname: "flagcdn.com",
+      },
+      {
+        protocol: "https",
+        hostname: "assets.psp.ge",
+      },
+      {
+        protocol: "https",
         hostname: "**.amazonaws.com",
       },
       {
