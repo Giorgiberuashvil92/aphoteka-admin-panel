@@ -27,32 +27,31 @@ export function buildHeaderNavLinks(categories: Category[]): HeaderNavLink[] {
   return categoryLinks;
 }
 
-export function buildMainCategoryCards(categories: Category[]) {
-  const cards = [
-    {
-      key: "medications",
-      title: "აფთიაქი",
-      apiName: "მედიკამენტები",
-      bg: "bg-norix-green",
-    },
-    {
-      key: "mother-child",
-      title: "ოჯახზე ზრუნვა",
-      apiName: "დედა და ბავშვი",
-      bg: "bg-norix-yellow",
-    },
-    {
-      key: "cosmetics",
-      title: "სილამაზე",
-      apiName: "კოსმეტიკა და პირადი ჰიგიენა",
-      bg: "bg-norix-magenta",
-    },
-  ] as const;
+const CATEGORY_KEYS: Record<(typeof FEATURED_CATEGORIES)[number]["apiName"], string> = {
+  "მედიკამენტები": "medications",
+  "კოსმეტიკა და პირადი ჰიგიენა": "cosmetics",
+  "დედა და ბავშვი": "mother-child",
+};
 
-  return cards.flatMap((card) => {
-    const category = categories.find((item) => item.name === card.apiName);
+export interface MainCategoryCard {
+  key: string;
+  title: string;
+  href: string;
+  apiName: string;
+}
+
+export function buildMainCategoryCards(categories: Category[]): MainCategoryCard[] {
+  return FEATURED_CATEGORIES.flatMap((featured) => {
+    const category = categories.find((item) => item.name === featured.apiName);
     if (!category) return [];
-    return [{ ...card, href: `/category/${category.id}` }];
+    return [
+      {
+        key: CATEGORY_KEYS[featured.apiName],
+        title: featured.label,
+        href: `/category/${category.id}`,
+        apiName: featured.apiName,
+      },
+    ];
   });
 }
 

@@ -1,12 +1,24 @@
 import Link from "next/link";
-import { Baby, Pill, Sparkles } from "lucide-react";
+import { ArrowUpRight, Baby, Pill, Sparkles } from "lucide-react";
 import { buildMainCategoryCards } from "@/lib/categoryNav";
 import { fetchCategories } from "@/lib/api/categories";
 
-const CARD_ICONS = {
-  medications: Pill,
-  "mother-child": Baby,
-  cosmetics: Sparkles,
+const CARD_STYLE = {
+  medications: {
+    icon: Pill,
+    iconWrap: "bg-emerald-50 text-emerald-600",
+    ring: "hover:ring-emerald-200",
+  },
+  "mother-child": {
+    icon: Baby,
+    iconWrap: "bg-amber-50 text-amber-600",
+    ring: "hover:ring-amber-200",
+  },
+  cosmetics: {
+    icon: Sparkles,
+    iconWrap: "bg-pink-50 text-norix-magenta",
+    ring: "hover:ring-pink-200",
+  },
 } as const;
 
 export async function MainCategoryCards() {
@@ -16,24 +28,44 @@ export async function MainCategoryCards() {
   if (cards.length === 0) return null;
 
   return (
-    <section className="grid grid-cols-1 gap-3 py-2 sm:grid-cols-3 md:gap-4 md:py-4">
-      {cards.map((cat) => {
-        const Icon = CARD_ICONS[cat.key as keyof typeof CARD_ICONS] ?? Pill;
-        return (
-          <Link
-            key={cat.key}
-            href={cat.href}
-            className={`group flex items-center justify-between rounded-xl ${cat.bg} px-6 py-5 text-white transition-transform hover:scale-[1.02] md:px-8 md:py-6`}
-          >
-            <span className="text-lg font-semibold md:text-xl lg:text-2xl">
-              {cat.title}
-            </span>
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/25 transition-colors group-hover:bg-white/35 md:h-16 md:w-16">
-              <Icon className="h-7 w-7 md:h-8 md:w-8" strokeWidth={1.5} />
-            </div>
-          </Link>
-        );
-      })}
+    <section className="py-4 md:py-6">
+      <div className="mb-4 flex items-end justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-foreground md:text-2xl">
+            კატეგორიები
+          </h2>
+          <p className="mt-1 text-sm text-norix-gray-600">
+            აირჩიეთ სასურველი განყოფილება
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 md:gap-4">
+        {cards.map((cat) => {
+          const style =
+            CARD_STYLE[cat.key as keyof typeof CARD_STYLE] ?? CARD_STYLE.medications;
+          const Icon = style.icon;
+
+          return (
+            <Link
+              key={cat.key}
+              href={cat.href}
+              className={`group flex items-center gap-4 rounded-2xl border border-norix-border/80 bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.04)] ring-1 ring-transparent transition-all hover:-translate-y-0.5 hover:shadow-md ${style.ring}`}
+            >
+              <div
+                className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${style.iconWrap}`}
+              >
+                <Icon className="h-7 w-7" strokeWidth={1.5} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-lg font-semibold text-foreground">{cat.title}</p>
+                <p className="text-sm text-norix-gray-600">ნახვა →</p>
+              </div>
+              <ArrowUpRight className="h-5 w-5 shrink-0 text-norix-gray-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-norix-blue" />
+            </Link>
+          );
+        })}
+      </div>
     </section>
   );
 }
