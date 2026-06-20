@@ -37,7 +37,7 @@ export function ProductDetailView({
   categoryHref,
 }: ProductDetailViewProps) {
   const router = useRouter();
-  const { addToCart } = useCart();
+  const { addToCart, clearCart } = useCart();
   const { toggleFavorite, isFavorite } = useFavorites();
   const favorited = isFavorite(product.id);
   const [quantity, setQuantity] = useState(1);
@@ -86,6 +86,7 @@ export function ProductDetailView({
   };
 
   const handleBuyNow = () => {
+    clearCart();
     addToCart(
       {
         id: product.id,
@@ -99,7 +100,7 @@ export function ProductDetailView({
       quantity,
       { openDrawer: false },
     );
-    router.push("/checkout");
+    router.push("/checkout?buyNow=1");
   };
 
   const breadcrumbItems = useMemo(() => {

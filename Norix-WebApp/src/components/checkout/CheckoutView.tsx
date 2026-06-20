@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ChevronLeft, Loader2, ShieldCheck } from "lucide-react";
 import { CartLineItem } from "@/components/cart/CartLineItem";
 import {
@@ -69,6 +70,9 @@ export function CheckoutView() {
     clearCart,
   } = useCart();
   const { isAuthenticated, openAuth, user } = useAuth();
+  const searchParams = useSearchParams();
+  const buyNow = searchParams.get("buyNow") === "1";
+  const autoPayAttempted = useRef(false);
 
   const [street, setStreet] = useState(() => loadCheckoutAddress().street);
   const [city, setCity] = useState(() => loadCheckoutAddress().city);
@@ -291,6 +295,21 @@ export function CheckoutView() {
       setPaying(false);
     }
   }
+
+  const handlePayRef = useRef<(() => Promise<void>) | null>(null);
+
+  useEffect(() => {
+    handlePayRef.current = handlePay;
+  });
+
+  useEffect(() => {
+    if (!buyNow || autoPayAttempted.current) return;
+    if (!items.length || !addressReady || deliveryLoading || !selectedDelivery) {
+      return;
+    }
+    autoPayAttempted.current = true;
+    void handlePayRef.current?.();
+  }, [buyNow, items.length, addressReady, deliveryLoading, selectedDelivery]);
 
   return (
     <main className="w-full flex-1 bg-norix-gray-100">
