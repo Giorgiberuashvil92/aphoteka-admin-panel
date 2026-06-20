@@ -9,6 +9,7 @@ import {
   balanceSalePutUrlInline,
   balanceSaleRequestBodyLogMaxChars,
   balanceSaleShouldLogRequestBody,
+  balanceSalesCreditPutUrlInline,
 } from '../config/balance-sale-inline';
 
 /** Next admin `BALANCE_PUBLICATION_TARGET` — იგივე Application ID Exchange URL-ში */
@@ -427,6 +428,23 @@ export class BalanceExchangeService {
     return `https://cloud.balance.ge/sm/${mode}/Balance/${pub}/hs/Exchange/${resource}`;
   }
 
+  private salesCreditPutUrl(): string {
+    const full =
+      balanceSalesCreditPutUrlInline() ||
+      this.env('BALANCE_SALES_CREDIT_PUT_URL');
+    if (full) return full;
+    const pub = this.resolvedPublicationId();
+    const resource =
+      this.config
+        .get<string>('BALANCE_EXCHANGE_SALES_CREDIT_RESOURCE')
+        ?.trim() || 'SalesCredit';
+    const mode =
+      this.config.get<string>('BALANCE_EXCHANGE_MODE')?.trim() === 'o'
+        ? 'o'
+        : 'a';
+    return `https://cloud.balance.ge/sm/${mode}/Balance/${pub}/hs/Exchange/${resource}`;
+  }
+
   private itemsCatalogUrl(): string {
     const full =
       this.env('BALANCE_ITEMS_CATALOG_URL') || this.env('BALANCE_ITEMS_URL');
@@ -567,6 +585,79 @@ export class BalanceExchangeService {
         : text || '(ცარიელი)';
     this.logger.log(
       `[Balance Sale] PUT ${url}` +
+        (loc ? `\nLocation: ${loc}` : '') +
+        `\n← HTTP ${res.status} ${res.statusText}` +
+        `\nBalance პასუხის სხეული:\n${bodyBlock}`,
+    );
+    return { ok, status: res.status, raw: text };
+  }
+
+  /**
+   * PUT — JSON **მასივი** `[ { ... } ]` (Exchange SalesCredit).
+   * საწყობის ცვლილება — `BaseDocument` = ორიგინალი Sale `uid`.
+   */
+  async putSalesCreditDocument(
+    rows: Record<string, unknown>[],
+  ): Promise<{ ok: boolean; status: number; raw: string }> {
+    const url = this.salesCreditPutUrl();
+    if (!this.hasCredentials()) {
+      this.logger.warn(
+        '[Balance SalesCredit] ავთენტიკაცია არ არის — გამოტოვება',
+      );
+      return { ok: false, status: 0, raw: 'no_balance_auth' };
+    }
+    if (balanceSaleShouldLogRequestBody()) {
+      try {
+        const serialized = JSON.stringify(rows, null, 2);
+        const max = balanceSaleRequestBodyLogMaxChars();
+        const block =
+          serialized.length > max
+            ? `${serialized.slice(0, max)}\n… [truncated, სულ ${serialized.length} სიმბოლო]`
+            : serialized;
+        this.logger.log(
+          `[Balance SalesCredit] → გამოსავალი PUT სხეული (${serialized.length} სიმბოლო)\nURL: ${url}\n${block}`,
+        );
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.logger.warn(
+          `[Balance SalesCredit] JSON stringify ვერ მოხერხდა: ${msg}`,
+        );
+      }
+    }
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 60_000);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          Authorization: this.authorizationHeader(),
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(rows),
+        signal: controller.signal,
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`[Balance SalesCredit] ქსელი/აბორტი — ${msg}`);
+      return { ok: false, status: 0, raw: msg };
+    } finally {
+      clearTimeout(t);
+    }
+    const text = await res.text();
+    const ok = res.ok;
+    const logBodyDisabled =
+      this.config.get<string>('BALANCE_LOG_EXCHANGE_SALE')?.trim() === '0';
+    const loc = res.headers.get('location');
+    const maxBody = 24_000;
+    const bodyBlock = logBodyDisabled
+      ? '(სხეულის დალოგვა გამორთულია — BALANCE_LOG_EXCHANGE_SALE=0)'
+      : text.length > maxBody
+        ? `${text.slice(0, maxBody)}\n… [truncated, სულ ${text.length} სიმბოლო]`
+        : text || '(ცარიელი)';
+    this.logger.log(
+      `[Balance SalesCredit] PUT ${url}` +
         (loc ? `\nLocation: ${loc}` : '') +
         `\n← HTTP ${res.status} ${res.statusText}` +
         `\nBalance პასუხის სხეული:\n${bodyBlock}`,

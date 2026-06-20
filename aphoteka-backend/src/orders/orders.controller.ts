@@ -12,6 +12,11 @@ import {
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { AssignWarehouseDto } from './dto/assign-warehouse.dto';
+import {
+  DeliveryRedispatchApplyDto,
+  DeliveryRedispatchPreviewDto,
+} from './dto/delivery-redispatch.dto';
+import { UpdateDeliveryAddressDto } from './dto/update-delivery-address.dto';
 import { UpdateWarehouseOrderStatusDto } from './dto/update-warehouse-order-status.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -85,6 +90,88 @@ export class OrdersController {
       ok: true,
       message: 'შეკვეთა წარმატებით გაიგზავნა Quickshipper-ზე',
     };
+  }
+
+  @Post('admin/:id/delivery-redispatch/preview')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  previewDeliveryRedispatch(
+    @Param('id') id: string,
+    @Body() dto: DeliveryRedispatchPreviewDto,
+  ) {
+    return this.ordersService.previewDeliveryRedispatch(id, dto.warehouseId);
+  }
+
+  @Post('admin/:id/delivery-redispatch/apply')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  applyDeliveryRedispatch(
+    @Param('id') id: string,
+    @Body() dto: DeliveryRedispatchApplyDto,
+  ) {
+    return this.ordersService.applyDeliveryRedispatch(id, dto);
+  }
+
+  @Post('admin/:id/delivery-redispatch/mark-paid')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  markDeliveryRedispatchPaid(@Param('id') id: string) {
+    return this.ordersService.markDeliveryRedispatchPaid(id);
+  }
+
+  @Get('admin/:id/payment/bog/refund-preview')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  previewBogProductsRefund(@Param('id') id: string) {
+    return this.ordersService.previewProductsRefundForAdmin(id);
+  }
+
+  @Post('admin/:id/payment/bog/refund-products')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  refundBogProducts(@Param('id') id: string) {
+    return this.ordersService.refundProductsForAdmin(id);
+  }
+
+  @Post('admin/:id/balance/retry-sale')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  retryBalanceSale(@Param('id') id: string) {
+    return this.ordersService.retryBalanceSaleForAdmin(id);
+  }
+
+  @Post('admin/:id/balance/retry-warehouse-credit')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  retryWarehouseCredit(@Param('id') id: string) {
+    return this.ordersService.retryWarehouseCreditForAdmin(id);
+  }
+
+  @Post('admin/:id/balance/retry-delivery-sale')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  retryDeliveryBalanceSale(@Param('id') id: string) {
+    return this.ordersService.retryDeliveryBalanceSaleForAdmin(id);
+  }
+
+  @Post('admin/:id/delivery-address/preview')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  previewDeliveryAddressUpdate(
+    @Param('id') id: string,
+    @Body() dto: UpdateDeliveryAddressDto,
+  ) {
+    return this.ordersService.previewDeliveryAddressUpdate(id, dto);
+  }
+
+  @Patch('admin/:id/delivery-address')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  applyDeliveryAddressUpdate(
+    @Param('id') id: string,
+    @Body() dto: UpdateDeliveryAddressDto,
+  ) {
+    return this.ordersService.applyDeliveryAddressUpdate(id, dto);
   }
 
   /** საწყობის თანამშრომლის შეკვეთების სია (`warehouse/:id`-ს არ ეჯახება) */
@@ -163,6 +250,12 @@ export class OrdersController {
     return this.ordersService.findOne(id, userId);
   }
 
+  @Post(':id/payment/bog/ensure-balance-sale')
+  @UseGuards(JwtAuthGuard)
+  async ensureBalanceSale(@Param('id') id: string, @Request() req: any) {
+    const userId = req.user?.id || req.user?.sub;
+    return this.ordersService.ensureBalanceSalePostedForUser(id, userId);
+  }
 
   @Post(':id/payment/bog/dev-simulate-completed')
   @UseGuards(JwtAuthGuard)
@@ -175,7 +268,7 @@ export class OrdersController {
     return {
       ok: true,
       message:
-        'გადახდის სიმულაცია შესრულდა (BOG completed). Balance გაგზავნა ხდება მხოლოდ ადმინის სტატუსის ცვლილებაზე.',
+        'გადახდის სიმულაცია შესრულდა — Balance Sale PUT გაეშვა (ან უკვე იყო ჩაწერილი).',
       data,
     };
   }
@@ -193,5 +286,30 @@ export class OrdersController {
       order as BogInitOrder,
       dto,
     );
+  }
+
+  @Post(':id/payment/bog/delivery-redispatch')
+  @UseGuards(JwtAuthGuard)
+  async initDeliveryRedispatchBogPayment(
+    @Param('id') id: string,
+    @Body() dto: BogPaymentInitDto,
+    @Request() req: any,
+  ) {
+    const userId = req.user?.id || req.user?.sub;
+    const order = await this.ordersService.findOne(id, userId);
+    return this.bogPaymentsService.initPaymentForDeliveryRedispatch(
+      order as BogInitOrder,
+      dto,
+    );
+  }
+
+  @Post(':id/payment/bog/delivery-redispatch/ensure-paid')
+  @UseGuards(JwtAuthGuard)
+  async ensureDeliveryRedispatchPaid(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    const userId = req.user?.id || req.user?.sub;
+    return this.ordersService.ensureDeliveryRedispatchPaidForUser(id, userId);
   }
 }

@@ -196,6 +196,8 @@ function mapApiProductToMedicine(p: any): Product {
     contraindications,
     storageConditions: p.storageConditions || '',
     category: p.category || '',
+    subcategory: typeof p.subcategory === 'string' ? p.subcategory.trim() : '',
+    mainCategory: typeof p.mainCategory === 'string' ? p.mainCategory.trim() : '',
     dosageForm: p.dosageForm || '',
     packSize: p.packSize || undefined,
     prescriptionRequired: false,

@@ -21,6 +21,7 @@ type LoginScreenProps = {
   onRegisterPress: () => void;
   onForgotPassword: () => void;
   onGuestPress: () => void;
+  bottomInset?: number;
 };
 
 export function LoginScreen({
@@ -28,6 +29,7 @@ export function LoginScreen({
   onRegisterPress,
   onForgotPassword,
   onGuestPress,
+  bottomInset = 0,
 }: LoginScreenProps) {
   const insets = useSafeAreaInsets();
   const [emailOrPhone, setEmailOrPhone] = useState('');
@@ -83,7 +85,10 @@ export function LoginScreen({
           style={styles.scroll}
           contentContainerStyle={[
             styles.content,
-            { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 28 },
+            {
+              paddingTop: insets.top + 20,
+              paddingBottom: insets.bottom + 28 + bottomInset,
+            },
           ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"

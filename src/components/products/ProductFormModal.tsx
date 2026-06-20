@@ -46,12 +46,15 @@ export default function ProductFormModal({
     packSize: "",
     packagingType: "",
     mainCategory: "",
+    subcategory: "",
     therapeuticClass: "",
   };
 
   const [formData, setFormData] = useState(initialFormData);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [categories, setCategories] = useState<AdminCategory[]>([]);
+  const [subcategories, setSubcategories] = useState<AdminCategory[]>([]);
+  const [loadingSubcategories, setLoadingSubcategories] = useState(false);
   const [filterFields, setFilterFields] = useState<FilterField[]>([]);
   const [filterValues, setFilterValues] = useState<
     Record<string, string | string[] | boolean>
@@ -59,7 +62,7 @@ export default function ProductFormModal({
 
   useEffect(() => {
     let cancelled = false;
-    categoriesApi.getAll({ active: true }).then((list) => {
+    categoriesApi.getRoots().then((list) => {
       if (!cancelled) setCategories(Array.isArray(list) ? list : []);
     });
     filterFieldsApi.getActive().then((list) => {
@@ -71,11 +74,12 @@ export default function ProductFormModal({
   const resolveCategoryFields = (
     p: Product,
     mainCategoryNames: Set<string>,
-  ): { mainCategory: string; therapeuticClass: string } => {
+  ): { mainCategory: string; subcategory: string; therapeuticClass: string } => {
     if (p.mainCategory?.trim()) {
       return {
         mainCategory: p.mainCategory.trim(),
-        therapeuticClass: p.category?.trim() || p.subcategory?.trim() || "",
+        subcategory: p.subcategory?.trim() || "",
+        therapeuticClass: p.category?.trim() || "",
       };
     }
 
@@ -83,15 +87,42 @@ export default function ProductFormModal({
     if (cat && mainCategoryNames.has(cat)) {
       return {
         mainCategory: cat,
-        therapeuticClass: p.subcategory?.trim() || "",
+        subcategory: p.subcategory?.trim() || "",
+        therapeuticClass: "",
       };
     }
 
     return {
       mainCategory: "",
-      therapeuticClass: cat || p.subcategory?.trim() || "",
+      subcategory: p.subcategory?.trim() || "",
+      therapeuticClass: cat,
     };
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!formData.mainCategory) {
+      setSubcategories([]);
+      return;
+    }
+    const parent = categories.find((c) => c.name === formData.mainCategory);
+    if (!parent) {
+      setSubcategories([]);
+      return;
+    }
+    setLoadingSubcategories(true);
+    categoriesApi
+      .getSubcategories(parent.id)
+      .then((list) => {
+        if (!cancelled) setSubcategories(Array.isArray(list) ? list : []);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSubcategories(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [formData.mainCategory, categories]);
 
   // Load product data when editing
   useEffect(() => {
@@ -103,7 +134,7 @@ export default function ProductFormModal({
 
     if (product) {
       const mainCategoryNames = new Set(categories.map((c) => c.name));
-      const { mainCategory, therapeuticClass } = resolveCategoryFields(
+      const { mainCategory, subcategory, therapeuticClass } = resolveCategoryFields(
         product,
         mainCategoryNames,
       );
@@ -138,6 +169,7 @@ export default function ProductFormModal({
         packSize: product.packSize || "",
         packagingType: product.packagingType || "",
         mainCategory,
+        subcategory,
         therapeuticClass,
       });
       setFilterValues(product.filterValues ?? {});
@@ -169,6 +201,7 @@ export default function ProductFormModal({
         packSize: "",
         packagingType: "",
         mainCategory: "",
+        subcategory: "",
         therapeuticClass: "",
       });
       setFilterValues({});
@@ -236,6 +269,7 @@ export default function ProductFormModal({
         price: priceNum,
         mainCategory: formData.mainCategory || undefined,
         category: formData.therapeuticClass || undefined,
+        subcategory: formData.subcategory || undefined,
         active: formData.active,
         sku: formData.sku || formData.productCode || `AUTO-${Date.now()}`,
         genericName: formData.genericName || undefined,
@@ -700,42 +734,84 @@ export default function ProductFormModal({
               />
             </div>
 
-            {/* 19. კატეგორია (ადმინში შექმნილი კატეგორიებიდან) */}
+            {/* მთავარი კატეგორია */}
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                კატეგორია
+                მთავარი კატეგორია
               </label>
               <select
                 value={formData.mainCategory}
-                onChange={(e) => setFormData({ ...formData, mainCategory: e.target.value })}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    mainCategory: e.target.value,
+                    subcategory: "",
+                  })
+                }
                 className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               >
                 <option value="">— არ არის არჩეული —</option>
                 {categories.map((c) => (
                   <option key={c.id} value={c.name}>
-                    {c.name} ({c.productCount} პროდუქტი)
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* საბკატეგორია — ადმინის საბკატეგორიებიდან */}
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                საბკატეგორია
+              </label>
+              <select
+                value={formData.subcategory}
+                onChange={(e) =>
+                  setFormData({ ...formData, subcategory: e.target.value })
+                }
+                disabled={!formData.mainCategory || loadingSubcategories}
+                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              >
+                <option value="">
+                  {!formData.mainCategory
+                    ? "— ჯერ აირჩიეთ მთავარი კატეგორია —"
+                    : loadingSubcategories
+                      ? "იტვირთება..."
+                      : "— არ არის არჩეული —"}
+                </option>
+                {formData.subcategory &&
+                  !subcategories.some((s) => s.name === formData.subcategory) && (
+                    <option value={formData.subcategory}>
+                      {formData.subcategory} (არსებული)
+                    </option>
+                  )}
+                {subcategories.map((sub) => (
+                  <option key={sub.id} value={sub.name}>
+                    {sub.name}
                   </option>
                 ))}
               </select>
               <p className="mt-1 text-xs text-gray-500">
-                კატეგორიების დამატება/რედაქტირება: კატეგორიები მენიუ
+                Norix/აპში ნავიგაციისთვის. საბკატეგორიების მართვა: კატეგორიები → საბკატეგორიები
               </p>
             </div>
 
-            {/* 6. Therapeutic Class — მთავარი კატეგორიის საბკატეგორია */}
+            {/* Therapeutic Class — მედიკამენტებისთვის (Balance) */}
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Therapeutic Class (საბკატეგორია)
+                Therapeutic Class
               </label>
               <input
                 type="text"
                 value={formData.therapeuticClass}
-                onChange={(e) => setFormData({ ...formData, therapeuticClass: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, therapeuticClass: e.target.value })
+                }
                 className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                placeholder="მაგ: ბავშვის კვება, ტკივილგამაყუჩებელი"
+                placeholder="მაგ: ანტიბიოტიკები, ანალგეტიკები"
               />
               <p className="mt-1 text-xs text-gray-500">
-                მობილურ აპში გამოჩნდება არჩეული კატეგორიის ქვეკატეგორიებად
+                მედიკამენტებისთვის — Balance-ის Therapeutic Class (საბკატეგორიასგან ცალკე)
               </p>
             </div>
 

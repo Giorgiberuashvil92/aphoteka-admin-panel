@@ -6,7 +6,7 @@ export default function Settings() {
   const router = useRouter();
 
   return (
-    <RequireAuth>
+    <RequireAuth loginTab="cabinet">
       <SettingsScreen
         isMainTab
         onBack={() => router.push('/home' as any)}

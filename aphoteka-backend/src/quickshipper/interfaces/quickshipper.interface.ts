@@ -109,3 +109,11 @@ export interface CreateOrderResponse {
   trackingNumber?: string;
   orderId?: string;
 }
+
+export interface CancelOrderResponse {
+  httpStatusCode: number;
+  userMessage?: string;
+  developerMessage?: string;
+  success?: boolean;
+  errors?: string[];
+}

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Category, CategoryDocument } from './schemas/category.schema';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
@@ -14,7 +14,13 @@ export class CategoriesService {
     private productsService: ProductsService,
   ) {}
 
-  /** მობილური: აქტიური კატეგორიები productCount-ით */
+  private rootFilter() {
+    return {
+      $or: [{ parentId: null }, { parentId: { $exists: false } }],
+    };
+  }
+
+  /** მობილური/ვები: მხოლოდ მთავარი კატეგორიები */
   async findForMobile(): Promise<
     {
       id: string;
@@ -26,15 +32,16 @@ export class CategoriesService {
     }[]
   > {
     const list = await this.categoryModel
-      .find({ active: true })
+      .find({ active: true, ...this.rootFilter() })
       .sort({ sortOrder: 1, name: 1 })
       .lean()
       .exec();
+
     const result = await Promise.all(
       list.map(async (c: any) => ({
         id: c._id?.toString() ?? c.id,
         name: c.name,
-        productCount: await this.productsService.countByCategoryName(c.name),
+        productCount: await this.productsService.countByMainCategoryName(c.name),
         color: c.color,
         icon: c.icon,
         imageUrl: c.imageUrl,
@@ -43,18 +50,37 @@ export class CategoriesService {
     return result;
   }
 
-  /** მობილური: კატეგორიის subcategories (პროდუქტების Therapeutic Class) */
+  /** მობილური/ვები: კატეგორიის საბკატეგორიები (Category.parentId) */
   async findSubcategories(
     parentId: string,
-  ): Promise<{ id: string; name: string }[]> {
+  ): Promise<{ id: string; name: string; productCount: number }[]> {
     const parent = await this.categoryModel.findById(parentId).lean().exec();
     if (!parent) throw new NotFoundException(`Category ${parentId} not found`);
 
-    return this.productsService.getSubcategoriesByCategoryName(parent.name);
+    const list = await this.categoryModel
+      .find({ active: true, parentId: new Types.ObjectId(parentId) })
+      .sort({ sortOrder: 1, name: 1 })
+      .lean()
+      .exec();
+
+    return Promise.all(
+      list.map(async (c: any) => ({
+        id: c._id?.toString() ?? c.id,
+        name: c.name,
+        productCount: await this.productsService.countBySubcategoryName(
+          parent.name,
+          c.name,
+        ),
+      })),
+    );
   }
 
-  /** ადმინი: ყველა კატეგორია (პროდუქტების რაოდენობით) */
-  async findAll(active?: boolean): Promise<
+  /** ადმინი: კატეგორიები (?active=, ?parentId=, ?root=true) */
+  async findAll(
+    active?: boolean,
+    parentId?: string,
+    rootOnly?: boolean,
+  ): Promise<
     {
       id: string;
       name: string;
@@ -68,26 +94,51 @@ export class CategoriesService {
       productCount: number;
     }[]
   > {
-    const filter: { active?: boolean } = {};
+    const filter: Record<string, unknown> = {};
     if (active !== undefined) filter.active = active;
+    if (rootOnly) {
+      Object.assign(filter, this.rootFilter());
+    } else if (parentId) {
+      filter.parentId = new Types.ObjectId(parentId);
+    }
+
     const list = await this.categoryModel
       .find(filter)
       .sort({ sortOrder: 1, name: 1 })
       .lean()
       .exec();
+
     const result = await Promise.all(
-      list.map(async (c: any) => ({
-        id: c._id?.toString() ?? c.id,
-        name: c.name,
-        description: c.description,
-        parentId: c.parentId?.toString?.() ?? c.parentId,
-        color: c.color,
-        icon: c.icon,
-        imageUrl: c.imageUrl,
-        active: c.active ?? true,
-        sortOrder: c.sortOrder ?? 0,
-        productCount: await this.productsService.countByCategoryName(c.name),
-      })),
+      list.map(async (c: any) => {
+        const parentName = c.parentId
+          ? (
+              await this.categoryModel
+                .findById(c.parentId)
+                .lean()
+                .exec()
+            )?.name
+          : undefined;
+
+        const productCount = parentName
+          ? await this.productsService.countBySubcategoryName(
+              parentName,
+              c.name,
+            )
+          : await this.productsService.countByMainCategoryName(c.name);
+
+        return {
+          id: c._id?.toString() ?? c.id,
+          name: c.name,
+          description: c.description,
+          parentId: c.parentId?.toString?.() ?? c.parentId,
+          color: c.color,
+          icon: c.icon,
+          imageUrl: c.imageUrl,
+          active: c.active ?? true,
+          sortOrder: c.sortOrder ?? 0,
+          productCount,
+        };
+      }),
     );
     return result;
   }
@@ -96,6 +147,20 @@ export class CategoriesService {
     const doc = await this.categoryModel.findById(id).lean().exec();
     if (!doc) throw new NotFoundException(`Category ${id} not found`);
     const c = doc as any;
+
+    let productCount = 0;
+    if (c.parentId) {
+      const parent = await this.categoryModel.findById(c.parentId).lean().exec();
+      if (parent) {
+        productCount = await this.productsService.countBySubcategoryName(
+          parent.name,
+          c.name,
+        );
+      }
+    } else {
+      productCount = await this.productsService.countByMainCategoryName(c.name);
+    }
+
     return {
       id: c._id?.toString() ?? c.id,
       name: c.name,
@@ -106,7 +171,7 @@ export class CategoriesService {
       imageUrl: c.imageUrl,
       active: c.active ?? true,
       sortOrder: c.sortOrder ?? 0,
-      productCount: await this.productsService.countByCategoryName(c.name),
+      productCount,
     };
   }
 

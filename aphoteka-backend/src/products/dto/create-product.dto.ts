@@ -41,7 +41,7 @@ export class CreateProductDto {
   @IsOptional()
   category?: string;
 
-  /** ლეგაცია — იგივე რაც category (Therapeutic Class) */
+  /** საბკატეგორია — ადმინის საბკატეგორიების სიიდან (Norix/აპი) */
   @IsString()
   @IsOptional()
   subcategory?: string;

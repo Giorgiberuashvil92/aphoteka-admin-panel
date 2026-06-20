@@ -31,12 +31,20 @@ export class CategoriesController {
     return this.categoriesService.findSubcategories(id);
   }
 
-  /** ადმინი: ყველა კატეგორია (?active=true|false) */
+  /** ადმინი: ყველა კატეგორია (?active=, ?parentId=, ?root=true) */
   @Get()
-  findAll(@Query('active') active?: string) {
+  findAll(
+    @Query('active') active?: string,
+    @Query('parentId') parentId?: string,
+    @Query('root') root?: string,
+  ) {
     const activeFilter =
       active === 'true' ? true : active === 'false' ? false : undefined;
-    return this.categoriesService.findAll(activeFilter);
+    return this.categoriesService.findAll(
+      activeFilter,
+      parentId,
+      root === 'true',
+    );
   }
 
   @Get(':id')

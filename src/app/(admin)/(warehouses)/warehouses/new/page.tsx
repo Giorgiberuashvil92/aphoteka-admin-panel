@@ -3,7 +3,11 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
-    import { warehousesApi } from "@/lib/api";   
+import {
+  parseWarehouseCoords,
+  WarehouseCoordsFields,
+} from "@/components/warehouses/WarehouseCoordsFields";
+import { warehousesApi } from "@/lib/api";
 
 export default function NewWarehousePage() {
   const router = useRouter();
@@ -15,6 +19,8 @@ export default function NewWarehousePage() {
     email: "",
     managerId: "",
     active: true,
+    latitude: "",
+    longitude: "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,8 +30,22 @@ export default function NewWarehousePage() {
     setIsSubmitting(true);
     setError(null);
 
+    const coords = parseWarehouseCoords(formData.latitude, formData.longitude);
+    if (coords.error) {
+      setError(coords.error);
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
-      await warehousesApi.create(formData);
+      await warehousesApi.create({
+        ...formData,
+        phoneNumber: formData.phoneNumber || undefined,
+        email: formData.email || undefined,
+        managerId: formData.managerId || undefined,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+      });
       router.push("/warehouses");
     } catch (err) {
       setError(err instanceof Error ? err.message : "შეცდომა საწყობის შექმნისას");
@@ -149,6 +169,17 @@ export default function NewWarehousePage() {
             </div>
           </div>
         </div>
+
+        <WarehouseCoordsFields
+          latitude={formData.latitude}
+          longitude={formData.longitude}
+          onLatitudeChange={(latitude) =>
+            setFormData((f) => ({ ...f, latitude }))
+          }
+          onLongitudeChange={(longitude) =>
+            setFormData((f) => ({ ...f, longitude }))
+          }
+        />
 
         <div className="flex justify-end gap-4">
           <button

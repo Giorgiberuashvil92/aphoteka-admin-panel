@@ -6,6 +6,7 @@ import {
   DeliveryFeeResponse,
   CreateOrderRequest,
   CreateOrderResponse,
+  CancelOrderResponse,
 } from './interfaces/quickshipper.interface';
 
 @Injectable()
@@ -230,6 +231,64 @@ export class QuickshipperService {
       return data;
     } catch (error) {
       this.logger.error('Error creating Quickshipper order:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cancel/delete delivery order in Quickshipper (DELETE v1/order).
+   * Works when no courier is assigned or provider allows integration cancel.
+   */
+  async cancelOrder(quickshipperOrderId: string): Promise<CancelOrderResponse> {
+    const id = quickshipperOrderId?.trim();
+    if (!id) {
+      throw new Error('Quickshipper orderId is required for cancel');
+    }
+
+    try {
+      const token = await this.getAccessToken();
+      const url = `${this.getApiBaseUrl()}/v1/order?orderId=${encodeURIComponent(id)}`;
+
+      this.logger.log(`Cancelling Quickshipper order: ${url}`);
+
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const responseText = await response.text();
+      this.logger.log(
+        `Quickshipper cancel status: ${response.status} body: ${responseText || '(empty)'}`,
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to cancel Quickshipper order: ${response.status} - ${responseText}`,
+        );
+      }
+
+      if (response.status === 204 || !responseText.trim()) {
+        return {
+          success: true,
+          httpStatusCode: response.status,
+          userMessage: 'Quickshipper order cancelled',
+        };
+      }
+
+      try {
+        return JSON.parse(responseText) as CancelOrderResponse;
+      } catch {
+        return {
+          success: true,
+          httpStatusCode: response.status,
+          userMessage: responseText,
+        };
+      }
+    } catch (error) {
+      this.logger.error('Error cancelling Quickshipper order:', error);
       throw error;
     }
   }

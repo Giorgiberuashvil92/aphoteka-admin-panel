@@ -1,10 +1,14 @@
 import { getOrderStatusColor, getOrderStatusText, type OrderStatusUi } from '@/src/data/mockOrders';
+import { getApiBaseUrl } from '@/src/config/api.config';
 import { OrdersService, type MyOrderListItem } from '@/src/services/orders.service';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Linking,
+  Modal,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -14,6 +18,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { WebViewNavigation } from 'react-native-webview';
+import { WebView } from 'react-native-webview';
 
 type OrderTrackingScreenProps = {
   orderId: string;
@@ -73,6 +80,17 @@ type TimelineStep = {
 
 const BADGE_AWAITING_PAYMENT = '#E65100';
 
+function bogReturnFromDeepLink(url: string): 'paid' | 'failed' | null {
+  const u = url.toLowerCase();
+  if (u.includes('bogreturn=success') || u.includes('bog_return=success')) {
+    return 'paid';
+  }
+  if (u.includes('bogreturn=fail') || u.includes('bog_return=fail')) {
+    return 'failed';
+  }
+  return null;
+}
+
 function buildTimeline(
   status: OrderStatusUi,
   opts?: { awaitingOnlinePayment?: boolean },
@@ -128,11 +146,118 @@ function buildTimeline(
 }
 
 export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProps) {
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   type OrderDetail = MyOrderListItem & { shippingAddress?: string; phoneNumber?: string };
   const [order, setOrder] = useState<OrderDetail | null>(null);
+  const [payingRedispatch, setPayingRedispatch] = useState(false);
+  const [bogCheckoutUrl, setBogCheckoutUrl] = useState<string | null>(null);
+  const [bogWebLoading, setBogWebLoading] = useState(false);
+  const [bogVerifying, setBogVerifying] = useState(false);
+  const bogFinalizeOnceRef = useRef(false);
+
+  const closeBogModal = useCallback(() => {
+    bogFinalizeOnceRef.current = true;
+    setBogCheckoutUrl(null);
+    setBogWebLoading(false);
+  }, []);
+
+  const finalizeRedispatchPaid = useCallback(async () => {
+    if (bogFinalizeOnceRef.current) return;
+    bogFinalizeOnceRef.current = true;
+    setBogCheckoutUrl(null);
+    setBogWebLoading(false);
+    setBogVerifying(true);
+    try {
+      void OrdersService.ensureDeliveryRedispatchPaid(orderId);
+      const r = await OrdersService.waitForDeliveryRedispatchPaid(orderId);
+      if (r === 'paid') {
+        const res = await OrdersService.fetchOrderById(orderId);
+        if (res.ok) setOrder(res.order);
+        Alert.alert(
+          'გადახდა მიღებულია',
+          'ახალი მიტანის თანხა გადახდილია. შეკვეთა მალე გაიგზავნება ახალი საწყობიდან.',
+        );
+      } else {
+        Alert.alert(
+          'გადახდა მუშავდება',
+          'გადახდა მიღებულია, მაგრამ სტატუსის განახლებას რამდენიმე წამი დასჭირდება. განაახლეთ გვერდი.',
+        );
+      }
+    } finally {
+      setBogVerifying(false);
+    }
+  }, [orderId]);
+
+  const finalizeRedispatchFailed = useCallback(() => {
+    closeBogModal();
+    Alert.alert('გადახდა ვერ დასრულდა', 'სცადეთ ხელახლა ან დაუკავშირდით მხარდაჭერას.');
+  }, [closeBogModal]);
+
+  const handleBogUrlNavigation = useCallback(
+    (rawUrl: string) => {
+      const u = rawUrl.toLowerCase();
+      if (u.includes('/payments/bog/mobile-return/success')) {
+        void finalizeRedispatchPaid();
+        return true;
+      }
+      if (u.includes('/payments/bog/mobile-return/fail')) {
+        finalizeRedispatchFailed();
+        return true;
+      }
+      if (u.startsWith('kutuku://') || u.startsWith('kutuku:')) {
+        void Linking.openURL(rawUrl).catch(() => {});
+        const br = bogReturnFromDeepLink(rawUrl);
+        if (br === 'paid') void finalizeRedispatchPaid();
+        else if (br === 'failed') finalizeRedispatchFailed();
+        else closeBogModal();
+        return true;
+      }
+      return false;
+    },
+    [closeBogModal, finalizeRedispatchFailed, finalizeRedispatchPaid],
+  );
+
+  const onBogWebNavChange = useCallback(
+    (nav: WebViewNavigation) => {
+      handleBogUrlNavigation(nav.url ?? '');
+    },
+    [handleBogUrlNavigation],
+  );
+
+  const onBogShouldStartLoad = useCallback(
+    (req: { url: string }) => !handleBogUrlNavigation(req.url ?? ''),
+    [handleBogUrlNavigation],
+  );
+
+  const handlePayRedispatch = useCallback(async () => {
+    if (!order?.deliveryRedispatchPending) return;
+    setPayingRedispatch(true);
+    bogFinalizeOnceRef.current = false;
+    try {
+      const apiBase = getApiBaseUrl();
+      const bogRedirects = apiBase.toLowerCase().startsWith('https://')
+        ? {
+            successRedirectUrl: `${apiBase}/payments/bog/mobile-return/success`,
+            failRedirectUrl: `${apiBase}/payments/bog/mobile-return/fail`,
+          }
+        : undefined;
+      const pay = await OrdersService.initBogDeliveryRedispatchPayment(
+        orderId,
+        bogRedirects,
+      );
+      if (!pay.ok) {
+        Alert.alert('გადახდა ვერ დაიწყო', pay.message ?? 'სცადეთ ხელახლა');
+        return;
+      }
+      setBogWebLoading(true);
+      setBogCheckoutUrl(pay.redirectUrl);
+    } finally {
+      setPayingRedispatch(false);
+    }
+  }, [order?.deliveryRedispatchPending, orderId]);
 
   const load = useCallback(
     async (isRefresh: boolean) => {
@@ -169,16 +294,20 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
     });
   }, [order]);
 
-  const badgeLabel = order?.awaitingOnlinePayment
-    ? 'გადახდა მელოდება'
-    : order
-      ? getOrderStatusText(order.status)
-      : '';
-  const badgeColor = order?.awaitingOnlinePayment
+  const badgeLabel = order?.deliveryRedispatchPending
+    ? 'მიტანის გადახდა'
+    : order?.awaitingOnlinePayment
+      ? 'გადახდა მელოდება'
+      : order
+        ? getOrderStatusText(order.status)
+        : '';
+  const badgeColor = order?.deliveryRedispatchPending
     ? BADGE_AWAITING_PAYMENT
-    : order
-      ? getOrderStatusColor(order.status)
-      : '#757575';
+    : order?.awaitingOnlinePayment
+      ? BADGE_AWAITING_PAYMENT
+      : order
+        ? getOrderStatusColor(order.status)
+        : '#757575';
 
   if (loading && !order) {
     return (
@@ -224,6 +353,12 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" />
+      {bogVerifying ? (
+        <View style={styles.bogVerifyOverlay} pointerEvents="auto">
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={styles.bogVerifyText}>გადახდის დადასტურება...</Text>
+        </View>
+      ) : null}
       <View style={styles.topBar}>
         <TouchableOpacity onPress={onBack} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={24} color={theme.colors.text.primary} />
@@ -240,6 +375,49 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
       >
         {order ? (
           <>
+            {order.deliveryRedispatchPending && order.deliveryRedispatch ? (
+              <View style={styles.redispatchBanner}>
+                <View style={styles.redispatchBannerIcon}>
+                  <Ionicons name="location-outline" size={22} color={BADGE_AWAITING_PAYMENT} />
+                </View>
+                <View style={styles.redispatchBannerBody}>
+                  <Text style={styles.redispatchTitle}>ახალი მიტანის გადახდა</Text>
+                  <Text style={styles.redispatchSub}>
+                    შეკვეთა გადაიგზავნება საწყობიდან:{' '}
+                    {order.deliveryRedispatch.newWarehouseName || '—'}
+                  </Text>
+                  {order.deliveryRedispatch.newPickupAddress?.streetName ? (
+                    <Text style={styles.redispatchMeta}>
+                      {order.deliveryRedispatch.newPickupAddress.streetName}
+                    </Text>
+                  ) : null}
+                  <Text style={styles.redispatchAmount}>
+                    გადასახდელი: ₾{order.deliveryRedispatch.amountDue.toFixed(2)}
+                  </Text>
+                  <Text style={styles.redispatchHint}>
+                    ძველი მიტანის თანხა არ ბრუნდება — იხდით მხოლოდ ახალ მიტანას.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.redispatchPayBtn}
+                    onPress={() => void handlePayRedispatch()}
+                    disabled={payingRedispatch}
+                    activeOpacity={0.85}
+                  >
+                    {payingRedispatch ? (
+                      <ActivityIndicator color={theme.colors.white} />
+                    ) : (
+                      <>
+                        <Ionicons name="card-outline" size={18} color={theme.colors.white} />
+                        <Text style={styles.redispatchPayBtnText}>
+                          გადახდა · ₾{order.deliveryRedispatch.amountDue.toFixed(2)}
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : null}
+
             <View style={styles.card}>
               <View style={styles.cardHeader}>
                 <Text style={styles.orderNo}>{order.orderNumber}</Text>
@@ -333,6 +511,48 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
           </>
         ) : null}
       </ScrollView>
+
+      <Modal
+        visible={!!bogCheckoutUrl}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={closeBogModal}
+      >
+        <View style={[styles.bogModalRoot, { paddingTop: insets.top }]}>
+          <View style={styles.bogModalHeader}>
+            <Text style={styles.bogModalTitle}>მიტანის გადახდა — BOG</Text>
+            <TouchableOpacity
+              onPress={closeBogModal}
+              style={styles.bogModalCloseBtn}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Ionicons name="close" size={28} color={theme.colors.text.primary} />
+            </TouchableOpacity>
+          </View>
+          {bogCheckoutUrl ? (
+            <View style={styles.bogWebWrap}>
+              {bogWebLoading ? (
+                <View style={styles.bogWebLoading}>
+                  <ActivityIndicator size="large" color={theme.colors.primary} />
+                  <Text style={styles.bogWebLoadingText}>იტვირთება...</Text>
+                </View>
+              ) : null}
+              <WebView
+                source={{ uri: bogCheckoutUrl }}
+                style={styles.bogWebView}
+                onLoadStart={() => setBogWebLoading(true)}
+                onLoadEnd={() => setBogWebLoading(false)}
+                onNavigationStateChange={onBogWebNavChange}
+                onShouldStartLoadWithRequest={onBogShouldStartLoad}
+                javaScriptEnabled
+                domStorageEnabled
+                sharedCookiesEnabled
+                originWhitelist={['https://*', 'http://*']}
+              />
+            </View>
+          ) : null}
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -534,5 +754,123 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: theme.colors.text.primary,
+  },
+  redispatchBanner: {
+    flexDirection: 'row',
+    backgroundColor: '#FFF3E0',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FFCC80',
+  },
+  redispatchBannerIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFE0B2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  redispatchBannerBody: {
+    flex: 1,
+  },
+  redispatchTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#E65100',
+    marginBottom: 4,
+  },
+  redispatchSub: {
+    fontSize: 14,
+    color: theme.colors.text.primary,
+    marginBottom: 4,
+  },
+  redispatchMeta: {
+    fontSize: 13,
+    color: theme.colors.text.secondary,
+    marginBottom: 6,
+  },
+  redispatchAmount: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    marginBottom: 4,
+  },
+  redispatchHint: {
+    fontSize: 12,
+    color: theme.colors.text.secondary,
+    marginBottom: 12,
+    lineHeight: 17,
+  },
+  redispatchPayBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: BADGE_AWAITING_PAYMENT,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  redispatchPayBtnText: {
+    color: theme.colors.white,
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  bogVerifyOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    zIndex: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  bogVerifyText: {
+    marginTop: 16,
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+  },
+  bogModalRoot: {
+    flex: 1,
+    backgroundColor: theme.colors.white,
+  },
+  bogModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.gray[100],
+  },
+  bogModalTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+  },
+  bogModalCloseBtn: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  bogWebWrap: {
+    flex: 1,
+  },
+  bogWebView: {
+    flex: 1,
+  },
+  bogWebLoading: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: theme.colors.white,
+    zIndex: 2,
+  },
+  bogWebLoadingText: {
+    marginTop: 12,
+    color: theme.colors.text.secondary,
   },
 });

@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #1a1a1a;
+  --norix-blue: #1e3a8a;
+  --norix-blue-light: #2563eb;
+  --norix-green: #7cb518;
+  --norix-yellow: #f0b429;
+  --norix-magenta: #d10074;
+  --norix-magenta-light: #fce4f0;
+  --norix-gray-100: #f5f5f5;
+  --norix-gray-200: #e8e8e8;
+  --norix-gray-400: #9ca3af;
+  --norix-gray-600: #4b5563;
+  --norix-border: #e5e7eb;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-norix-blue: var(--norix-blue);
+  --color-norix-blue-light: var(--norix-blue-light);
+  --color-norix-green: var(--norix-green);
+  --color-norix-yellow: var(--norix-yellow);
+  --color-norix-magenta: var(--norix-magenta);
+  --color-norix-magenta-light: var(--norix-magenta-light);
+  --color-norix-gray-100: var(--norix-gray-100);
+  --color-norix-gray-200: var(--norix-gray-200);
+  --color-norix-gray-400: var(--norix-gray-400);
+  --color-norix-gray-600: var(--norix-gray-600);
+  --color-norix-border: var(--norix-border);
+  --font-sans: var(--font-noto-georgian), var(--font-geist-sans), system-ui, sans-serif;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  width: 100%;
+  min-width: 100%;
+}

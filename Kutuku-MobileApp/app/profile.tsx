@@ -15,14 +15,14 @@ export default function Profile() {
         style: 'destructive',
         onPress: async () => {
           await UserService.logout();
-          router.replace('/login' as any);
+          router.replace('/login?tab=profile' as any);
         },
       },
     ]);
   };
 
   return (
-    <RequireAuth>
+    <RequireAuth loginTab="profile">
       <ProfileScreen
         onLogout={handleLogout}
         onPersonalInfoPress={() => router.push('/edit-profile' as any)}

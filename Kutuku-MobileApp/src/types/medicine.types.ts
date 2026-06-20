@@ -49,6 +49,10 @@ export interface Medicine {
   contraindications?: string[];
   storageConditions?: string;
   category: string;
+  /** საბკატეგორია (ადმინის სიიდან) */
+  subcategory?: string;
+  /** მთავარი კატეგორია */
+  mainCategory?: string;
   dosageForm: string;
   packSize?: string; // ბაზიდან, მაგ. "10 tablets", "20 აბი"
   prescriptionRequired: boolean;

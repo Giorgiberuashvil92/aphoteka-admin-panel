@@ -6,6 +6,22 @@
 export type BalanceSaleInlineConfig = {
   /** ცარიელი → `BALANCE_SALE_PUT_URL` env ან `https://cloud.balance.ge/sm/.../Exchange/Sale` */
   salePutUrl: string;
+  /** ცარიელი → `BALANCE_SALES_CREDIT_PUT_URL` env ან `.../Exchange/SalesCredit` */
+  salesCreditPutUrl: string;
+  /** Balance Items GUID — მიტანის სერვისი (Sale Items[].Item) */
+  deliveryItemUid: string;
+  /** Catalog `Code` — თუ GUID ცარიელია, Exchange/Items-იდან ავტომატური ძებნა */
+  deliveryItemCode: string;
+  /** Mongo პროდუქტის SKU — მიტანის Balance ხაზი (მაგ. 000022 დელივერი); ფასი = შეკვეთის მიტანა */
+  deliveryProductSku: string;
+  /** Items[].StringCode მიტანის ხაზისთვის */
+  deliveryStringCode: string;
+  /** Items[].IncomeAccount მიტანისთვის (ცარიელი → revenueAccount) */
+  deliveryIncomeAccount: string;
+  /** Items[].VATRate მიტანისთვის (ცარიელი → itemVatRate / map) */
+  deliveryVatRate: string;
+  /** SalesCredit OperationType — საწყობის ცვლილება (ბუღალტერთან დაადასტურე) */
+  salesCreditOperationType: string;
   /**
    * Sale `ReceivablesAccount` — კომპანიის ნაგულისხმევი, თუ Mongo Buyer-ზე `balanceReceivablesAccount` ცარიელია.
    * მყიდველზე მიბმული ანგარიში უპირატესდება (Balance მყიდველის კატალოგი).
@@ -79,8 +95,19 @@ export type BalanceSaleInlineConfig = {
   logSaleRequestBody: boolean;
 };
 
+export const BALANCE_SALE_DEFAULT_SALES_CREDIT_OPERATION_TYPE =
+  'ფასის კორექტირება';
+
 export const BALANCE_SALE_INLINE: BalanceSaleInlineConfig = {
   salePutUrl: '',
+  salesCreditPutUrl: '',
+  deliveryItemUid: '',
+  deliveryItemCode: '',
+  deliveryProductSku: '000022',
+  deliveryStringCode: 'DELIVERY',
+  deliveryIncomeAccount: '',
+  deliveryVatRate: '',
+  salesCreditOperationType: '',
   /**
    * Sale `ReceivablesAccount` — **სტანდარტული, ყოველ დოკუმენტზე ერთი და იგივე**.
    * მოთხოვნილი საბანკო IBAN: `GE59BG0000000611719869`.
@@ -159,6 +186,65 @@ export const BALANCE_SALE_DEFAULT_VAT_ARTICLE = 'მიწოდება კო
 
 export function balanceSalePutUrlInline(): string {
   return pick(BALANCE_SALE_INLINE.salePutUrl, 'BALANCE_SALE_PUT_URL');
+}
+
+export function balanceSalesCreditPutUrlInline(): string {
+  return pick(
+    BALANCE_SALE_INLINE.salesCreditPutUrl,
+    'BALANCE_SALES_CREDIT_PUT_URL',
+  );
+}
+
+export function balanceSaleDeliveryItemUid(): string {
+  return pick(
+    BALANCE_SALE_INLINE.deliveryItemUid,
+    'BALANCE_SALE_DELIVERY_ITEM_UID',
+  );
+}
+
+export function balanceSaleDeliveryItemCode(): string {
+  return pick(
+    BALANCE_SALE_INLINE.deliveryItemCode,
+    'BALANCE_SALE_DELIVERY_ITEM_CODE',
+  );
+}
+
+export function balanceSaleDeliveryProductSku(): string {
+  return pick(
+    BALANCE_SALE_INLINE.deliveryProductSku,
+    'BALANCE_SALE_DELIVERY_PRODUCT_SKU',
+  );
+}
+
+export function balanceSaleDeliveryStringCode(): string {
+  return (
+    pick(
+      BALANCE_SALE_INLINE.deliveryStringCode,
+      'BALANCE_SALE_DELIVERY_STRING_CODE',
+    ) || 'DELIVERY'
+  );
+}
+
+export function balanceSaleDeliveryIncomeAccount(): string {
+  return pick(
+    BALANCE_SALE_INLINE.deliveryIncomeAccount,
+    'BALANCE_SALE_DELIVERY_INCOME_ACCOUNT',
+  );
+}
+
+export function balanceSaleDeliveryVatRate(): string {
+  return pick(
+    BALANCE_SALE_INLINE.deliveryVatRate,
+    'BALANCE_SALE_DELIVERY_VAT_RATE',
+  );
+}
+
+export function balanceSalesCreditOperationType(): string {
+  return pickWithDefault(
+    BALANCE_SALE_INLINE.salesCreditOperationType,
+    'BALANCE_SALES_CREDIT_OPERATION_TYPE',
+    BALANCE_SALE_DEFAULT_SALES_CREDIT_OPERATION_TYPE,
+  );
 }
 
 export function balanceSaleReceivablesAccount(): string {

@@ -55,8 +55,14 @@ export const API_CONFIG = {
       byId: (id: string) => `/orders/${id}`,
       bogPayment: (id: string) =>
         `/orders/${encodeURIComponent(id)}/payment/bog`,
+      bogEnsureBalanceSale: (id: string) =>
+        `/orders/${encodeURIComponent(id)}/payment/bog/ensure-balance-sale`,
       bogDevSimulateCompleted: (id: string) =>
         `/orders/${encodeURIComponent(id)}/payment/bog/dev-simulate-completed`,
+      bogDeliveryRedispatch: (id: string) =>
+        `/orders/${encodeURIComponent(id)}/payment/bog/delivery-redispatch`,
+      bogDeliveryRedispatchEnsurePaid: (id: string) =>
+        `/orders/${encodeURIComponent(id)}/payment/bog/delivery-redispatch/ensure-paid`,
     },
     users: {
       lookupByEmail: '/users/lookup-by-email',

@@ -10,6 +10,7 @@ import {
   getBalanceWarehouses,
   rowsFromBalanceWarehouses,
 } from "@/lib/api/balanceWarehouses";
+import { warehouseHasCoords } from "@/components/warehouses/WarehouseCoordsFields";
 import { getAuthToken } from "@/lib/authToken";
 
 export default function WarehousesPage() {
@@ -366,6 +367,18 @@ export default function WarehousesPage() {
                     <span className="text-gray-900 dark:text-white">{warehouse.manager.fullName || warehouse.manager.phoneNumber}</span>
                   </div>
                 )}
+                <div className="text-sm">
+                  <span className="text-gray-500 dark:text-gray-400">კოორდინატები: </span>
+                  {warehouseHasCoords(warehouse) ? (
+                    <span className="text-green-700 dark:text-green-400">
+                      {warehouse.latitude}, {warehouse.longitude}
+                    </span>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      არ არის — დაამატეთ რედაქტირებაში
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Actions */}

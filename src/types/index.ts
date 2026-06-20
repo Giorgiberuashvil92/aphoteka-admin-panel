@@ -268,6 +268,21 @@ export interface Order {
   bogLastCallbackAt?: Date;
   /** ბოლო callback-ის სრული payload (აუდიტი) */
   bogLastCallbackRaw?: Record<string, unknown>;
+  /** BOG: პროდუქტების ნაწილობრივი refund (მიტანა არ ბრუნდება) */
+  bogProductsRefundAmount?: number;
+  bogProductsRefundAt?: Date;
+  bogProductsRefundActionId?: string;
+  bogProductsRefundStatus?: string;
+  /** Balance Exchange Sale (PUT) */
+  balanceSalePostedAt?: Date;
+  balanceSalePostError?: string;
+  balanceSalePutResponseAt?: Date;
+  balanceSalePutResponseStatus?: number;
+  balanceSaleDocuments?: Array<{ warehouse: string; uid: string }>;
+  balanceWarehouseCreditPostedAt?: Date;
+  balanceWarehouseCreditDocumentUid?: string;
+  balanceWarehouseCreditPostError?: string;
+  balanceWarehouseCreditPutResponseStatus?: number;
   // Quickshipper delivery
   deliveryProvider?: {
     providerId: number;
@@ -286,6 +301,50 @@ export interface Order {
   quickshipperOrderId?: string;
   quickshipperStatus?: string;
   quickshipperSentAt?: Date;
+  pickupAddress?: {
+    streetName: string;
+    cityName: string;
+    latitude: number;
+    longitude: number;
+    warehouseName?: string;
+    phone?: string;
+  };
+  dispatchWarehouseId?: string;
+  deliveryRedispatch?: {
+    status: 'pending_payment' | 'paid' | 'cancelled' | 'completed';
+    previousDeliveryTotal: number;
+    newDeliveryPrice: number;
+    newDeliveryServiceFee: number;
+    amountDue: number;
+    newWarehouseId: string;
+    newWarehouseName: string;
+    newPickupAddress: {
+      streetName: string;
+      cityName: string;
+      latitude: number;
+      longitude: number;
+    };
+    newDeliveryProvider?: {
+      providerId: number;
+      providerName: string;
+      providerLogoUrl?: string;
+    };
+    newDeliverySpeed?: string;
+    distanceKm?: number;
+    createdAt?: Date;
+    paidAt?: Date;
+    cancelledQuickshipperOrderId?: string;
+    quickshipperCancelledAt?: Date;
+    bogPaymentOrderId?: string;
+    bogPaymentStatus?: string;
+    warehouseCreditPostedAt?: Date;
+    warehouseCreditDocumentUid?: string;
+    warehouseCreditPostError?: string;
+    balanceDeliverySalePostedAt?: Date;
+    balanceDeliverySaleDocumentUid?: string;
+    balanceDeliverySalePostError?: string;
+    balanceDeliverySalePutResponseStatus?: number;
+  };
   createdAt: Date;
   updatedAt: Date;
   confirmedAt?: Date;
@@ -343,6 +402,10 @@ export interface Warehouse {
   managerId?: string; // მენეჯერის ID
   manager?: User; // Populated manager data
   employees?: WarehouseEmployee[]; // Populated employees list
+  /** განედი (latitude) — ავტომატური საწყობის მისაინვებისთვის */
+  latitude?: number;
+  /** გრძედი (longitude) */
+  longitude?: number;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;

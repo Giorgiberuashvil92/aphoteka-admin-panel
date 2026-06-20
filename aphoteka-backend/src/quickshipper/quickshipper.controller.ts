@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Query,
   UseGuards,
@@ -48,6 +49,25 @@ export class QuickshipperController {
     } catch (error) {
       throw new HttpException(
         error.message || 'Failed to create delivery order',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  /**
+   * Cancel delivery order (DELETE v1/order) — admin/debug
+   */
+  @Delete('order')
+  @UseGuards(JwtAuthGuard)
+  async cancelOrder(@Query('orderId') orderId: string) {
+    if (!orderId?.trim()) {
+      throw new HttpException('orderId is required', HttpStatus.BAD_REQUEST);
+    }
+    try {
+      return await this.quickshipperService.cancelOrder(orderId.trim());
+    } catch (error) {
+      throw new HttpException(
+        error.message || 'Failed to cancel delivery order',
         HttpStatus.BAD_REQUEST,
       );
     }

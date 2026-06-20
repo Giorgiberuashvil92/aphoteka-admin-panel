@@ -7,6 +7,7 @@ export interface AdminCategory {
   parentId?: string;
   color?: string;
   icon?: string;
+  imageUrl?: string;
   active: boolean;
   sortOrder: number;
   productCount: number;
@@ -18,15 +19,33 @@ export interface CreateCategoryPayload {
   parentId?: string;
   color?: string;
   icon?: string;
+  imageUrl?: string;
   active?: boolean;
   sortOrder?: number;
 }
 
 export const categoriesApi = {
-  getAll: async (params?: { active?: boolean }): Promise<AdminCategory[]> => {
-    const query =
-      params?.active !== undefined ? `?active=${params.active}` : '';
+  getAll: async (params?: {
+    active?: boolean;
+    parentId?: string;
+    root?: boolean;
+  }): Promise<AdminCategory[]> => {
+    const search = new URLSearchParams();
+    if (params?.active !== undefined) {
+      search.set('active', String(params.active));
+    }
+    if (params?.parentId) search.set('parentId', params.parentId);
+    if (params?.root) search.set('root', 'true');
+    const query = search.toString() ? `?${search.toString()}` : '';
     return api.get<AdminCategory[]>(`/categories${query}`);
+  },
+
+  getRoots: async (): Promise<AdminCategory[]> => {
+    return categoriesApi.getAll({ root: true });
+  },
+
+  getSubcategories: async (parentId: string): Promise<AdminCategory[]> => {
+    return categoriesApi.getAll({ parentId });
   },
 
   getById: async (id: string): Promise<AdminCategory | null> => {

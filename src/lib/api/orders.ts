@@ -20,6 +20,77 @@ export interface OrderResponse {
   data: Order;
 }
 
+export interface DeliveryRedispatchPreviewResult {
+  ok: boolean;
+  warehouseId: string;
+  warehouseName: string;
+  pickupAddress: {
+    streetName: string;
+    cityName: string;
+    latitude: number;
+    longitude: number;
+    warehouseName?: string;
+  };
+  currentPickupAddress: {
+    streetName: string;
+    cityName: string;
+    latitude: number;
+    longitude: number;
+    warehouseName?: string;
+  };
+  distanceKm: number;
+  previousDeliveryTotal: number;
+  newDeliveryPrice: number;
+  newDeliveryServiceFee: number;
+  amountDue: number;
+  newDeliveryProvider: {
+    providerId: number;
+    providerName: string;
+    providerLogoUrl?: string;
+  };
+  newDeliverySpeed: string;
+  providerPriceId: string;
+  note?: string;
+}
+
+export type DeliveryAddressUpdateInput = {
+  streetName: string;
+  cityName: string;
+  latitude: number;
+  longitude: number;
+  shippingAddress?: string;
+};
+
+export interface DeliveryAddressPreviewResult {
+  ok: boolean;
+  deliveryAddress: {
+    streetName: string;
+    cityName: string;
+    latitude: number;
+    longitude: number;
+  };
+  pickupAddress: {
+    streetName: string;
+    cityName: string;
+    latitude: number;
+    longitude: number;
+    warehouseName?: string;
+  };
+  distanceKm: number;
+  previousDeliveryTotal: number;
+  newDeliveryPrice: number;
+  newDeliveryServiceFee: number;
+  newDeliveryTotal: number;
+  newDeliveryProvider: {
+    providerId: number;
+    providerName: string;
+    providerLogoUrl?: string;
+  };
+  newDeliverySpeed: string;
+  providerPriceId: string;
+  note?: string;
+}
+
 type ApiOrderItem = {
   /** ObjectId სტრიქონი ან populate-ილი პროდუქტი { _id, name, ... } */
   productId?: unknown;
@@ -49,6 +120,19 @@ type ApiOrder = {
   bogPaymentStatus?: string;
   bogLastCallbackAt?: string | Date;
   bogLastCallbackRaw?: Record<string, unknown>;
+  bogProductsRefundAmount?: number;
+  bogProductsRefundAt?: string | Date;
+  bogProductsRefundActionId?: string;
+  bogProductsRefundStatus?: string;
+  balanceSalePostedAt?: string | Date;
+  balanceSalePostError?: string;
+  balanceSalePutResponseAt?: string | Date;
+  balanceSalePutResponseStatus?: number;
+  balanceSaleDocuments?: Array<{ warehouse: string; uid: string }>;
+  balanceWarehouseCreditPostedAt?: string | Date;
+  balanceWarehouseCreditDocumentUid?: string;
+  balanceWarehouseCreditPostError?: string;
+  balanceWarehouseCreditPutResponseStatus?: number;
   deliveryProvider?: {
     providerId: number;
     providerName: string;
@@ -66,6 +150,46 @@ type ApiOrder = {
   quickshipperOrderId?: string;
   quickshipperStatus?: string;
   quickshipperSentAt?: string | Date;
+  pickupAddress?: {
+    streetName: string;
+    cityName: string;
+    latitude: number;
+    longitude: number;
+    warehouseName?: string;
+    phone?: string;
+  };
+  dispatchWarehouseId?: unknown;
+  deliveryRedispatch?: {
+    status: 'pending_payment' | 'paid' | 'cancelled';
+    previousDeliveryTotal: number;
+    newDeliveryPrice: number;
+    newDeliveryServiceFee: number;
+    amountDue: number;
+    newWarehouseId: string;
+    newWarehouseName: string;
+    newPickupAddress: {
+      streetName: string;
+      cityName: string;
+      latitude: number;
+      longitude: number;
+    };
+    newDeliveryProvider?: {
+      providerId: number;
+      providerName: string;
+      providerLogoUrl?: string;
+    };
+    newDeliverySpeed?: string;
+    distanceKm?: number;
+    createdAt?: string | Date;
+    paidAt?: string | Date;
+    warehouseCreditPostedAt?: string | Date;
+    warehouseCreditDocumentUid?: string;
+    warehouseCreditPostError?: string;
+    balanceDeliverySalePostedAt?: string | Date;
+    balanceDeliverySaleDocumentUid?: string;
+    balanceDeliverySalePostError?: string;
+    balanceDeliverySalePutResponseStatus?: number;
+  };
 };
 
 function parseDate(raw: string | Date | undefined): Date | undefined {
@@ -77,7 +201,13 @@ function parseDate(raw: string | Date | undefined): Date | undefined {
 
 /** გადახდის სტატუსი UI-სთვის — BOG + შეკვეთის სტატუსი */
 function derivePaymentStatus(raw: ApiOrder): PaymentStatus {
+  if (raw.bogProductsRefundAt) {
+    return PaymentStatus.REFUNDED;
+  }
   const bog = (raw.bogPaymentStatus || '').toLowerCase();
+  if (bog.includes('refund')) {
+    return PaymentStatus.REFUNDED;
+  }
   if (['completed', 'success', 'paid', 'captured'].includes(bog)) {
     return PaymentStatus.COMPLETED;
   }
@@ -261,7 +391,8 @@ export function normalizeOrderFromApi(raw: ApiOrder): Order {
     user: populatedUser,
     status: mapBackendOrderStatusToUi(raw.status),
     totalAmount: Number(raw.totalAmount) || 0,
-    deliveryFee: 0,
+    deliveryFee:
+      (Number(raw.deliveryPrice) || 0) + (Number(raw.deliveryServiceFee) || 0),
     paymentStatus: derivePaymentStatus(raw),
     deliveryAddress: deliveryAddr,
     deliveryCity: cityGuess || '—',
@@ -283,6 +414,48 @@ export function normalizeOrderFromApi(raw: ApiOrder): Order {
       !Array.isArray(raw.bogLastCallbackRaw)
         ? raw.bogLastCallbackRaw
         : undefined,
+    bogProductsRefundAmount:
+      typeof raw.bogProductsRefundAmount === 'number'
+        ? raw.bogProductsRefundAmount
+        : undefined,
+    bogProductsRefundAt: parseDate(raw.bogProductsRefundAt),
+    bogProductsRefundActionId:
+      typeof raw.bogProductsRefundActionId === 'string'
+        ? raw.bogProductsRefundActionId
+        : undefined,
+    bogProductsRefundStatus:
+      typeof raw.bogProductsRefundStatus === 'string'
+        ? raw.bogProductsRefundStatus
+        : undefined,
+    balanceSalePostedAt: parseDate(raw.balanceSalePostedAt),
+    balanceSalePostError:
+      typeof raw.balanceSalePostError === 'string'
+        ? raw.balanceSalePostError
+        : undefined,
+    balanceSalePutResponseAt: parseDate(raw.balanceSalePutResponseAt),
+    balanceSalePutResponseStatus:
+      typeof raw.balanceSalePutResponseStatus === 'number'
+        ? raw.balanceSalePutResponseStatus
+        : undefined,
+    balanceSaleDocuments: Array.isArray(raw.balanceSaleDocuments)
+      ? raw.balanceSaleDocuments.map((d) => ({
+          warehouse: String(d.warehouse ?? ''),
+          uid: String(d.uid ?? ''),
+        }))
+      : undefined,
+    balanceWarehouseCreditPostedAt: parseDate(raw.balanceWarehouseCreditPostedAt),
+    balanceWarehouseCreditDocumentUid:
+      typeof raw.balanceWarehouseCreditDocumentUid === 'string'
+        ? raw.balanceWarehouseCreditDocumentUid
+        : undefined,
+    balanceWarehouseCreditPostError:
+      typeof raw.balanceWarehouseCreditPostError === 'string'
+        ? raw.balanceWarehouseCreditPostError
+        : undefined,
+    balanceWarehouseCreditPutResponseStatus:
+      typeof raw.balanceWarehouseCreditPutResponseStatus === 'number'
+        ? raw.balanceWarehouseCreditPutResponseStatus
+        : undefined,
     deliveryProvider: raw.deliveryProvider,
     deliveryAddress_quickshipper: raw.deliveryAddress,
     deliveryPrice: raw.deliveryPrice,
@@ -291,6 +464,21 @@ export function normalizeOrderFromApi(raw: ApiOrder): Order {
     quickshipperOrderId: raw.quickshipperOrderId?.trim() || undefined,
     quickshipperStatus: raw.quickshipperStatus?.trim() || undefined,
     quickshipperSentAt: parseDate(raw.quickshipperSentAt),
+    pickupAddress: raw.pickupAddress,
+    dispatchWarehouseId: oid(raw.dispatchWarehouseId) || undefined,
+    deliveryRedispatch: raw.deliveryRedispatch
+      ? {
+          ...raw.deliveryRedispatch,
+          createdAt: parseDate(raw.deliveryRedispatch.createdAt),
+          paidAt: parseDate(raw.deliveryRedispatch.paidAt),
+          warehouseCreditPostedAt: parseDate(
+            raw.deliveryRedispatch.warehouseCreditPostedAt,
+          ),
+          balanceDeliverySalePostedAt: parseDate(
+            raw.deliveryRedispatch.balanceDeliverySalePostedAt,
+          ),
+        }
+      : undefined,
     createdAt: raw.createdAt ? new Date(raw.createdAt) : new Date(),
     updatedAt: raw.updatedAt ? new Date(raw.updatedAt) : new Date(),
     items,
@@ -429,5 +617,97 @@ export const ordersApi = {
       {},
     );
     return result;
+  },
+
+  previewDeliveryRedispatch: async (
+    orderId: string,
+    warehouseId: string,
+  ): Promise<DeliveryRedispatchPreviewResult> => {
+    return api.post<DeliveryRedispatchPreviewResult>(
+      `/orders/admin/${encodeURIComponent(orderId)}/delivery-redispatch/preview`,
+      { warehouseId },
+    );
+  },
+
+  applyDeliveryRedispatch: async (
+    orderId: string,
+    warehouseId: string,
+    providerPriceId?: string,
+  ): Promise<{ ok: boolean; message: string; quickshipperCancelled?: boolean }> => {
+    return api.post<{ ok: boolean; message: string; quickshipperCancelled?: boolean }>(
+      `/orders/admin/${encodeURIComponent(orderId)}/delivery-redispatch/apply`,
+      { warehouseId, ...(providerPriceId ? { providerPriceId } : {}) },
+    );
+  },
+
+  markDeliveryRedispatchPaid: async (
+    orderId: string,
+  ): Promise<{ ok: boolean; message: string }> => {
+    return api.post<{ ok: boolean; message: string }>(
+      `/orders/admin/${encodeURIComponent(orderId)}/delivery-redispatch/mark-paid`,
+      {},
+    );
+  },
+
+  previewBogProductsRefund: async (orderId: string) => {
+    return api.get<{
+      productsAmount: number;
+      deliveryTotal: number;
+      deliveryNotRefunded: number;
+      canRefund: boolean;
+      alreadyRefunded: boolean;
+      bogOrderId: string | null;
+    }>(`/orders/admin/${encodeURIComponent(orderId)}/payment/bog/refund-preview`);
+  },
+
+  refundBogProducts: async (orderId: string) => {
+    return api.post<{
+      ok: boolean;
+      message: string;
+      productsRefundAmount?: number;
+      deliveryKeptAmount?: number;
+      actionId?: string;
+    }>(`/orders/admin/${encodeURIComponent(orderId)}/payment/bog/refund-products`, {});
+  },
+
+  retryBalanceSale: async (orderId: string) => {
+    return api.post<{ ok: boolean; message: string }>(
+      `/orders/admin/${encodeURIComponent(orderId)}/balance/retry-sale`,
+      {},
+    );
+  },
+
+  retryWarehouseCredit: async (orderId: string) => {
+    return api.post<{ ok: boolean; message: string }>(
+      `/orders/admin/${encodeURIComponent(orderId)}/balance/retry-warehouse-credit`,
+      {},
+    );
+  },
+
+  retryDeliveryBalanceSale: async (orderId: string) => {
+    return api.post<{ ok: boolean; message: string }>(
+      `/orders/admin/${encodeURIComponent(orderId)}/balance/retry-delivery-sale`,
+      {},
+    );
+  },
+
+  previewDeliveryAddressUpdate: async (
+    orderId: string,
+    body: DeliveryAddressUpdateInput,
+  ): Promise<DeliveryAddressPreviewResult> => {
+    return api.post<DeliveryAddressPreviewResult>(
+      `/orders/admin/${encodeURIComponent(orderId)}/delivery-address/preview`,
+      body,
+    );
+  },
+
+  applyDeliveryAddressUpdate: async (
+    orderId: string,
+    body: DeliveryAddressUpdateInput,
+  ): Promise<{ ok: boolean; message: string }> => {
+    return api.patch<{ ok: boolean; message: string }>(
+      `/orders/admin/${encodeURIComponent(orderId)}/delivery-address`,
+      body,
+    );
   },
 };

@@ -21,7 +21,12 @@ import {
   OrderStatus,
 } from '../orders/schemas/order.schema';
 import { BOG_CALLBACK_PUBLIC_KEY_PEM } from './bog-public-key';
-import { parseMongoOrderIdFromBogExternal } from './bog-external-order-id';
+import {
+  parseMongoOrderIdFromBogExternal,
+  isDeliveryRedispatchBogExternal,
+  parseMongoOrderIdFromDeliveryRedispatchBogExternal,
+} from './bog-external-order-id';
+import { BogBalanceSaleService } from './bog-balance-sale.service';
 
 type BogCallbackPayload = {
   event?: string;
@@ -49,6 +54,7 @@ export class BogCallbackController {
 
   constructor(
     @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
+    private readonly bogBalanceSale: BogBalanceSaleService,
   ) {}
 
   /**
@@ -144,6 +150,37 @@ export class BogCallbackController {
       return { ok: true, ignored: true };
     }
 
+    if (isDeliveryRedispatchBogExternal(externalRaw)) {
+      const redispatchOrderId =
+        parseMongoOrderIdFromDeliveryRedispatchBogExternal(externalRaw);
+      if (redispatchOrderId && Types.ObjectId.isValid(redispatchOrderId)) {
+        return this.handleDeliveryRedispatchCallback(
+          redispatchOrderId,
+          statusKey,
+          bogPayId,
+          callbackSnapshot,
+          now,
+        );
+      }
+    }
+
+    if (bogPayId) {
+      const rdByBog = await this.orderModel
+        .findOne({ 'deliveryRedispatch.bogPaymentOrderId': bogPayId })
+        .select('_id deliveryRedispatch.status')
+        .lean()
+        .exec();
+      if (rdByBog && rdByBog.deliveryRedispatch?.status === 'pending_payment') {
+        return this.handleDeliveryRedispatchCallback(
+          String(rdByBog._id),
+          statusKey,
+          bogPayId,
+          callbackSnapshot,
+          now,
+        );
+      }
+    }
+
     let filter: { _id: string } | { bogOrderId: string } | null = null;
     if (mongoOrderId && Types.ObjectId.isValid(mongoOrderId)) {
       filter = { _id: mongoOrderId };
@@ -175,7 +212,63 @@ export class BogCallbackController {
       this.logger.warn(
         `BOG callback: შეკვეთა ვერ მოიძებნა ${JSON.stringify(filter)} external=${String(externalRaw)}`,
       );
+      return { ok: true };
     }
+
+    if (statusKey === 'completed') {
+      const bogIdForSale =
+        bogPayId ||
+        (mongoOrderId && Types.ObjectId.isValid(mongoOrderId)
+          ? `BOG-${mongoOrderId}`
+          : 'BOG-unknown');
+      await this.bogBalanceSale.tryPostSaleAfterBogCompleted(
+        filter,
+        {
+          event: 'bog_callback',
+          source: 'bog_server',
+          statusKey,
+        },
+        bogIdForSale,
+      );
+    }
+
     return { ok: true };
+  }
+
+  private async handleDeliveryRedispatchCallback(
+    mongoOrderId: string,
+    statusKey: string,
+    bogPayId: string,
+    callbackSnapshot: Record<string, unknown>,
+    now: Date,
+  ) {
+    const update: Record<string, unknown> = {
+      'deliveryRedispatch.bogPaymentStatus': statusKey,
+      bogLastCallbackAt: now,
+      bogLastCallbackRaw: callbackSnapshot,
+    };
+    if (bogPayId) {
+      update['deliveryRedispatch.bogPaymentOrderId'] = bogPayId;
+    }
+    if (statusKey === 'completed') {
+      update['deliveryRedispatch.status'] = 'paid';
+      update['deliveryRedispatch.paidAt'] = now;
+    }
+    const res = await this.orderModel
+      .updateOne({ _id: mongoOrderId }, { $set: update })
+      .exec();
+    if (res.matchedCount === 0) {
+      this.logger.warn(
+        `BOG redispatch callback: შეკვეთა ვერ მოიძებნა _id=${mongoOrderId}`,
+      );
+    } else {
+      this.logger.log(
+        `BOG redispatch callback OK — order=${mongoOrderId} status=${statusKey}`,
+      );
+      if (statusKey === 'completed') {
+        await this.bogBalanceSale.tryPostDeliverySaleForRedispatch(mongoOrderId);
+      }
+    }
+    return { ok: true, redispatch: true };
   }
 }

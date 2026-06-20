@@ -7,6 +7,7 @@ import PageBreadCrumb from "@/components/common/PageBreadCrumb";
 import { BoxIcon, PencilIcon } from "@/icons";
 import Link from "next/link";
 import { warehousesApi } from "@/lib/api";
+import { warehouseHasCoords } from "@/components/warehouses/WarehouseCoordsFields";
 
 export default function WarehouseLayout({
   children,
@@ -165,6 +166,22 @@ export default function WarehouseLayout({
                 </dd>
               </div>
             )}
+            <div>
+              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                კოორდინატები
+              </dt>
+              <dd className="mt-1 text-sm text-gray-900 dark:text-white">
+                {warehouseHasCoords(warehouse) ? (
+                  <>
+                    {warehouse.latitude}, {warehouse.longitude}
+                  </>
+                ) : (
+                  <span className="text-amber-600 dark:text-amber-400">
+                    არ არის — დაამატეთ რედაქტირებაში (ავტო-მისაინვება)
+                  </span>
+                )}
+              </dd>
+            </div>
           </dl>
         </div>
       </div>

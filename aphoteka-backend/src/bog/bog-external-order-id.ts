@@ -37,3 +37,25 @@ export function parseMongoOrderIdFromBogExternal(
   if (tailHex) return tailHex[1];
   return null;
 }
+
+/** მიტანის redispatch BOG — external_order_id ბოლო სეგმენტი `RD` + pipe-ით mongo id */
+export function buildBogExternalOrderIdForDeliveryRedispatch(
+  orderMongoId: string,
+): string {
+  return `${buildBogExternalOrderIdForStatement(orderMongoId)}|${orderMongoId.trim()}|RD`;
+}
+
+export function isDeliveryRedispatchBogExternal(
+  externalOrderId: string | undefined,
+): boolean {
+  const t = externalOrderId?.trim();
+  return Boolean(t && t.endsWith('|RD'));
+}
+
+export function parseMongoOrderIdFromDeliveryRedispatchBogExternal(
+  externalOrderId: string | undefined,
+): string | null {
+  const t = externalOrderId?.trim();
+  if (!t || !t.endsWith('|RD')) return null;
+  return parseMongoOrderIdFromBogExternal(t.slice(0, -3));
+}

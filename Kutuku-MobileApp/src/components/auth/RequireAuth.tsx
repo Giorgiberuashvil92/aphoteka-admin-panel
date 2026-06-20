@@ -1,15 +1,22 @@
 import type { ReactNode } from 'react';
+import type { BottomNavTab } from '@/src/components/common/BottomNavigation';
 import { UserService } from '@/src/services/user.service';
 import { theme } from '@/src/theme';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+type RequireAuthProps = {
+  children: ReactNode;
+  /** რომელი ტაბიდან მოხვდა — login-ზე tab bar-ის აქტიური მდგომარეობა */
+  loginTab?: Extract<BottomNavTab, 'profile' | 'cabinet'>;
+};
+
 /**
  * ავტორიზაციის გარეშე არ უნდა გაიხსნას პროფილი/პაროლი/მისამართი და ა.შ.
  * ტოკენის არქონისას — მხოლოდ აქ ხდება გადამისამართება `/login`-ზე (სტარტზე არა).
  */
-export function RequireAuth({ children }: { children: ReactNode }) {
+export function RequireAuth({ children, loginTab }: RequireAuthProps) {
   const router = useRouter();
   const [allowed, setAllowed] = useState(false);
 
@@ -19,7 +26,8 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       const user = await UserService.validateSession();
       if (!active) return;
       if (!user) {
-        router.replace('/login' as any);
+        const tabQuery = loginTab ? `?tab=${loginTab}` : '';
+        router.replace(`/login${tabQuery}` as any);
         return;
       }
       setAllowed(true);
@@ -27,7 +35,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [router]);
+  }, [router, loginTab]);
 
   if (!allowed) {
     return (

@@ -28,6 +28,29 @@ export type ApiOrder = {
   updatedAt?: string;
   bogOrderId?: string;
   bogPaymentStatus?: string;
+  deliveryRedispatch?: {
+    status?: string;
+    amountDue?: number;
+    newWarehouseName?: string;
+    newDeliveryPrice?: number;
+    newDeliveryServiceFee?: number;
+    newPickupAddress?: {
+      streetName?: string;
+      cityName?: string;
+    };
+    adminNote?: string;
+    bogPaymentStatus?: string;
+  };
+};
+
+export type DeliveryRedispatchUi = {
+  status: 'pending_payment' | 'paid' | 'cancelled' | 'completed';
+  amountDue: number;
+  newWarehouseName?: string;
+  newDeliveryPrice?: number;
+  newDeliveryServiceFee?: number;
+  newPickupAddress?: { streetName?: string; cityName?: string };
+  adminNote?: string;
 };
 
 export type MyOrderListItem = {
@@ -47,6 +70,9 @@ export type MyOrderListItem = {
   trackingNumber?: string;
   /** BOG ონლაინი — გადახდა ჯერ არ არის დასრულებული (UI ტაიმლაინი) */
   awaitingOnlinePayment?: boolean;
+  /** მიტანის redispatch — ახალი საწყობიდან გაგზავნა */
+  deliveryRedispatch?: DeliveryRedispatchUi;
+  deliveryRedispatchPending?: boolean;
 };
 
 function normalizeId(raw: ApiOrder): string {
@@ -78,6 +104,35 @@ function computeAwaitingOnlinePayment(raw: ApiOrder): boolean {
   if (c.includes('საქართველოს ბანკი')) return true;
   if (c.includes('ონლაინ') && c.includes('ბანკი')) return true;
   return false;
+}
+
+function mapDeliveryRedispatch(
+  raw: ApiOrder['deliveryRedispatch'],
+): DeliveryRedispatchUi | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const st = (raw.status || '').toLowerCase();
+  if (
+    st !== 'pending_payment' &&
+    st !== 'paid' &&
+    st !== 'cancelled' &&
+    st !== 'completed'
+  ) {
+    return undefined;
+  }
+  return {
+    status: st as DeliveryRedispatchUi['status'],
+    amountDue: Number.isFinite(Number(raw.amountDue)) ? Number(raw.amountDue) : 0,
+    newWarehouseName:
+      typeof raw.newWarehouseName === 'string' ? raw.newWarehouseName : undefined,
+    newDeliveryPrice: Number.isFinite(Number(raw.newDeliveryPrice))
+      ? Number(raw.newDeliveryPrice)
+      : undefined,
+    newDeliveryServiceFee: Number.isFinite(Number(raw.newDeliveryServiceFee))
+      ? Number(raw.newDeliveryServiceFee)
+      : undefined,
+    newPickupAddress: raw.newPickupAddress,
+    adminNote: typeof raw.adminNote === 'string' ? raw.adminNote : undefined,
+  };
 }
 
 function mapApiOrder(raw: ApiOrder): MyOrderListItem | null {
@@ -121,6 +176,8 @@ function mapApiOrder(raw: ApiOrder): MyOrderListItem | null {
     total: Number.isFinite(Number(raw.totalAmount)) ? Number(raw.totalAmount) : 0,
     trackingNumber: raw.comment?.trim() || undefined,
     awaitingOnlinePayment: computeAwaitingOnlinePayment(raw),
+    deliveryRedispatch: mapDeliveryRedispatch(raw.deliveryRedispatch),
+    deliveryRedispatchPending: raw.deliveryRedispatch?.status === 'pending_payment',
   };
 }
 
@@ -357,6 +414,168 @@ export const OrdersService = {
     }
   },
 
+  /** JWT — BOG redispatch (მხოლოდ ახალი მიტანის თანხა) */
+  async initBogDeliveryRedispatchPayment(
+    orderId: string,
+    options?: { successRedirectUrl?: string; failRedirectUrl?: string },
+  ): Promise<InitBogPaymentResult> {
+    const token = await UserService.getAccessToken();
+    if (!token) {
+      return { ok: false, error: 'auth', message: 'საჭიროა შესვლა' };
+    }
+    const id = orderId?.trim();
+    if (!id) {
+      return { ok: false, error: 'validation', message: 'შეკვეთის ID აკლია' };
+    }
+    try {
+      const url = `${API_CONFIG.BASE_URL}${API_CONFIG.endpoints.orders.bogDeliveryRedispatch(id)}`;
+      const body: Record<string, string> = {};
+      if (options?.successRedirectUrl?.trim()) {
+        body.successRedirectUrl = options.successRedirectUrl.trim();
+      }
+      if (options?.failRedirectUrl?.trim()) {
+        body.failRedirectUrl = options.failRedirectUrl.trim();
+      }
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: getAuthHeaders(token),
+        body: JSON.stringify(body),
+      });
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, error: 'auth', message: 'სესია ვადაგასულია' };
+      }
+      let data: unknown;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+      if (!res.ok) {
+        const msg = nestApiErrorMessage(data, res.status);
+        return {
+          ok: false,
+          error: res.status === 400 ? 'validation' : 'unknown',
+          message: msg,
+        };
+      }
+      if (!data || typeof data !== 'object') {
+        return { ok: false, error: 'unknown', message: 'უცნობი პასუხი' };
+      }
+      const o = data as Record<string, unknown>;
+      const redirectUrl =
+        typeof o.redirectUrl === 'string' ? o.redirectUrl : '';
+      const bogOrderId = typeof o.bogOrderId === 'string' ? o.bogOrderId : '';
+      if (!redirectUrl) {
+        return { ok: false, error: 'unknown', message: 'redirectUrl აკლია' };
+      }
+      return { ok: true, redirectUrl, bogOrderId: bogOrderId || '' };
+    } catch (e) {
+      return {
+        ok: false,
+        error: 'network',
+        message: e instanceof Error ? e.message : undefined,
+      };
+    }
+  },
+
+  async ensureDeliveryRedispatchPaid(
+    orderId: string,
+  ): Promise<{ ok: boolean; message?: string }> {
+    const token = await UserService.getAccessToken();
+    if (!token) {
+      return { ok: false, message: 'საჭიროა შესვლა' };
+    }
+    const id = orderId?.trim();
+    if (!id) {
+      return { ok: false, message: 'შეკვეთის ID აკლია' };
+    }
+    try {
+      const url = `${API_CONFIG.BASE_URL}${API_CONFIG.endpoints.orders.bogDeliveryRedispatchEnsurePaid(id)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: getAuthHeaders(token),
+        body: '{}',
+      });
+      let data: unknown;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, message: 'სესია ვადაგასულია' };
+      }
+      const bodyOk =
+        data &&
+        typeof data === 'object' &&
+        'ok' in data &&
+        (data as { ok: unknown }).ok === true;
+      if (!res.ok && !bodyOk) {
+        const msg =
+          data &&
+          typeof data === 'object' &&
+          'message' in data &&
+          typeof (data as { message: unknown }).message === 'string'
+            ? String((data as { message: string }).message)
+            : nestApiErrorMessage(data, res.status);
+        return { ok: false, message: msg };
+      }
+      return { ok: bodyOk || res.ok };
+    } catch (e) {
+      return {
+        ok: false,
+        message: e instanceof Error ? e.message : 'ქსელი',
+      };
+    }
+  },
+
+  /** გადახდის success-ის შემდეგ — Balance Sale PUT (იდემპონტენტური fallback BOG callback-ის გარდა) */
+  async ensureBalanceSalePosted(
+    orderId: string,
+  ): Promise<{ ok: boolean; message?: string }> {
+    const token = await UserService.getAccessToken();
+    if (!token) {
+      return { ok: false, message: 'საჭიროა შესვლა' };
+    }
+    const id = orderId?.trim();
+    if (!id) {
+      return { ok: false, message: 'შეკვეთის ID აკლია' };
+    }
+    try {
+      const url = `${API_CONFIG.BASE_URL}${API_CONFIG.endpoints.orders.bogEnsureBalanceSale(id)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: getAuthHeaders(token),
+        body: '{}',
+      });
+      let data: unknown;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, message: 'სესია ვადაგასულია' };
+      }
+      const msg =
+        data &&
+        typeof data === 'object' &&
+        'message' in data &&
+        typeof (data as { message: unknown }).message === 'string'
+          ? String((data as { message: string }).message)
+          : undefined;
+      if (!res.ok) {
+        return { ok: false, message: msg || nestApiErrorMessage(data, res.status) };
+      }
+      return { ok: true, message: msg };
+    } catch (e) {
+      return {
+        ok: false,
+        message: e instanceof Error ? e.message : 'ქსელი',
+      };
+    }
+  },
+
   /** დევ: სერვერზე სტატიკური BOG `completed` + Balance Sale (რეალური ბანკის გარეშე) */
   async devSimulateBogCompleted(
     orderId: string,
@@ -515,6 +734,30 @@ export const OrdersService = {
       const s = r.order.status;
       if (s === 'confirmed' || s === 'shipped' || s === 'delivered') {
         return 'confirmed';
+      }
+      if (attempt < maxAttempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+    }
+    return 'timeout';
+  },
+
+  /** redispatch BOG callback-ის მოლოდინი */
+  async waitForDeliveryRedispatchPaid(
+    orderId: string,
+    options?: { maxAttempts?: number; intervalMs?: number },
+  ): Promise<'paid' | 'timeout' | 'auth' | 'error'> {
+    const maxAttempts = options?.maxAttempts ?? 20;
+    const intervalMs = options?.intervalMs ?? 1500;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const r = await OrdersService.fetchOrderById(orderId);
+      if (!r.ok) {
+        if (r.error === 'auth') return 'auth';
+        return 'error';
+      }
+      const rd = r.order.deliveryRedispatch;
+      if (rd?.status === 'paid' || rd?.status === 'completed') {
+        return 'paid';
       }
       if (attempt < maxAttempts - 1) {
         await new Promise((resolve) => setTimeout(resolve, intervalMs));

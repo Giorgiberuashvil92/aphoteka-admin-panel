@@ -25,7 +25,7 @@ export default function CategoriesPage() {
           ? false
           : undefined;
       const list = await categoriesApi.getAll(
-        activeFilter !== undefined ? { active: activeFilter } : undefined
+        activeFilter !== undefined ? { active: activeFilter, root: true } : { root: true }
       );
       setCategories(Array.isArray(list) ? list : []);
     } catch (e) {

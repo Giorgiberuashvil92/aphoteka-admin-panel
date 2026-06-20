@@ -138,10 +138,11 @@ export class Product {
   @Prop()
   mainCategory?: string;
 
-  /** Therapeutic Class — მთავარი კატეგორიის საბკატეგორია */
+  /** Therapeutic Class — მხოლოდ მედიკამენტებისთვის (Balance-დან) */
   @Prop()
   category?: string;
 
+  /** საბკატეგორია — ადმინის საბკატეგორიების სიიდან */
   @Prop()
   subcategory?: string;
 

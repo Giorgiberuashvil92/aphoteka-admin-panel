@@ -113,7 +113,7 @@ export class ProductsService {
     }
 
     if (subcategory) {
-      filter.category = subcategory;
+      filter.subcategory = subcategory;
     }
 
     if (active !== undefined) {
@@ -222,8 +222,8 @@ export class ProductsService {
       .map((name, index) => ({ id: String(index + 1), name }));
   }
 
-  /** პროდუქტების რაოდენობა კატეგორიის სახელის მიხედვით */
-  async countByCategoryName(categoryName: string): Promise<number> {
+  /** პროდუქტების რაოდენობა მთავარი კატეგორიის მიხედვით */
+  async countByMainCategoryName(categoryName: string): Promise<number> {
     return this.productModel
       .countDocuments({
         active: true,
@@ -232,6 +232,31 @@ export class ProductsService {
           {
             mainCategory: { $in: [null, ''] },
             category: categoryName,
+          },
+        ],
+      })
+      .exec();
+  }
+
+  /** @deprecated use countByMainCategoryName */
+  async countByCategoryName(categoryName: string): Promise<number> {
+    return this.countByMainCategoryName(categoryName);
+  }
+
+  /** პროდუქტების რაოდენობა საბკატეგორიის მიხედვით */
+  async countBySubcategoryName(
+    mainCategoryName: string,
+    subcategoryName: string,
+  ): Promise<number> {
+    return this.productModel
+      .countDocuments({
+        active: true,
+        subcategory: subcategoryName,
+        $or: [
+          { mainCategory: mainCategoryName },
+          {
+            mainCategory: { $in: [null, ''] },
+            category: mainCategoryName,
           },
         ],
       })

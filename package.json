@@ -10,7 +10,10 @@
     "expo": "npm run start --prefix Kutuku-MobileApp",
     "expo:ios": "npm run ios --prefix Kutuku-MobileApp",
     "expo:android": "npm run android --prefix Kutuku-MobileApp",
-    "expo:web": "npm run web --prefix Kutuku-MobileApp"
+    "expo:web": "npm run web --prefix Kutuku-MobileApp",
+    "norix": "npm run dev --prefix Norix-WebApp",
+    "norix:build": "npm run build --prefix Norix-WebApp",
+    "norix:start": "npm run start --prefix Norix-WebApp"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.19",

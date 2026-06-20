@@ -195,9 +195,11 @@ export function MyOrderScreen({
                     style={[
                       styles.statusBadge,
                       {
-                        backgroundColor: (order.awaitingOnlinePayment
+                        backgroundColor: (order.deliveryRedispatchPending
                           ? '#E65100'
-                          : getOrderStatusColor(order.status)) + '15',
+                          : order.awaitingOnlinePayment
+                            ? '#E65100'
+                            : getOrderStatusColor(order.status)) + '15',
                       },
                     ]}
                   >
@@ -205,18 +207,32 @@ export function MyOrderScreen({
                       style={[
                         styles.statusText,
                         {
-                          color: order.awaitingOnlinePayment
+                          color: order.deliveryRedispatchPending
                             ? '#E65100'
-                            : getOrderStatusColor(order.status),
+                            : order.awaitingOnlinePayment
+                              ? '#E65100'
+                              : getOrderStatusColor(order.status),
                         },
                       ]}
                     >
-                      {order.awaitingOnlinePayment
-                        ? 'გადახდა მელოდება'
-                        : getOrderStatusText(order.status)}
+                      {order.deliveryRedispatchPending
+                        ? 'მიტანის გადახდა'
+                        : order.awaitingOnlinePayment
+                          ? 'გადახდა მელოდება'
+                          : getOrderStatusText(order.status)}
                     </Text>
                   </View>
                 </View>
+
+                {order.deliveryRedispatchPending && order.deliveryRedispatch ? (
+                  <View style={styles.redispatchRow}>
+                    <Ionicons name="alert-circle-outline" size={16} color="#E65100" />
+                    <Text style={styles.redispatchRowText}>
+                      გადასახდელი მიტანა: ₾
+                      {order.deliveryRedispatch.amountDue.toFixed(2)}
+                    </Text>
+                  </View>
+                ) : null}
 
                 <View style={styles.orderItems}>
                   {order.items.slice(0, 2).map((item) => (
@@ -433,6 +449,22 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  redispatchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#FFF3E0',
+    borderRadius: 10,
+  },
+  redispatchRowText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#E65100',
   },
   orderItems: {
     marginBottom: 12,

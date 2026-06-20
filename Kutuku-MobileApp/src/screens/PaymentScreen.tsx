@@ -142,6 +142,7 @@ export function PaymentScreen({
     try {
       const r = await OrdersService.waitForOrderPaymentConfirmed(oid);
       if (r === 'confirmed') {
+        void OrdersService.ensureBalanceSalePosted(oid);
         setBogSuccessOrderId(oid);
       } else {
         onOrderPlaced(oid, { bogOutcome: 'paid_pending' });

@@ -108,7 +108,9 @@ export function SearchResultsScreen({
     let result = [...products];
 
     if (activeSubcategories.length > 0) {
-      result = result.filter((p) => activeSubcategories.includes(p.category?.trim() || ''));
+      result = result.filter((p) =>
+        activeSubcategories.includes(p.subcategory?.trim() || p.category?.trim() || ''),
+      );
     }
 
     switch (selectedSort) {

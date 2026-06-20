@@ -15,11 +15,19 @@ import {
   OrderStatus,
 } from '../orders/schemas/order.schema';
 import { BogPaymentInitDto } from './dto/bog-payment-init.dto';
-import { buildBogExternalOrderIdForStatement } from './bog-external-order-id';
+import {
+  buildBogExternalOrderIdForStatement,
+  buildBogExternalOrderIdForDeliveryRedispatch,
+} from './bog-external-order-id';
+import {
+  computeBogProductsRefundAmount,
+  computeOrderDeliveryTotal,
+} from './bog-order-amounts';
 
 const TOKEN_URL =
   'https://oauth2.bog.ge/auth/realms/bog/protocol/openid-connect/token';
 const ORDERS_URL = 'https://api.bog.ge/payments/v1/ecommerce/orders';
+const REFUND_URL = 'https://api.bog.ge/payments/v1/payment/refund';
 
 /** ტერმინალისთვის: გრძელი URL/სურათები არ გააფუჭოს წაკითხვადობა */
 function cloneBodyForBogLog(
@@ -330,6 +338,254 @@ export class BogPaymentsService {
       bogOrderId,
       redirectUrl,
       callbackUrl: this.callbackUrl(),
+    };
+  }
+
+  /**
+   * JWT — მიტანის redispatch: მხოლოდ deliveryRedispatch.amountDue (ძველი მიტანის თანხა არ ბრუნდება).
+   */
+  async initPaymentForDeliveryRedispatch(
+    order: Pick<OrderDocument, '_id' | 'deliveryRedispatch'>,
+    dto: BogPaymentInitDto,
+  ) {
+    const rd = order.deliveryRedispatch;
+    if (!rd || rd.status !== 'pending_payment') {
+      throw new BadRequestException(
+        'აქტიური pending_payment redispatch არ არის',
+      );
+    }
+    const amountDue = Number(rd.amountDue);
+    if (!Number.isFinite(amountDue) || amountDue <= 0) {
+      throw new BadRequestException('გადასახდელი თანხა არასწორია');
+    }
+    const mongoOrderId = order._id.toString();
+    const externalId =
+      buildBogExternalOrderIdForDeliveryRedispatch(mongoOrderId);
+    const token = await this.getAccessToken();
+    const sandboxGel = this.bogSandboxAmountGel();
+    let purchaseTotal = amountDue;
+    let basket = [
+      {
+        product_id: 'delivery-redispatch',
+        quantity: 1,
+        unit_price: amountDue,
+        total_price: amountDue,
+      },
+    ];
+    if (sandboxGel != null) {
+      this.logger.warn(
+        `BOG redispatch სატესტო თანხა ${sandboxGel}₾ — DB amountDue: ${amountDue}₾`,
+      );
+      purchaseTotal = sandboxGel;
+      basket = [
+        {
+          product_id: 'delivery-redispatch-sandbox',
+          quantity: 1,
+          unit_price: sandboxGel,
+          total_price: sandboxGel,
+        },
+      ];
+    }
+    const body: Record<string, unknown> = {
+      application_type: 'mobile',
+      callback_url: this.callbackUrl(),
+      external_order_id: externalId,
+      capture: 'automatic',
+      purchase_units: {
+        currency: 'GEL',
+        total_amount: purchaseTotal,
+        basket,
+      },
+    };
+    const redir = this.redirectUrls(dto);
+    if (redir) {
+      body.redirect_urls = redir;
+    }
+
+    const logPayload = cloneBodyForBogLog(body);
+    this.logger.log(
+      `[BOG redispatch] POST ${ORDERS_URL} — order _id=${mongoOrderId}\n${JSON.stringify(logPayload, null, 2)}`,
+    );
+
+    const res = await fetch(ORDERS_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept-Language': 'ka',
+        'Idempotency-Key': randomUUID(),
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      this.logger.warn(`BOG redispatch create failed: ${res.status} ${text}`);
+      throw new ServiceUnavailableException(
+        'redispatch გადახდის შექმნა BOG-ზე ვერ მოხერხდა',
+      );
+    }
+    const created = (await res.json()) as Record<string, unknown> & {
+      id?: string;
+      _links?: { redirect?: { href?: string } };
+    };
+    const bogOrderId = created.id;
+    const redirectUrl = created._links?.redirect?.href;
+    if (!bogOrderId || !redirectUrl) {
+      this.logger.warn(
+        `BOG redispatch unexpected response: ${JSON.stringify(created)}`,
+      );
+      throw new ServiceUnavailableException('BOG პასუხი არასრულია');
+    }
+    await this.orderModel
+      .updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            'deliveryRedispatch.bogPaymentOrderId': bogOrderId,
+            'deliveryRedispatch.bogPaymentStatus': 'created',
+          },
+        },
+      )
+      .exec();
+    return {
+      bogOrderId,
+      redirectUrl,
+      callbackUrl: this.callbackUrl(),
+      amountDue: purchaseTotal,
+    };
+  }
+
+  /**
+   * BOG refund — მხოლოდ პროდუქტების თანხა (partial). მიტანა არ ბრუნდება.
+   * @see https://api.bog.ge/docs/payments/refund
+   */
+  async refundProductsExcludingDelivery(order: Pick<
+    OrderDocument,
+    | '_id'
+    | 'bogOrderId'
+    | 'bogPaymentStatus'
+    | 'bogProductsRefundAt'
+    | 'items'
+    | 'deliveryPrice'
+    | 'deliveryServiceFee'
+  >) {
+    if (order.bogProductsRefundAt) {
+      throw new BadRequestException('პროდუქტების თანხა უკვე დაბრუნებულია');
+    }
+    const bogOrderId = order.bogOrderId?.trim();
+    if (!bogOrderId) {
+      throw new BadRequestException('BOG შეკვეთის ID არ არის');
+    }
+    const bogSt = (order.bogPaymentStatus || '').toLowerCase();
+    if (
+      !['completed', 'success', 'paid', 'captured'].some((k) =>
+        bogSt.includes(k),
+      )
+    ) {
+      throw new BadRequestException(
+        'refund მხოლოდ წარმატებით გადახდილი BOG შეკვეთისთვისაა',
+      );
+    }
+
+    const productsAmount = computeBogProductsRefundAmount(order);
+    const deliveryTotal = computeOrderDeliveryTotal(order);
+    if (productsAmount <= 0) {
+      throw new BadRequestException('დასაბრუნებელი პროდუქტების თანხა 0-ია');
+    }
+
+    const sandboxGel = this.bogSandboxAmountGel();
+    const token = await this.getAccessToken();
+    const url = `${REFUND_URL}/${encodeURIComponent(bogOrderId)}`;
+
+    /** სატესტო რეჟიმში BOG-ზე ჩამოჭრილი იყო sandbox თანხა — refund სრული (amount-ის გარეშე) */
+    const body: Record<string, unknown> = sandboxGel != null ? {} : { amount: productsAmount };
+
+    this.logger.log(
+      `[BOG refund] POST ${url} order=${order._id} products=${productsAmount}₾ delivery_kept=${deliveryTotal}₾ sandbox=${sandboxGel ?? '—'}`,
+    );
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept-Language': 'ka',
+        'Idempotency-Key': randomUUID(),
+      },
+      body: JSON.stringify(body),
+    });
+
+    const text = await res.text();
+    let parsed: Record<string, unknown> = {};
+    try {
+      parsed = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+    } catch {
+      parsed = { raw: text };
+    }
+
+    if (!res.ok) {
+      this.logger.warn(`BOG refund failed: ${res.status} ${text}`);
+      throw new ServiceUnavailableException(
+        typeof parsed.message === 'string'
+          ? parsed.message
+          : 'BOG refund ვერ მოხერხდა',
+      );
+    }
+
+    const actionId =
+      typeof parsed.action_id === 'string' ? parsed.action_id : undefined;
+    const refundStatus =
+      typeof parsed.key === 'string' ? parsed.key : 'request_received';
+    const refundedAmount = sandboxGel != null ? sandboxGel : productsAmount;
+
+    await this.orderModel
+      .updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            bogProductsRefundAmount: refundedAmount,
+            bogProductsRefundAt: new Date(),
+            bogProductsRefundActionId: actionId,
+            bogProductsRefundStatus: refundStatus,
+            bogProductsRefundResponse: parsed,
+            bogPaymentStatus: 'refunded',
+          },
+        },
+      )
+      .exec();
+
+    return {
+      ok: true,
+      message: `BOG-ზე დაბრუნდა ₾${refundedAmount.toFixed(2)} (პროდუქტები). მიტანა ₾${deliveryTotal.toFixed(2)} არ ბრუნდება.`,
+      productsRefundAmount: refundedAmount,
+      deliveryKeptAmount: deliveryTotal,
+      actionId,
+      bogResponse: parsed,
+    };
+  }
+
+  /** ადმინ UI — preview დაბრუნების თანხის */
+  previewProductsRefund(order: Pick<
+    Order,
+    'items' | 'deliveryPrice' | 'deliveryServiceFee' | 'bogOrderId' | 'bogPaymentStatus' | 'bogProductsRefundAt'
+  >) {
+    const productsAmount = computeBogProductsRefundAmount(order);
+    const deliveryTotal = computeOrderDeliveryTotal(order);
+    const canRefund =
+      Boolean(order.bogOrderId?.trim()) &&
+      !order.bogProductsRefundAt &&
+      ['completed', 'success', 'paid', 'captured'].some((k) =>
+        (order.bogPaymentStatus || '').toLowerCase().includes(k),
+      ) &&
+      productsAmount > 0;
+
+    return {
+      productsAmount,
+      deliveryTotal,
+      deliveryNotRefunded: deliveryTotal,
+      canRefund,
+      alreadyRefunded: Boolean(order.bogProductsRefundAt),
+      bogOrderId: order.bogOrderId?.trim() || null,
     };
   }
 }

@@ -40,6 +40,13 @@ import {
   balanceSaleVatTaxable,
   balanceSaleWarehouseFallback,
   balanceSaleTestPutEnabled,
+  balanceSaleDeliveryItemUid,
+  balanceSaleDeliveryItemCode,
+  balanceSaleDeliveryProductSku,
+  balanceSaleDeliveryStringCode,
+  balanceSaleDeliveryIncomeAccount,
+  balanceSaleDeliveryVatRate,
+  balanceSalesCreditOperationType,
 } from '../config/balance-sale-inline';
 
 /** Mongo ველზე ზედმეტად გრძელი პასუხის თავიდან აცილება */
@@ -366,12 +373,146 @@ function extractBogPaymentRefFallback(
 }
 
 function todayDateStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}T00:00:00`;
 }
+
+function buildDeliveryLineItem(
+  amount: number,
+  revenueAccount: string,
+  vatTaxable: string,
+  itemUid: string,
+  product?: ProductForSale,
+  resolveLineVatRate?: (p: Product | null) => {
+    value: string;
+    acceptable: boolean;
+  },
+  goodsInvFallback?: string,
+  goodsExpItemFallback?: string,
+  goodsVatPayItemFallback?: string,
+  documentExpensesAccount?: string,
+  documentVatAccount?: string,
+): Record<string, unknown> | null {
+  const uid = itemUid.trim();
+  if (!uid || !isUuid(uid)) return null;
+  const qty = 1;
+  const price = amount;
+  const stringCode = (
+    product?.sku ||
+    balanceSaleDeliveryStringCode() ||
+    '000022'
+  )
+    .toString()
+    .slice(0, 80);
+  const row: Record<string, unknown> = {
+    Item: uid,
+    StringCode: stringCode,
+    Quantity: String(qty),
+    Price: price.toFixed(2),
+    Amount: price.toFixed(2),
+  };
+  const uProduct = product?.unitOfMeasure?.trim() ?? '';
+  const uFallback = balanceSaleItemUnitFallback().trim();
+  if (uProduct && isUuid(uProduct)) {
+    row.Unit = uProduct;
+  } else {
+    putIfNonEmpty(row, 'Unit', uProduct || uFallback || 'ც');
+  }
+  const lineIncomeAccount =
+    cleanBalanceAccount(product?.balanceRevenuesAccount) ||
+    cleanBalanceAccount(balanceSaleDeliveryIncomeAccount()) ||
+    revenueAccount.trim();
+  if (lineIncomeAccount) row.IncomeAccount = lineIncomeAccount;
+
+  const invLine =
+    cleanBalanceAccount(product?.balanceInventoriesAccount) ||
+    goodsInvFallback?.trim();
+  const expLine =
+    cleanBalanceAccount(product?.balanceExpensesAccount) ||
+    documentExpensesAccount?.trim() ||
+    goodsExpItemFallback?.trim();
+  const vpLine =
+    cleanBalanceAccount(product?.balanceVatPayableAccount) ||
+    documentVatAccount?.trim() ||
+    goodsVatPayItemFallback?.trim();
+  putIfNonEmpty(row, 'AccountNumber', invLine);
+  putIfNonEmpty(row, 'ExpensesAccount', expLine);
+  if (saleLineRequiresVatPayableAccount(vatTaxable)) {
+    putIfNonEmpty(row, 'VATPayableAccount', vpLine);
+  }
+
+  if (resolveLineVatRate) {
+    const vat = resolveLineVatRate((product as Product) ?? null);
+    if (vat.acceptable) row.VATRate = vat.value;
+  } else {
+    const vatRate = balanceSaleDeliveryVatRate().trim();
+    if (
+      vatRate &&
+      saleLineRequiresVatPayableAccount(vatTaxable) &&
+      (isUuid(vatRate) || balanceSaleItemVatRateAllowNonGuid())
+    ) {
+      row.VATRate = vatRate;
+    }
+  }
+  return row;
+}
+
+function resolveWarehouseKeyByName(
+  products: ProductForSale[],
+  warehouseName: string,
+  fallback: string,
+): string {
+  const want = warehouseName.trim().toLowerCase();
+  if (!want) return fallback;
+  for (const p of products) {
+    for (const row of p.balanceStockBreakdown ?? []) {
+      const n = row.balanceWarehouseName?.trim().toLowerCase();
+      if (n === want) {
+        return (
+          row.balanceWarehouseUuid?.trim() ||
+          row.balanceWarehouseName?.trim() ||
+          warehouseName.trim()
+        );
+      }
+    }
+  }
+  return warehouseName.trim() || fallback;
+}
+
+function pickBaseSaleUid(
+  docs: Array<{ warehouse: string; uid: string }> | undefined,
+  oldWhKey: string,
+): string {
+  if (!docs?.length) return '';
+  const want = oldWhKey.trim().toLowerCase();
+  const match = docs.find(
+    (d) => d.warehouse.trim().toLowerCase() === want && d.uid?.trim(),
+  );
+  if (match?.uid) return match.uid.trim();
+  return docs.find((d) => d.uid?.trim())?.uid?.trim() ?? '';
+}
+
+type AssembleSaleOptions = {
+  /** ყველა ხაზი ამ საწყობზე (SalesCredit / delivery-only) */
+  forceWarehouseName?: string;
+  /** sale | salesCredit | deliveryOnly */
+  mode?: 'sale' | 'salesCredit' | 'deliveryOnly';
+  baseDocumentUid?: string;
+  deliveryAmount?: number;
+  /** sale რეჟიმში მიტანის ხაზის გამოტოვება */
+  skipDeliveryLine?: boolean;
+};
 
 @Injectable()
 export class BogBalanceSaleService {
   private readonly logger = new Logger(BogBalanceSaleService.name);
+  /** undefined = ჯერ არ ვცადეთ; null = catalog-ში ვერ მოიძებნა */
+  private deliveryItemUidFromCatalog: string | null | undefined;
+  /** Mongo delivery product (SKU 000022) — undefined = ჯერ არ ვცადეთ */
+  private deliveryProductCache: ProductForSale | null | undefined;
 
   constructor(
     private readonly balanceExchange: BalanceExchangeService,
@@ -384,6 +525,156 @@ export class BogBalanceSaleService {
   ) {}
 
   /**
+   * მიტანის Balance Items GUID — env/inline ან Exchange/Items catalog (Code/სახელი).
+   */
+  private async resolveDeliveryItemUid(): Promise<string> {
+    const configured = balanceSaleDeliveryItemUid().trim();
+    if (configured && isUuid(configured)) return configured;
+
+    if (this.deliveryItemUidFromCatalog !== undefined) {
+      return this.deliveryItemUidFromCatalog ?? '';
+    }
+
+    const pickRowStr = (row: Record<string, unknown>, ...keys: string[]) => {
+      for (const k of keys) {
+        const v = row[k];
+        if (typeof v === 'string' && v.trim()) return v.trim();
+      }
+      return '';
+    };
+
+    const codeWant = (
+      balanceSaleDeliveryItemCode() || balanceSaleDeliveryStringCode()
+    )
+      .trim()
+      .toLowerCase();
+    const nameHints = [
+      'მიტან',
+      'მიწოდ',
+      'delivery',
+      'courier',
+      'quickshipper',
+      'glovo',
+      'wolt',
+    ];
+
+    const rows = await this.balanceExchange.fetchItemsCatalog();
+    if (rows.length === 0) {
+      this.deliveryItemUidFromCatalog = null;
+      this.logger.warn(
+        '[Balance Sale] delivery Item — Exchange/Items ცარიელია (auth/publication ID?)',
+      );
+      return '';
+    }
+
+    const candidates: Array<{ uid: string; code: string; name: string }> = [];
+    for (const row of rows) {
+      if (pickRowStr(row, 'IsGroup', 'isGroup').toLowerCase() === 'true') {
+        continue;
+      }
+      const uid = pickRowStr(row, 'uid', 'UID', 'Uuid', 'UUID');
+      if (!uid || !isUuid(uid)) continue;
+      const code = pickRowStr(row, 'Code', 'SKU', 'code', 'sku');
+      const name = pickRowStr(row, 'Name', 'FullName', 'Presentation');
+      candidates.push({ uid, code, name });
+    }
+
+    if (codeWant) {
+      const byCode = candidates.find(
+        (c) => c.code.trim().toLowerCase() === codeWant,
+      );
+      if (byCode) {
+        this.deliveryItemUidFromCatalog = byCode.uid;
+        this.logger.log(
+          `[Balance Sale] delivery Item catalog Code=${byCode.code} → uid=${byCode.uid}`,
+        );
+        return byCode.uid;
+      }
+    }
+
+    for (const hint of nameHints) {
+      const byName = candidates.find((c) =>
+        c.name.toLowerCase().includes(hint),
+      );
+      if (byName) {
+        this.deliveryItemUidFromCatalog = byName.uid;
+        this.logger.log(
+          `[Balance Sale] delivery Item catalog Name="${byName.name}" → uid=${byName.uid}`,
+        );
+        return byName.uid;
+      }
+    }
+
+    this.deliveryItemUidFromCatalog = null;
+    this.logger.warn(
+      `[Balance Sale] delivery Item ვერ მოიძებნა (${candidates.length} ჩანაწერი). ` +
+        'შეავსე BALANCE_SALE_DELIVERY_ITEM_UID ან Balance-ში Code=DELIVERY / სახელი „მიტანა“.',
+    );
+    return '';
+  }
+
+  /**
+   * მიტანის Balance Items ხაზი — უპირატესობა Mongo პროდუქტს (SKU 000022 „დელივერი“),
+   * ფასი = შეკვეთის მიტანა (არა კატალოგის ფიქს. ფასი). ფოლბექი: env GUID / Items catalog.
+   */
+  private async resolveDeliveryForLine(): Promise<{
+    product?: ProductForSale;
+    itemUid: string;
+  }> {
+    const sku = balanceSaleDeliveryProductSku().trim();
+    if (sku) {
+      if (this.deliveryProductCache === undefined) {
+        const raw = await this.productModel
+          .findOne({ sku })
+          .select({
+            sku: 1,
+            name: 1,
+            taxation: 1,
+            unitOfMeasure: 1,
+            balanceNomenclatureItemUid: 1,
+            balanceVatRateUid: 1,
+            balanceInventoriesAccount: 1,
+            balanceExpensesAccount: 1,
+            balanceRevenuesAccount: 1,
+            balanceVatPayableAccount: 1,
+          })
+          .lean()
+          .exec();
+        if (raw) {
+          const byId = new Map([[String(raw._id), raw as ProductForSale]]);
+          await this.autoHealBalanceItemFieldsFromCatalog(byId);
+          const healed = byId.get(String(raw._id))!;
+          const uid = healed.balanceNomenclatureItemUid?.trim() ?? '';
+          if (uid && isUuid(uid)) {
+            this.deliveryProductCache = healed;
+            this.logger.log(
+              `[Balance Sale] delivery product SKU=${sku} → Item=${uid}`,
+            );
+          } else {
+            this.deliveryProductCache = null;
+            this.logger.warn(
+              `[Balance Sale] delivery product SKU=${sku} — balanceNomenclatureItemUid აკლია; admin-ში „განახლება ბაზა“`,
+            );
+          }
+        } else {
+          this.deliveryProductCache = null;
+          this.logger.warn(
+            `[Balance Sale] delivery product SKU=${sku} Mongo-ში ვერ მოიძებნა`,
+          );
+        }
+      }
+      if (this.deliveryProductCache) {
+        return {
+          product: this.deliveryProductCache,
+          itemUid: this.deliveryProductCache.balanceNomenclatureItemUid!.trim(),
+        };
+      }
+    }
+    const itemUid = await this.resolveDeliveryItemUid();
+    return { itemUid };
+  }
+
+  /**
    * Sale დოკუმენტ(ებ)ის აგება — იგივე ლოგიკა BOG callback-სა და ტესტის ენდპოინტზე.
    */
   private async assembleSaleRowsFromOrder(
@@ -392,12 +683,15 @@ export class BogBalanceSaleService {
       userId: Types.ObjectId;
       items: OrderItem[];
       warehouseId?: Types.ObjectId;
+      deliveryPrice?: number;
+      deliveryServiceFee?: number;
     },
     meta: {
       bogOrderId: string;
       inner?: Record<string, unknown>;
       commentPrefixLines: string[];
     },
+    options?: AssembleSaleOptions,
   ): Promise<
     | { ok: false; reason: string }
     | {
@@ -507,7 +801,9 @@ export class BogBalanceSaleService {
     }
 
     let orderWarehouseName: string | undefined;
-    if (
+    if (options?.forceWarehouseName?.trim()) {
+      orderWarehouseName = options.forceWarehouseName.trim();
+    } else if (
       order.warehouseId &&
       Types.ObjectId.isValid(String(order.warehouseId))
     ) {
@@ -803,15 +1099,59 @@ export class BogBalanceSaleService {
       });
 
     const saleRows: Record<string, unknown>[] = [];
-    for (const [whKey, ctxs] of warehouseGroups) {
-      const items = buildItemsForWarehouse(ctxs, whKey);
-      const itemsTotal = ctxs.reduce((s, { line }) => {
-        const q = Number(line.quantity) || 0;
-        const up = Number(line.unitPrice) || 0;
-        const tp = Number(line.totalPrice);
-        const lineAmt = Number.isFinite(tp) && tp > 0 ? tp : q * up;
-        return s + lineAmt;
-      }, 0);
+    const mode = options?.mode ?? 'sale';
+    const deliveryTotal =
+      mode === 'sale' && !options?.skipDeliveryLine
+        ? (Number(order.deliveryPrice) || 0) +
+          (Number(order.deliveryServiceFee) || 0)
+        : 0;
+    let deliveryAppended = false;
+    const needsDeliveryLine =
+      deliveryTotal > 0 || options?.mode === 'deliveryOnly';
+    const deliveryResolved = needsDeliveryLine
+      ? await this.resolveDeliveryForLine()
+      : { itemUid: '' as string };
+    const deliveryItemUid = deliveryResolved.itemUid;
+    const deliveryProduct = deliveryResolved.product;
+    const deliverySkuHint = balanceSaleDeliveryProductSku().trim() || '000022';
+    const deliveryItemMissingReason = `მიტანის Balance ხაზი — პროდუქტი SKU=${deliverySkuHint} (balanceNomenclatureItemUid / „განახლება ბაზა“) ან env BALANCE_SALE_DELIVERY_ITEM_UID`;
+
+    if (mode === 'deliveryOnly') {
+      const amount = Number(options?.deliveryAmount) || 0;
+      const whKey =
+        resolveWarehouseKeyByName(
+          [...byId.values()],
+          options?.forceWarehouseName ?? orderWarehouseName ?? '',
+          warehouseFallback,
+        ) || warehouseFallback;
+      if (!whKey.trim()) {
+        return {
+          ok: false,
+          reason: 'Balance საწყობი (მიტანა) ვერ განისაზღვრა',
+        };
+      }
+      const dLine = buildDeliveryLineItem(
+        amount,
+        revenueAccount,
+        vatTaxable,
+        deliveryItemUid,
+        deliveryProduct,
+        resolveLineVatRate,
+        goodsInvFallback,
+        goodsExpItemFallback,
+        goodsVatPayItemFallback,
+        docExpTrim,
+        docVatTrim,
+      );
+      if (!dLine || amount <= 0) {
+        return {
+          ok: false,
+          reason:
+            amount <= 0
+              ? 'მიტანის Balance Sale — amountDue=0'
+              : deliveryItemMissingReason,
+        };
+      }
       const doc: Record<string, unknown> = {
         uid: randomUUID(),
         Date: dateStr,
@@ -828,30 +1168,142 @@ export class BogBalanceSaleService {
         SubjetToIncomeTax: false,
         TheMarketPriceShouldAppearInTheInvoice: false,
         Comments: comments,
+        Items: [dLine],
+      };
+      putIfNonEmpty(doc, 'CashRegister', cashRegister);
+      putIfNonEmpty(doc, 'Department', department);
+      putIfNonEmpty(doc, 'Currency', currency);
+      if (paymentType && paymentAccount && amount > 0) {
+        doc.Payment = [
+          {
+            PaymentType: paymentType,
+            PaymentAccount: paymentAccount,
+            Amount: amount.toFixed(2),
+          },
+        ];
+      }
+      saleRows.push(doc);
+    } else if (mode === 'salesCredit') {
+      const baseDoc = options?.baseDocumentUid?.trim() ?? '';
+      if (!baseDoc || !isUuid(baseDoc)) {
+        return {
+          ok: false,
+          reason: 'SalesCredit — BaseDocument (ორიგინალი Sale uid) არ არის',
+        };
+      }
+      const newWhKey =
+        resolveWarehouseKeyByName(
+          [...byId.values()],
+          options?.forceWarehouseName ?? orderWarehouseName ?? '',
+          warehouseFallback,
+        ) || warehouseFallback;
+      if (!newWhKey.trim()) {
+        return {
+          ok: false,
+          reason: 'SalesCredit — ახალი Balance საწყობი ვერ განისაზღვრა',
+        };
+      }
+      const creditOp = balanceSalesCreditOperationType();
+      const allCtxs = [...warehouseGroups.values()].flat();
+      const items = buildItemsForWarehouse(allCtxs, newWhKey);
+      const doc: Record<string, unknown> = {
+        uid: randomUUID(),
+        BaseDocument: baseDoc,
+        Date: dateStr,
+        PaymentDate: dateStr,
+        Warehouse: newWhKey,
+        Client: balanceBuyerUid,
+        ReceivablesAccount: receivablesAccount,
+        RevenueAccount: revenueAccount,
+        VATTaxable: vatTaxable,
+        OperationType: creditOp,
+        VATArticle: vatArticle,
+        AmountIncludesVAT: true,
+        DoesNotAffectReceivables: false,
+        SubjetToIncomeTax: false,
+        TheMarketPriceShouldAppearInTheInvoice: false,
+        Comments: comments,
         Items: items,
       };
       putIfNonEmpty(doc, 'CashRegister', cashRegister);
       putIfNonEmpty(doc, 'Department', department);
       putIfNonEmpty(doc, 'Currency', currency);
-      putIfNonEmpty(doc, 'ExpensesAccount', documentExpensesAccount);
-      putIfNonEmpty(doc, 'VATAccount', documentVatAccount);
-      putIfNonEmpty(
-        doc,
-        'ReceivablesWriteoffAccount',
-        receivablesWriteoffAccount,
-      );
-
-      if (paymentType && paymentAccount && itemsTotal > 0) {
-        doc.Payment = [
-          {
-            PaymentType: paymentType,
-            PaymentAccount: paymentAccount,
-            Amount: itemsTotal.toFixed(2),
-          },
-        ];
-      }
-
       saleRows.push(doc);
+    } else {
+      for (const [whKey, ctxs] of warehouseGroups) {
+        let items = buildItemsForWarehouse(ctxs, whKey);
+        let docPaymentTotal = ctxs.reduce((s, { line }) => {
+          const q = Number(line.quantity) || 0;
+          const up = Number(line.unitPrice) || 0;
+          const tp = Number(line.totalPrice);
+          const lineAmt = Number.isFinite(tp) && tp > 0 ? tp : q * up;
+          return s + lineAmt;
+        }, 0);
+        if (!deliveryAppended && deliveryTotal > 0) {
+          const dLine = buildDeliveryLineItem(
+            deliveryTotal,
+            revenueAccount,
+            vatTaxable,
+            deliveryItemUid,
+            deliveryProduct,
+            resolveLineVatRate,
+            goodsInvFallback,
+            goodsExpItemFallback,
+            goodsVatPayItemFallback,
+            docExpTrim,
+            docVatTrim,
+          );
+          if (dLine) {
+            items = [...items, dLine];
+            docPaymentTotal += deliveryTotal;
+            deliveryAppended = true;
+          } else {
+            this.logger.warn(
+              `[Balance Sale] მიტანის ხაზი გამოტოვებულია — ${deliveryItemMissingReason}`,
+            );
+          }
+        }
+        const doc: Record<string, unknown> = {
+          uid: randomUUID(),
+          Date: dateStr,
+          PaymentDate: dateStr,
+          Warehouse: whKey,
+          Client: balanceBuyerUid,
+          ReceivablesAccount: receivablesAccount,
+          RevenueAccount: revenueAccount,
+          VATTaxable: vatTaxable,
+          OperationType: operationType,
+          VATArticle: vatArticle,
+          AmountIncludesVAT: true,
+          DoesNotAffectReceivables: false,
+          SubjetToIncomeTax: false,
+          TheMarketPriceShouldAppearInTheInvoice: false,
+          Comments: comments,
+          Items: items,
+        };
+        putIfNonEmpty(doc, 'CashRegister', cashRegister);
+        putIfNonEmpty(doc, 'Department', department);
+        putIfNonEmpty(doc, 'Currency', currency);
+        putIfNonEmpty(doc, 'ExpensesAccount', documentExpensesAccount);
+        putIfNonEmpty(doc, 'VATAccount', documentVatAccount);
+        putIfNonEmpty(
+          doc,
+          'ReceivablesWriteoffAccount',
+          receivablesWriteoffAccount,
+        );
+
+        if (paymentType && paymentAccount && docPaymentTotal > 0) {
+          doc.Payment = [
+            {
+              PaymentType: paymentType,
+              PaymentAccount: paymentAccount,
+              Amount: docPaymentTotal.toFixed(2),
+            },
+          ];
+        }
+
+        saleRows.push(doc);
+      }
     }
 
     if (skusMissingVatRate.length > 0) {
@@ -1006,8 +1458,8 @@ export class BogBalanceSaleService {
   }
 
   /**
-   * გაყიდვის ჩანაწერი Balance Exchange **Sale** (PUT, JSON მასივი), როცა გადახდა დასრულებულია
-   * და შეკვეთა **გაგზავნილია** (`shipped`). `Client` = `Buyer.balanceBuyerUid`.
+   * გაყიდვის ჩანაწერი Balance Exchange **Sale** (PUT, JSON მასივი), როცა BOG გადახდა
+   * `completed`-ია (callback / mobile success fallback). `Client` = `Buyer.balanceBuyerUid`.
    */
   async tryPostSaleAfterBogCompleted(
     filter: { _id: string } | { bogOrderId: string },
@@ -1050,6 +1502,8 @@ export class BogBalanceSaleService {
           userId: order.userId,
           items: order.items,
           warehouseId: order.warehouseId,
+          deliveryPrice: order.deliveryPrice,
+          deliveryServiceFee: order.deliveryServiceFee,
         },
         {
           bogOrderId,
@@ -1062,7 +1516,13 @@ export class BogBalanceSaleService {
         await this.orderModel
           .updateOne(
             { _id: order._id },
-            { $unset: { balanceSalePostingLock: 1 } },
+            {
+              $set: {
+                balanceSalePostError: assembled.reason.slice(0, 2000),
+                balanceSalePutResponseAt: new Date(),
+              },
+              $unset: { balanceSalePostingLock: 1 },
+            },
           )
           .exec();
         return;
@@ -1112,6 +1572,26 @@ export class BogBalanceSaleService {
         );
         return;
       }
+      const balanceSaleDocuments = saleRows
+        .map((row) => {
+          const wh = row.Warehouse;
+          const uid = row.uid;
+          return {
+            warehouse:
+              typeof wh === 'string'
+                ? wh.trim()
+                : wh != null
+                  ? String(wh as unknown).trim()
+                  : '',
+            uid:
+              typeof uid === 'string'
+                ? uid.trim()
+                : uid != null
+                  ? String(uid as unknown).trim()
+                  : '',
+          };
+        })
+        .filter((d) => d.warehouse && d.uid && isUuid(d.uid));
       await this.orderModel
         .updateOne(
           { _id: order._id },
@@ -1119,6 +1599,7 @@ export class BogBalanceSaleService {
             $set: {
               balanceSalePostedAt: new Date(),
               balanceSalePostError: '',
+              balanceSaleDocuments,
               ...responseAudit,
             },
             $unset: { balanceSalePostingLock: 1 },
@@ -1191,6 +1672,8 @@ export class BogBalanceSaleService {
         userId: order.userId,
         items: order.items,
         warehouseId: order.warehouseId,
+        deliveryPrice: order.deliveryPrice,
+        deliveryServiceFee: order.deliveryServiceFee,
       },
       {
         bogOrderId: 'TEST-NO-BOG',
@@ -1340,14 +1823,354 @@ export class BogBalanceSaleService {
       )
       .exec();
 
-    this.logger.log(
-      `[Balance Sale DEV] Mongo განახლდა (completed + bogLastCallbackRaw). Balance PUT გაეშვება მხოლოდ შეკვეთის სტატუსზე „გაგზავნილი“ (shipped) — განაახლე სტატუსი ადმინიდან/საწყობიდან.`,
+    await this.tryPostSaleAfterBogCompleted(
+      { _id: orderId.toString() },
+      {
+        event: 'dev_simulate_bog_completed',
+        source: 'dev_simulate',
+      },
+      bogPayId,
     );
 
     return {
       ok: true,
       message:
-        'BOG completed სიმულაცია ჩაწერილია. Balance-ზე გაყიდვის ჩასაწერად დააყენე შეკვეთის სტატუსი „გზაში“ (shipped).',
+        'BOG completed სიმულაცია ჩაწერილია — Balance Sale PUT გაეშვა (ან უკვე იყო ჩაწერილი).',
+    };
+  }
+
+  async tryPostWarehouseSalesCreditForRedispatch(
+    orderId: string,
+    params: { newWarehouseName: string; oldWarehouseName: string },
+  ): Promise<{ ok: boolean; message: string; documentUid?: string }> {
+    if (!Types.ObjectId.isValid(orderId)) {
+      return { ok: false, message: 'შეკვეთა ვერ მოიძებნა' };
+    }
+    const order = await this.orderModel.findById(orderId).lean().exec();
+    if (!order) return { ok: false, message: 'შეკვეთა ვერ მოიძებნა' };
+    if (!order.balanceSalePostedAt) {
+      return {
+        ok: true,
+        message: 'Balance Sale ჯერ არ არის — SalesCredit არ სჭირდება',
+      };
+    }
+
+    const products = await this.productModel
+      .find({
+        _id: {
+          $in: order.items
+            .map((i) => i.productId)
+            .filter((id) => Types.ObjectId.isValid(String(id))),
+        },
+      })
+      .select({ balanceStockBreakdown: 1 })
+      .lean()
+      .exec();
+    const oldWhKey = resolveWarehouseKeyByName(
+      products as ProductForSale[],
+      params.oldWarehouseName,
+      balanceSaleWarehouseFallback(),
+    );
+    const baseDoc = pickBaseSaleUid(order.balanceSaleDocuments, oldWhKey);
+    if (!baseDoc) {
+      const msg =
+        'SalesCredit — balanceSaleDocuments/BaseDocument ვერ მოიძებნა';
+      await this.orderModel
+        .updateOne(
+          { _id: order._id },
+          {
+            $set: {
+              balanceWarehouseCreditPostError: msg,
+              'deliveryRedispatch.warehouseCreditPostError': msg,
+            },
+          },
+        )
+        .exec();
+      return { ok: false, message: msg };
+    }
+
+    const assembled = await this.assembleSaleRowsFromOrder(
+      {
+        _id: order._id,
+        userId: order.userId,
+        items: order.items,
+        warehouseId: order.warehouseId,
+      },
+      {
+        bogOrderId: order.bogOrderId?.trim() || `REDISPATCH-CR-${orderId}`,
+        inner: undefined,
+        commentPrefixLines: [
+          `[SalesCredit ${params.oldWarehouseName} → ${params.newWarehouseName}]`,
+        ],
+      },
+      {
+        mode: 'salesCredit',
+        forceWarehouseName: params.newWarehouseName,
+        baseDocumentUid: baseDoc,
+      },
+    );
+    if (!assembled.ok) {
+      await this.orderModel
+        .updateOne(
+          { _id: order._id },
+          {
+            $set: {
+              balanceWarehouseCreditPostError: assembled.reason,
+              'deliveryRedispatch.warehouseCreditPostError': assembled.reason,
+            },
+          },
+        )
+        .exec();
+      return { ok: false, message: assembled.reason };
+    }
+
+    const creditRows = assembled.saleRows;
+    const result =
+      await this.balanceExchange.putSalesCreditDocument(creditRows);
+    const responseBodyStored = clipBalanceSaleResponseBody(result.raw);
+    const creditUid = String(creditRows[0]?.uid ?? '').trim();
+    const now = new Date();
+    if (!result.ok) {
+      const err = result.raw.slice(0, 500);
+      await this.orderModel
+        .updateOne(
+          { _id: order._id },
+          {
+            $set: {
+              balanceWarehouseCreditPostError: err,
+              balanceWarehouseCreditPutResponseStatus: result.status,
+              balanceWarehouseCreditPutResponseBody: responseBodyStored,
+              'deliveryRedispatch.warehouseCreditPostError': err,
+            },
+          },
+        )
+        .exec();
+      return { ok: false, message: err };
+    }
+
+    await this.orderModel
+      .updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            balanceWarehouseCreditPostedAt: now,
+            balanceWarehouseCreditDocumentUid: creditUid,
+            balanceWarehouseCreditPostError: '',
+            balanceWarehouseCreditPutResponseStatus: result.status,
+            balanceWarehouseCreditPutResponseBody: responseBodyStored,
+            'deliveryRedispatch.warehouseCreditPostedAt': now,
+            'deliveryRedispatch.warehouseCreditDocumentUid': creditUid,
+            'deliveryRedispatch.warehouseCreditPostError': '',
+          },
+        },
+      )
+      .exec();
+    return {
+      ok: true,
+      message: 'SalesCredit გაგზავნილია',
+      documentUid: creditUid,
+    };
+  }
+
+  async tryPostDeliverySaleForRedispatch(orderId: string): Promise<void> {
+    if (!Types.ObjectId.isValid(orderId)) return;
+    const order = await this.orderModel.findById(orderId).lean().exec();
+    if (!order?.deliveryRedispatch) return;
+    const rd = order.deliveryRedispatch;
+    if (rd.balanceDeliverySalePostedAt) return;
+    if (rd.status !== 'paid' && rd.status !== 'completed') return;
+
+    const amount = Number(rd.amountDue) || 0;
+    if (amount <= 0) return;
+
+    const lockRes = await this.orderModel
+      .updateOne(
+        {
+          _id: order._id,
+          'deliveryRedispatch.balanceDeliverySalePostedAt': { $exists: false },
+        },
+        {
+          $set: {
+            'deliveryRedispatch.balanceDeliverySalePostingLock': new Date(),
+          },
+        },
+      )
+      .exec();
+    if (lockRes.modifiedCount === 0) return;
+
+    const bogId =
+      rd.bogPaymentOrderId?.trim() ||
+      order.bogOrderId?.trim() ||
+      `REDISPATCH-${orderId}`;
+
+    const assembled = await this.assembleSaleRowsFromOrder(
+      {
+        _id: order._id,
+        userId: order.userId,
+        items: order.items,
+        warehouseId: order.warehouseId,
+      },
+      {
+        bogOrderId: bogId,
+        inner: undefined,
+        commentPrefixLines: [`[Redispatch delivery · ${rd.newWarehouseName}]`],
+      },
+      {
+        mode: 'deliveryOnly',
+        forceWarehouseName: rd.newWarehouseName,
+        deliveryAmount: amount,
+      },
+    );
+    if (!assembled.ok) {
+      await this.orderModel
+        .updateOne(
+          { _id: order._id },
+          {
+            $set: {
+              'deliveryRedispatch.balanceDeliverySalePostError':
+                assembled.reason,
+            },
+            $unset: { 'deliveryRedispatch.balanceDeliverySalePostingLock': 1 },
+          },
+        )
+        .exec();
+      return;
+    }
+
+    const result = await this.balanceExchange.putSaleDocument(
+      assembled.saleRows,
+    );
+    const docUid = String(assembled.saleRows[0]?.uid ?? '').trim();
+    const now = new Date();
+    if (!result.ok) {
+      await this.orderModel
+        .updateOne(
+          { _id: order._id },
+          {
+            $set: {
+              'deliveryRedispatch.balanceDeliverySalePostError':
+                result.raw.slice(0, 500),
+              'deliveryRedispatch.balanceDeliverySalePutResponseStatus':
+                result.status,
+            },
+            $unset: { 'deliveryRedispatch.balanceDeliverySalePostingLock': 1 },
+          },
+        )
+        .exec();
+      return;
+    }
+
+    await this.orderModel
+      .updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            'deliveryRedispatch.balanceDeliverySalePostedAt': now,
+            'deliveryRedispatch.balanceDeliverySaleDocumentUid': docUid,
+            'deliveryRedispatch.balanceDeliverySalePostError': '',
+            'deliveryRedispatch.balanceDeliverySalePutResponseStatus':
+              result.status,
+          },
+          $unset: { 'deliveryRedispatch.balanceDeliverySalePostingLock': 1 },
+        },
+      )
+      .exec();
+  }
+
+  async retryBalanceSaleForAdmin(
+    orderId: string,
+  ): Promise<{ ok: boolean; message: string }> {
+    const order = await this.orderModel.findById(orderId).lean().exec();
+    if (!order) return { ok: false, message: 'შეკვეთა ვერ მოიძებნა' };
+    if (order.balanceSalePostedAt) {
+      return { ok: false, message: 'Balance Sale უკვე გაგზავნილია' };
+    }
+    if ((order.bogPaymentStatus || '').toLowerCase() !== 'completed') {
+      return { ok: false, message: 'BOG completed არ არის' };
+    }
+    await this.orderModel
+      .updateOne(
+        { _id: order._id },
+        { $unset: { balanceSalePostingLock: 1, balanceSalePostError: 1 } },
+      )
+      .exec();
+    await this.tryPostSaleAfterBogCompleted(
+      { _id: orderId },
+      { event: 'admin_retry', source: 'admin' },
+      order.bogOrderId?.trim() || `ADMIN-${orderId}`,
+    );
+    const fresh = await this.orderModel.findById(orderId).lean().exec();
+    if (fresh?.balanceSalePostedAt) {
+      return { ok: true, message: 'Balance Sale გაგზავნილია' };
+    }
+    return {
+      ok: false,
+      message: fresh?.balanceSalePostError?.slice(0, 300) || 'PUT ვერ მოხერხდა',
+    };
+  }
+
+  async retryWarehouseCreditForAdmin(
+    orderId: string,
+  ): Promise<{ ok: boolean; message: string }> {
+    const order = await this.orderModel.findById(orderId).lean().exec();
+    if (!order?.deliveryRedispatch) {
+      return { ok: false, message: 'Redispatch არ არის' };
+    }
+    if (order.deliveryRedispatch.warehouseCreditPostedAt) {
+      return { ok: false, message: 'SalesCredit უკვe გაგზავნილია' };
+    }
+    let oldName = order.pickupAddress?.warehouseName?.trim() ?? '';
+    if (!oldName && order.warehouseId) {
+      const wh = await this.warehouseModel
+        .findById(order.warehouseId)
+        .select({ name: 1 })
+        .lean()
+        .exec();
+      oldName = wh?.name?.trim() ?? '';
+    }
+    const newName = order.deliveryRedispatch.newWarehouseName?.trim() ?? '';
+    if (!oldName || !newName) {
+      return { ok: false, message: 'საწყობის სახელები ვერ განისაზღვრა' };
+    }
+    return this.tryPostWarehouseSalesCreditForRedispatch(orderId, {
+      newWarehouseName: newName,
+      oldWarehouseName: oldName,
+    });
+  }
+
+  async retryDeliverySaleForAdmin(
+    orderId: string,
+  ): Promise<{ ok: boolean; message: string }> {
+    const order = await this.orderModel.findById(orderId).lean().exec();
+    if (!order?.deliveryRedispatch) {
+      return { ok: false, message: 'Redispatch არ არის' };
+    }
+    if (order.deliveryRedispatch.balanceDeliverySalePostedAt) {
+      return { ok: false, message: 'მიტანის Sale უკვe გაგზავნილია' };
+    }
+    await this.orderModel
+      .updateOne(
+        { _id: order._id },
+        {
+          $unset: {
+            'deliveryRedispatch.balanceDeliverySalePostingLock': 1,
+            'deliveryRedispatch.balanceDeliverySalePostError': 1,
+          },
+        },
+      )
+      .exec();
+    await this.tryPostDeliverySaleForRedispatch(orderId);
+    const fresh = await this.orderModel.findById(orderId).lean().exec();
+    if (fresh?.deliveryRedispatch?.balanceDeliverySalePostedAt) {
+      return { ok: true, message: 'მიტანის Balance Sale გაგზავნილია' };
+    }
+    return {
+      ok: false,
+      message:
+        fresh?.deliveryRedispatch?.balanceDeliverySalePostError?.slice(
+          0,
+          300,
+        ) || 'PUT ვერ მოხერხდა',
     };
   }
 }

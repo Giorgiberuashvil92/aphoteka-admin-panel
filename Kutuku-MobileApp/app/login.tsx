@@ -1,6 +1,9 @@
+import { BottomNavigation, type BottomNavTab } from '@/src/components/common/BottomNavigation';
+import { useTabNavigation } from '@/src/hooks/useTabNavigation';
 import { LoginScreen } from '@/src/screens';
 import { UserService } from '@/src/services/user.service';
-import { useRouter } from 'expo-router';
+import { theme } from '@/src/theme';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -9,10 +12,19 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { theme } from '@/src/theme';
+
+const TAB_BAR_EXTRA_PADDING = 72;
+
+function resolveActiveTab(tab?: string): BottomNavTab {
+  if (tab === 'cabinet') return 'cabinet';
+  if (tab === 'profile') return 'profile';
+  return 'home';
+}
 
 export default function LoginPage() {
   const router = useRouter();
+  const { tab } = useLocalSearchParams<{ tab?: string }>();
+  const tabNav = useTabNavigation();
   const [checkingSession, setCheckingSession] = useState(true);
   const [activeUser, setActiveUser] = useState<{ email: string; name: string } | null>(null);
 
@@ -43,7 +55,7 @@ export default function LoginPage() {
   }
 
   return (
-    <>
+    <View style={styles.container}>
       {activeUser ? (
         <View style={styles.sessionBanner}>
           <Text style={styles.sessionText}>
@@ -70,16 +82,30 @@ export default function LoginPage() {
         </View>
       ) : null}
       <LoginScreen
+        bottomInset={TAB_BAR_EXTRA_PADDING}
         onLogin={() => router.replace('/home' as any)}
         onRegisterPress={() => router.push('/register' as any)}
         onForgotPassword={() => router.push('/forgot-password' as any)}
         onGuestPress={() => router.replace('/home' as any)}
       />
-    </>
+      <BottomNavigation
+        activeTab={resolveActiveTab(tab)}
+        cartCount={tabNav.cartCount}
+        onHomePress={tabNav.onHomePress}
+        onCategoriesPress={tabNav.onCategoriesPress}
+        onCabinetPress={tabNav.onCabinetPress}
+        onCartPress={tabNav.onCartPress}
+        onProfilePress={tabNav.onProfilePress}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: theme.colors.white,
+  },
   center: {
     flex: 1,
     justifyContent: 'center',
