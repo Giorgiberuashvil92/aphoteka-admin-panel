@@ -133,6 +133,20 @@ export class OrdersController {
     return this.ordersService.refundProductsForAdmin(id);
   }
 
+  @Post('admin/:id/payment/bog/refund-full')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  refundBogFull(@Param('id') id: string) {
+    return this.ordersService.refundFullForAdmin(id);
+  }
+
+  @Post('admin/:id/balance/retry-refund-credit')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  retryRefundBalanceCredit(@Param('id') id: string) {
+    return this.ordersService.retryRefundBalanceCreditForAdmin(id);
+  }
+
   @Post('admin/:id/balance/retry-sale')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)

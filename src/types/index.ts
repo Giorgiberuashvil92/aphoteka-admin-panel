@@ -273,6 +273,12 @@ export interface Order {
   bogProductsRefundAt?: Date;
   bogProductsRefundActionId?: string;
   bogProductsRefundStatus?: string;
+  bogRefundKind?: 'products' | 'full';
+  balanceRefundCreditPostedAt?: Date;
+  balanceRefundCreditKind?: 'products' | 'full';
+  balanceRefundCreditDocuments?: Array<{ warehouse: string; uid: string }>;
+  balanceRefundCreditPostError?: string;
+  balanceRefundCreditPutResponseStatus?: number;
   /** Balance Exchange Sale (PUT) */
   balanceSalePostedAt?: Date;
   balanceSalePostError?: string;

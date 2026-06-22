@@ -89,6 +89,20 @@ export default function OrderDetailPage() {
   const [balanceRetrying, setBalanceRetrying] = useState<
     "sale" | "credit" | "delivery" | null
   >(null);
+  const [bogRefundPreview, setBogRefundPreview] = useState<{
+    productsAmount: number;
+    deliveryTotal: number;
+    fullAmount: number;
+    canRefundProducts: boolean;
+    canRefundFull: boolean;
+    alreadyRefunded: boolean;
+    refundKind: "products" | "full" | null;
+  } | null>(null);
+  const [bogRefundLoading, setBogRefundLoading] = useState(false);
+  const [bogRefunding, setBogRefunding] = useState<"products" | "full" | null>(
+    null,
+  );
+  const [refundCreditRetrying, setRefundCreditRetrying] = useState(false);
   const [addrForm, setAddrForm] = useState<DeliveryAddressForm>({
     streetName: "",
     cityName: "",
@@ -147,6 +161,37 @@ export default function OrderDetailPage() {
       setWarehouses(res.data || []);
     });
   }, [isAdmin]);
+
+  useEffect(() => {
+    if (!orderId || !isAdmin || !order) return;
+    if (!isBogPaymentCompleted(order) && !order.bogProductsRefundAt) {
+      setBogRefundPreview(null);
+      return;
+    }
+    let cancelled = false;
+    setBogRefundLoading(true);
+    ordersApi
+      .previewBogProductsRefund(orderId)
+      .then((preview) => {
+        if (!cancelled) setBogRefundPreview(preview);
+      })
+      .catch(() => {
+        if (!cancelled) setBogRefundPreview(null);
+      })
+      .finally(() => {
+        if (!cancelled) setBogRefundLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    orderId,
+    isAdmin,
+    order,
+    order?.bogOrderId,
+    order?.bogPaymentStatus,
+    order?.bogProductsRefundAt,
+  ]);
 
   const warehouseNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -324,6 +369,56 @@ export default function OrderDetailPage() {
       window.alert(errMsg);
     } finally {
       setBalanceRetrying(null);
+    }
+  };
+
+  const handleBogRefund = async (kind: "products" | "full") => {
+    if (!orderId || !bogRefundPreview) return;
+    const amount =
+      kind === "products"
+        ? bogRefundPreview.productsAmount
+        : bogRefundPreview.fullAmount;
+    const confirmText =
+      kind === "products"
+        ? `BOG-ზე დაბრუნდება მხოლოდ პროდუქტების თანხა ₾${amount.toFixed(2)}.\nმიტანა ₾${bogRefundPreview.deliveryTotal.toFixed(2)} არ ბრუნდება.\n\nგავაგრძელოთ?`
+        : `BOG-ზე სრულად დაბრუნდება ₾${amount.toFixed(2)}:\n• პროდუქტები ₾${bogRefundPreview.productsAmount.toFixed(2)}\n• მიტანა ₾${bogRefundPreview.deliveryTotal.toFixed(2)}\n\nBalance SalesCredit-შიც მიტანის ხაზი ჩაიწერება.\n\nგავაგრძელოთ?`;
+    if (!window.confirm(confirmText)) return;
+
+    setBogRefunding(kind);
+    try {
+      const fn =
+        kind === "products"
+          ? ordersApi.refundBogProducts
+          : ordersApi.refundBogFull;
+      const result = await fn(orderId);
+      window.alert(result.message);
+      await loadOrder();
+    } catch (e) {
+      const errMsg =
+        e instanceof ApiError && typeof e.data?.message === "string"
+          ? e.data.message
+          : "BOG refund ვერ მოხერხდა";
+      window.alert(errMsg);
+    } finally {
+      setBogRefunding(null);
+    }
+  };
+
+  const handleRefundCreditRetry = async () => {
+    if (!orderId) return;
+    setRefundCreditRetrying(true);
+    try {
+      const result = await ordersApi.retryRefundBalanceCredit(orderId);
+      window.alert(result.message);
+      await loadOrder();
+    } catch (e) {
+      const errMsg =
+        e instanceof ApiError && typeof e.data?.message === "string"
+          ? e.data.message
+          : "Balance Refund SalesCredit ვერ მოხერხდა";
+      window.alert(errMsg);
+    } finally {
+      setRefundCreditRetrying(false);
     }
   };
 
@@ -1012,6 +1107,131 @@ export default function OrderDetailPage() {
               ) : (
                 <p className="text-sm text-gray-500">Callback მონაცემები ჯერ არ მოვიდა.</p>
               )}
+
+              {isAdmin &&
+              (bogCompleted || order.bogProductsRefundAt || bogRefundPreview) ? (
+                <div className="mt-4 rounded-lg border border-gray-100 p-4 dark:border-gray-700">
+                  <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-white">
+                    BOG Refund
+                  </h3>
+
+                  {order.bogProductsRefundAt ? (
+                    <>
+                      <p className="text-sm text-green-700 dark:text-green-300">
+                        ✓ დაბრუნებულია ₾
+                        {(order.bogProductsRefundAmount ?? 0).toFixed(2)} ·{" "}
+                        {order.bogProductsRefundAt.toLocaleString("ka-GE")}
+                        {order.bogRefundKind === "full"
+                          ? " (სრული — პროდუქტები + მიტანა)"
+                          : order.bogRefundKind === "products"
+                            ? " (მხოლოდ პროდუქტები)"
+                            : null}
+                      </p>
+                      {order.balanceRefundCreditPostedAt ? (
+                        <p className="mt-2 text-sm text-green-700 dark:text-green-300">
+                          ✓ Balance SalesCredit ·{" "}
+                          {order.balanceRefundCreditPostedAt.toLocaleString("ka-GE")}
+                          {order.balanceRefundCreditPutResponseStatus != null
+                            ? ` · HTTP ${order.balanceRefundCreditPutResponseStatus}`
+                            : null}
+                          {order.balanceRefundCreditDocuments?.length ? (
+                            <span className="block font-mono text-xs text-gray-500 dark:text-gray-400">
+                              {order.balanceRefundCreditDocuments.map((d) => (
+                                <span key={d.uid} className="block">
+                                  {d.warehouse}: {d.uid.slice(0, 8)}…
+                                </span>
+                              ))}
+                            </span>
+                          ) : null}
+                        </p>
+                      ) : order.balanceRefundCreditPostError ? (
+                        <>
+                          <pre className="mt-2 max-h-24 overflow-auto rounded bg-red-50 p-2 text-xs text-red-800 dark:bg-red-950/40 dark:text-red-200">
+                            {order.balanceRefundCreditPostError}
+                          </pre>
+                          <button
+                            type="button"
+                            onClick={() => void handleRefundCreditRetry()}
+                            disabled={refundCreditRetrying}
+                            className="mt-2 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                          >
+                            {refundCreditRetrying
+                              ? "..."
+                              : "Balance SalesCredit PUT (retry)"}
+                          </button>
+                        </>
+                      ) : order.balanceSalePostedAt ? (
+                        <p className="mt-2 text-sm text-yellow-800 dark:text-yellow-200">
+                          Balance SalesCredit მოლოდინში / გამოტოვებული — retry.
+                          <button
+                            type="button"
+                            onClick={() => void handleRefundCreditRetry()}
+                            disabled={refundCreditRetrying}
+                            className="ml-2 rounded-lg bg-indigo-600 px-2 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                          >
+                            {refundCreditRetrying ? "..." : "PUT"}
+                          </button>
+                        </p>
+                      ) : null}
+                    </>
+                  ) : bogRefundLoading ? (
+                    <p className="text-sm text-gray-500">იტვირთება...</p>
+                  ) : bogRefundPreview ? (
+                    <>
+                      <ul className="mb-3 space-y-1 text-sm text-gray-600 dark:text-gray-300">
+                        <li>
+                          პროდუქტები: ₾
+                          {bogRefundPreview.productsAmount.toFixed(2)}
+                        </li>
+                        <li>
+                          მიტანა: ₾{bogRefundPreview.deliveryTotal.toFixed(2)}
+                        </li>
+                        <li className="font-medium text-gray-900 dark:text-white">
+                          სრული თანხა: ₾
+                          {bogRefundPreview.fullAmount.toFixed(2)}
+                        </li>
+                      </ul>
+                      <div className="flex flex-wrap gap-2">
+                        {bogRefundPreview.canRefundProducts ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleBogRefund("products")}
+                            disabled={bogRefunding !== null}
+                            className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                          >
+                            {bogRefunding === "products"
+                              ? "..."
+                              : `Refund პროდუქტები (₾${bogRefundPreview.productsAmount.toFixed(2)})`}
+                          </button>
+                        ) : null}
+                        {bogRefundPreview.canRefundFull ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleBogRefund("full")}
+                            disabled={bogRefunding !== null}
+                            className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                          >
+                            {bogRefunding === "full"
+                              ? "..."
+                              : `Refund სრული (₾${bogRefundPreview.fullAmount.toFixed(2)})`}
+                          </button>
+                        ) : null}
+                      </div>
+                      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        «პროდუქტები» — მხოლოდ პროდუქტის თანხა BOG-ზე; მიტანა არ ბრუნდება.
+                        «სრული» — პროდუქტები + მიტანა (₾
+                        {bogRefundPreview.deliveryTotal.toFixed(2)}) BOG-ზე და Balance
+                        SalesCredit-ში. Refund-ის შემდეგ SalesCredit ავტომატურად
+                        იგზავნება.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-500">
+                      Refund მხოლოდ BOG completed გადახდისთვისაა.
+                    </p>
+                  )}
+                </div>
+              ) : null}
             </div>
           ) : null}
 

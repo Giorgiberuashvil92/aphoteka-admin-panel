@@ -29,3 +29,19 @@ export function computeBogProductsRefundAmount(
 ): number {
   return computeOrderProductsTotal(order);
 }
+
+/** BOG-ზე სრული დაბრუნება — პროდუქტები + მიტანა */
+export function computeBogFullRefundAmount(
+  order: Pick<Order, 'items' | 'deliveryPrice' | 'deliveryServiceFee'>,
+): number {
+  return computeOrderGrandTotal(order);
+}
+
+/** შეკვეთის სრული თანხა BOG-ზე (გადახდა / სრული refund) — პროდუქტები + მიტანა */
+export function computeOrderGrandTotal(
+  order: Pick<Order, 'items' | 'deliveryPrice' | 'deliveryServiceFee'>,
+): number {
+  return roundGel(
+    computeOrderProductsTotal(order) + computeOrderDeliveryTotal(order),
+  );
+}

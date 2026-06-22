@@ -154,6 +154,33 @@ export class Order {
   @Prop({ type: MongooseSchema.Types.Mixed })
   bogProductsRefundResponse?: Record<string, unknown>;
 
+  /** BOG refund ტიპი: products = მხოლოდ პროდუქტები, full = პროდუქტები + მიტანა */
+  @Prop({ enum: ['products', 'full'] })
+  bogRefundKind?: 'products' | 'full';
+
+  /** BOG refund → Balance Exchange SalesCredit (BaseDocument = Sale uid) */
+  @Prop({ type: Date })
+  balanceRefundCreditPostedAt?: Date;
+
+  @Prop({ enum: ['products', 'full'] })
+  balanceRefundCreditKind?: 'products' | 'full';
+
+  @Prop({
+    type: [{ warehouse: String, uid: String }],
+    _id: false,
+    default: undefined,
+  })
+  balanceRefundCreditDocuments?: Array<{ warehouse: string; uid: string }>;
+
+  @Prop()
+  balanceRefundCreditPostError?: string;
+
+  @Prop({ type: Number })
+  balanceRefundCreditPutResponseStatus?: number;
+
+  @Prop()
+  balanceRefundCreditPutResponseBody?: string;
+
   // ==================== Quickshipper Delivery ====================
 
   /** არჩეული Quickshipper delivery provider */

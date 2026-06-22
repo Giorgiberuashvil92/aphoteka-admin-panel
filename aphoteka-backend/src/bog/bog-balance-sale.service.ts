@@ -47,6 +47,8 @@ import {
   balanceSaleDeliveryIncomeAccount,
   balanceSaleDeliveryVatRate,
   balanceSalesCreditOperationType,
+  balanceRefundSalesCreditOperationType,
+  balanceSaleRequestBodyLogMaxChars,
 } from '../config/balance-sale-inline';
 
 /** Mongo ველზე ზედმეტად გრძელი პასუხის თავიდან აცილება */
@@ -460,6 +462,193 @@ function buildDeliveryLineItem(
   return row;
 }
 
+type BalanceSaleLineRef = {
+  itemUid: string;
+  stringCode?: string;
+  quantity?: string;
+  price?: string;
+  amount?: string;
+  unit?: string;
+  number?: string;
+  series?: string;
+  accountingAccount?: string;
+  revenueAccount?: string;
+  expensesAccount?: string;
+  vatAccount?: string;
+  vatRate?: string;
+  isDelivery?: boolean;
+};
+
+function strField(v: unknown): string {
+  if (v == null) return '';
+  if (typeof v === 'string') return v.trim();
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  return '';
+}
+
+/** Balance GET Sale — Items ხაზების პarse refund SalesCredit-ისთვის. */
+function parseSaleDocItems(
+  doc: Record<string, unknown> | null | undefined,
+  deliveryItemUid: string,
+): BalanceSaleLineRef[] {
+  const items = doc?.Items;
+  if (!Array.isArray(items)) return [];
+  const deliveryKey = deliveryItemUid.trim().toLowerCase();
+  const out: BalanceSaleLineRef[] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== 'object') continue;
+    const row = raw as Record<string, unknown>;
+    const itemUid = strField(row.Item);
+    if (!itemUid) continue;
+    out.push({
+      itemUid,
+      stringCode: strField(row.StringCode) || undefined,
+      quantity: strField(row.Quantity) || undefined,
+      price: strField(row.Price) || undefined,
+      amount: strField(row.Amount) || undefined,
+      unit: strField(row.Unit) || undefined,
+      number: strField(row.Number) || undefined,
+      series: validSeriesRef(strField(row.Series)) || undefined,
+      accountingAccount:
+        strField(row.AccountingAccount) ||
+        strField(row.AccountNumber) ||
+        undefined,
+      revenueAccount:
+        strField(row.RevenueAccount) ||
+        strField(row.IncomeAccount) ||
+        undefined,
+      expensesAccount: strField(row.ExpensesAccount) || undefined,
+      vatAccount:
+        strField(row.VATAccount) ||
+        strField(row.VATPayableAccount) ||
+        undefined,
+      vatRate: strField(row.VATrate) || strField(row.VATRate) || undefined,
+      isDelivery: Boolean(deliveryKey && itemUid.toLowerCase() === deliveryKey),
+    });
+  }
+  return out;
+}
+
+function pickSaleDocHeaderForRefundCredit(
+  baseSaleDoc: Record<string, unknown> | null,
+): Record<string, unknown> {
+  if (!baseSaleDoc) return {};
+  const out: Record<string, unknown> = {};
+  const agreement = strField(baseSaleDoc.Agreement);
+  if (agreement && isUuid(agreement)) out.Agreement = agreement;
+  const vatArticle =
+    strField(baseSaleDoc.VATArticle) || strField(baseSaleDoc.VATarticle);
+  if (vatArticle) out.VATArticle = vatArticle;
+  const vatTaxable =
+    strField(baseSaleDoc.VATTaxable) || strField(baseSaleDoc.VATtaxable);
+  if (vatTaxable) out.VATTaxable = vatTaxable;
+  return out;
+}
+
+/**
+ * Refund SalesCredit Items — ორიგინალი Sale GET-იდან.
+ * OperationType „დაბრუნება“ + Items[].BaseDocument = Sale uid.
+ * Series — ორიგინალური Sale-ის პარტია (საქონლისთვის სავალდებული); მიტანა/სერვისი — უსeries.
+ */
+function buildRefundCreditItemsFromSaleLines(
+  saleLines: BalanceSaleLineRef[],
+  saleDocumentUid: string,
+  includeDelivery: boolean,
+): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const line of saleLines) {
+    if (line.isDelivery && !includeDelivery) continue;
+    const qty = line.quantity || '1';
+    const price = line.price || '0';
+    const amount =
+      line.amount ||
+      (Number(price) && Number(qty)
+        ? (Number(price) * Number(qty)).toFixed(2)
+        : price);
+
+    const row: Record<string, unknown> = {
+      Item: line.itemUid,
+      Quantity: qty,
+      Price: price,
+      Amount: amount,
+      BaseDocument: saleDocumentUid,
+    };
+    putIfNonEmpty(row, 'Unit', line.unit);
+    putIfNonEmpty(row, 'StringCode', line.stringCode);
+    putIfNonEmpty(row, 'Number', line.number);
+    if (line.series) row.Series = line.series;
+    putIfNonEmpty(row, 'AccountNumber', line.accountingAccount);
+    putIfNonEmpty(row, 'IncomeAccount', line.revenueAccount);
+    putIfNonEmpty(row, 'ExpensesAccount', line.expensesAccount);
+    putIfNonEmpty(row, 'VATPayableAccount', line.vatAccount);
+    putIfNonEmpty(row, 'VATRate', line.vatRate);
+    out.push(row);
+  }
+  return out;
+}
+
+function strLogField(v: unknown, fallback = '—'): string {
+  if (v == null) return fallback;
+  if (typeof v === 'string') return v.trim() || fallback;
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  return fallback;
+}
+
+/** Balance Sale PUT — ადამინ/დევ ლოგი (გადახდის შემდეგ) */
+function summarizeBalanceSaleRowsForLog(
+  saleRows: Record<string, unknown>[],
+): string {
+  const out: string[] = [];
+  saleRows.forEach((doc, docIdx) => {
+    const uid = strLogField(doc.uid);
+    const wh = strLogField(doc.Warehouse);
+    const paymentArr = doc.Payment;
+    let payAmt = '—';
+    if (Array.isArray(paymentArr) && paymentArr.length > 0) {
+      const p0 = paymentArr[0] as Record<string, unknown>;
+      payAmt = strLogField(p0.Amount);
+    }
+    out.push(
+      `  დოკ ${docIdx + 1}/${saleRows.length} · uid=${uid} · Warehouse=${wh} · Payment.Amount=${payAmt}`,
+    );
+    const items = doc.Items;
+    if (!Array.isArray(items) || items.length === 0) {
+      out.push('    (Items ცარიელი)');
+      return;
+    }
+    for (const raw of items) {
+      if (!raw || typeof raw !== 'object') continue;
+      const it = raw as Record<string, unknown>;
+      const code = strLogField(it.StringCode, strLogField(it.Item, '?'));
+      const qty = strLogField(it.Quantity, '?');
+      const price = strLogField(it.Price, '?');
+      const amount = strLogField(it.Amount, strLogField(it.Sum, '?'));
+      const seriesRaw = strLogField(it.Series, '');
+      const series =
+        seriesRaw && seriesRaw !== '—'
+          ? ` · Series=${seriesRaw.slice(0, 8)}…`
+          : '';
+      out.push(
+        `    · ${code} · qty=${qty} · price=${price} · amount=${amount}${series}`,
+      );
+    }
+  });
+  return out.join('\n');
+}
+
+function serializeBalanceSaleRowsForLog(
+  saleRows: Record<string, unknown>[],
+): string {
+  try {
+    const json = JSON.stringify(saleRows, null, 2);
+    const max = balanceSaleRequestBodyLogMaxChars();
+    if (json.length <= max) return json;
+    return `${json.slice(0, max)}\n… [truncated, სულ ${json.length} სიმბოლო]`;
+  } catch (e: unknown) {
+    return `[JSON stringify failed: ${e instanceof Error ? e.message : String(e)}]`;
+  }
+}
+
 function resolveWarehouseKeyByName(
   products: ProductForSale[],
   warehouseName: string,
@@ -498,11 +687,13 @@ function pickBaseSaleUid(
 type AssembleSaleOptions = {
   /** ყველა ხაზი ამ საწყობზე (SalesCredit / delivery-only) */
   forceWarehouseName?: string;
-  /** sale | salesCredit | deliveryOnly */
-  mode?: 'sale' | 'salesCredit' | 'deliveryOnly';
+  /** sale | salesCredit | deliveryOnly | refundCredit */
+  mode?: 'sale' | 'salesCredit' | 'deliveryOnly' | 'refundCredit';
   baseDocumentUid?: string;
+  /** refundCredit — ორიგინალი Sale uid-ები საწყობის მიხედვით */
+  balanceSaleDocuments?: Array<{ warehouse: string; uid: string }>;
   deliveryAmount?: number;
-  /** sale რეჟიმში მიტანის ხაზის გამოტოვება */
+  /** sale / refundCredit — მიტანის ხაზის გამოტოვება */
   skipDeliveryLine?: boolean;
 };
 
@@ -513,6 +704,48 @@ export class BogBalanceSaleService {
   private deliveryItemUidFromCatalog: string | null | undefined;
   /** Mongo delivery product (SKU 000022) — undefined = ჯერ არ ვცადეთ */
   private deliveryProductCache: ProductForSale | null | undefined;
+
+  /**
+   * გადახდის/redispatch/retry შემდეგ — რა მიდის Balance Exchange/Sale PUT-ში.
+   * ყოველთვის იწერება Nest ლოგში (გამორთვა: env `BALANCE_LOG_SALE_AFTER_PAYMENT=0`).
+   */
+  private logBalanceSaleOutgoing(
+    trigger: string,
+    orderId: string,
+    bogOrderId: string,
+    saleRows: Record<string, unknown>[],
+    meta?: {
+      skusMissingNomUid?: string[];
+      skusMissingSeriesRef?: string[];
+      warehouseGroupKeys?: string[];
+    },
+  ): void {
+    if (process.env.BALANCE_LOG_SALE_AFTER_PAYMENT?.trim() === '0') return;
+
+    const warnParts: string[] = [];
+    if (meta?.skusMissingNomUid?.length) {
+      warnParts.push(
+        `nomUid აკლია: ${[...new Set(meta.skusMissingNomUid)].join(', ')}`,
+      );
+    }
+    if (meta?.skusMissingSeriesRef?.length) {
+      warnParts.push(
+        `Series აკლია: ${[...new Set(meta.skusMissingSeriesRef)].join(', ')}`,
+      );
+    }
+    const warnBlock =
+      warnParts.length > 0 ? `\n⚠ ${warnParts.join(' | ')}` : '';
+    const whKeys = meta?.warehouseGroupKeys?.length
+      ? `\nსაწყობ(ებ)ი: ${meta.warehouseGroupKeys.join('; ')}`
+      : '';
+
+    this.logger.log(
+      `[Balance Sale][${trigger}] → Balance PUT\n` +
+        `შეკვეთა=${orderId} · BOG=${bogOrderId} · დოკ=${saleRows.length}${whKeys}${warnBlock}\n` +
+        `--- Items შეჯამება ---\n${summarizeBalanceSaleRowsForLog(saleRows)}\n` +
+        `--- PUT JSON ---\n${serializeBalanceSaleRowsForLog(saleRows)}`,
+    );
+  }
 
   constructor(
     private readonly balanceExchange: BalanceExchangeService,
@@ -1101,7 +1334,7 @@ export class BogBalanceSaleService {
     const saleRows: Record<string, unknown>[] = [];
     const mode = options?.mode ?? 'sale';
     const deliveryTotal =
-      mode === 'sale' && !options?.skipDeliveryLine
+      (mode === 'sale' || mode === 'refundCredit') && !options?.skipDeliveryLine
         ? (Number(order.deliveryPrice) || 0) +
           (Number(order.deliveryServiceFee) || 0)
         : 0;
@@ -1229,6 +1462,68 @@ export class BogBalanceSaleService {
       putIfNonEmpty(doc, 'Department', department);
       putIfNonEmpty(doc, 'Currency', currency);
       saleRows.push(doc);
+    } else if (mode === 'refundCredit') {
+      const creditOp = balanceRefundSalesCreditOperationType();
+      const saleDocs = options?.balanceSaleDocuments ?? [];
+      const includeDelivery = !options?.skipDeliveryLine;
+      const deliveryResolved = await this.resolveDeliveryForLine();
+      const deliveryItemUidForRefund =
+        deliveryResolved.itemUid.trim() || balanceSaleDeliveryItemUid().trim();
+
+      for (const [whKey] of warehouseGroups) {
+        const baseDoc =
+          pickBaseSaleUid(saleDocs, whKey) ||
+          options?.baseDocumentUid?.trim() ||
+          '';
+        if (!baseDoc || !isUuid(baseDoc)) {
+          return {
+            ok: false,
+            reason: `Refund SalesCredit — BaseDocument (Sale uid) არ არის საწყობისთვის: ${whKey}`,
+          };
+        }
+        const baseSaleDoc =
+          await this.balanceExchange.tryFetchSaleByUid(baseDoc);
+        const saleLines = parseSaleDocItems(
+          baseSaleDoc ?? undefined,
+          deliveryItemUidForRefund,
+        );
+        const items = buildRefundCreditItemsFromSaleLines(
+          saleLines,
+          baseDoc,
+          includeDelivery,
+        );
+        if (!items.length) {
+          return {
+            ok: false,
+            reason: `Refund SalesCredit — ორიგინალი Sale Items ვერ მოიძებნა (GET uid=${baseDoc})`,
+          };
+        }
+        const saleHeader = pickSaleDocHeaderForRefundCredit(baseSaleDoc);
+        const doc: Record<string, unknown> = {
+          uid: randomUUID(),
+          BaseDocument: baseDoc,
+          Date: dateStr,
+          PaymentDate: dateStr,
+          Warehouse: whKey,
+          Client: balanceBuyerUid,
+          ReceivablesAccount: receivablesAccount,
+          RevenueAccount: revenueAccount,
+          VATTaxable: vatTaxable,
+          OperationType: creditOp,
+          VATArticle: vatArticle,
+          AmountIncludesVAT: true,
+          DoesNotAffectReceivables: false,
+          SubjetToIncomeTax: false,
+          TheMarketPriceShouldAppearInTheInvoice: false,
+          Comments: comments,
+          Items: items,
+          ...saleHeader,
+        };
+        putIfNonEmpty(doc, 'CashRegister', cashRegister);
+        putIfNonEmpty(doc, 'Department', department);
+        putIfNonEmpty(doc, 'Currency', currency);
+        saleRows.push(doc);
+      }
     } else {
       for (const [whKey, ctxs] of warehouseGroups) {
         let items = buildItemsForWarehouse(ctxs, whKey);
@@ -1546,6 +1841,18 @@ export class BogBalanceSaleService {
         );
       }
 
+      this.logBalanceSaleOutgoing(
+        'BOG completed — გადახდის შემდეგ',
+        String(order._id),
+        bogOrderId,
+        saleRows,
+        {
+          skusMissingNomUid,
+          skusMissingSeriesRef,
+          warehouseGroupKeys,
+        },
+      );
+
       const result = await this.balanceExchange.putSaleDocument(saleRows);
       const responseBodyStored = clipBalanceSaleResponseBody(result.raw);
       const responseAudit = {
@@ -1608,6 +1915,9 @@ export class BogBalanceSaleService {
         .exec();
       this.logger.log(
         `[Balance Sale] OK შეკვეთა=${String(order._id)} Client=${balanceBuyerUid} · დოკ=${saleRows.length} (${warehouseGroupKeys.join('; ')})`,
+      );
+      this.logger.log(
+        `[Balance Sale][BOG completed] ← Balance პასუხი HTTP ${result.status} · ${responseBodyStored.slice(0, 800)}`,
       );
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1972,6 +2282,159 @@ export class BogBalanceSaleService {
     };
   }
 
+  /**
+   * BOG refund-ის შემდეგ — Balance Exchange SalesCredit PUT.
+   * BaseDocument = ორიგინალი Sale uid (`balanceSaleDocuments`).
+   */
+  async tryPostSalesCreditForRefund(
+    orderId: string,
+    kind: 'products' | 'full',
+  ): Promise<{ ok: boolean; message: string; documentUids?: string[] }> {
+    if (!Types.ObjectId.isValid(orderId)) {
+      return { ok: false, message: 'შეკვეთა ვერ მოიძებნა' };
+    }
+    const order = await this.orderModel.findById(orderId).lean().exec();
+    if (!order) return { ok: false, message: 'შეკვეთა ვერ მოიძებნა' };
+
+    if (!order.balanceSalePostedAt) {
+      return {
+        ok: true,
+        message: 'Balance Sale ჯერ არ არის — Refund SalesCredit გამოტოვებულია',
+      };
+    }
+    if (order.balanceRefundCreditPostedAt) {
+      return {
+        ok: true,
+        message: 'Balance Refund SalesCredit უკვe გაგზავნილია',
+      };
+    }
+    if (!order.balanceSaleDocuments?.length) {
+      const msg =
+        'Refund SalesCredit — balanceSaleDocuments (Sale uid) არ არის';
+      await this.orderModel
+        .updateOne(
+          { _id: order._id },
+          { $set: { balanceRefundCreditPostError: msg } },
+        )
+        .exec();
+      return { ok: false, message: msg };
+    }
+
+    const skipDelivery = kind === 'products';
+    const assembled = await this.assembleSaleRowsFromOrder(
+      {
+        _id: order._id,
+        userId: order.userId,
+        items: order.items,
+        warehouseId: order.warehouseId,
+        deliveryPrice: order.deliveryPrice,
+        deliveryServiceFee: order.deliveryServiceFee,
+      },
+      {
+        bogOrderId: order.bogOrderId?.trim() || `REFUND-${orderId}`,
+        inner: undefined,
+        commentPrefixLines: [
+          `[BOG refund ${kind} → Balance SalesCredit]`,
+          order.bogProductsRefundActionId
+            ? `BOG action=${order.bogProductsRefundActionId}`
+            : '',
+        ].filter(Boolean),
+      },
+      {
+        mode: 'refundCredit',
+        skipDeliveryLine: skipDelivery,
+        balanceSaleDocuments: order.balanceSaleDocuments,
+      },
+    );
+
+    if (!assembled.ok) {
+      await this.orderModel
+        .updateOne(
+          { _id: order._id },
+          { $set: { balanceRefundCreditPostError: assembled.reason } },
+        )
+        .exec();
+      return { ok: false, message: assembled.reason };
+    }
+
+    const creditRows = assembled.saleRows;
+    this.logBalanceSaleOutgoing(
+      `BOG refund ${kind} → SalesCredit`,
+      orderId,
+      order.bogOrderId?.trim() || `REFUND-${orderId}`,
+      creditRows,
+      {
+        skusMissingNomUid: assembled.skusMissingNomUid,
+        skusMissingSeriesRef: assembled.skusMissingSeriesRef,
+        warehouseGroupKeys: assembled.warehouseGroupKeys,
+      },
+    );
+
+    const result =
+      await this.balanceExchange.putSalesCreditDocument(creditRows);
+    const responseBodyStored = clipBalanceSaleResponseBody(result.raw);
+    const now = new Date();
+    const creditDocuments = creditRows
+      .map((row) => {
+        const wh = row.Warehouse;
+        const uid = row.uid;
+        return {
+          warehouse:
+            typeof wh === 'string'
+              ? wh.trim()
+              : wh != null
+                ? String(wh as unknown).trim()
+                : '',
+          uid:
+            typeof uid === 'string'
+              ? uid.trim()
+              : uid != null
+                ? String(uid as unknown).trim()
+                : '',
+        };
+      })
+      .filter((d) => d.warehouse && d.uid && isUuid(d.uid));
+
+    if (!result.ok) {
+      const err = result.raw.slice(0, 500);
+      await this.orderModel
+        .updateOne(
+          { _id: order._id },
+          {
+            $set: {
+              balanceRefundCreditPostError: err,
+              balanceRefundCreditPutResponseStatus: result.status,
+              balanceRefundCreditPutResponseBody: responseBodyStored,
+            },
+          },
+        )
+        .exec();
+      return { ok: false, message: err };
+    }
+
+    await this.orderModel
+      .updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            balanceRefundCreditPostedAt: now,
+            balanceRefundCreditKind: kind,
+            balanceRefundCreditDocuments: creditDocuments,
+            balanceRefundCreditPostError: '',
+            balanceRefundCreditPutResponseStatus: result.status,
+            balanceRefundCreditPutResponseBody: responseBodyStored,
+          },
+        },
+      )
+      .exec();
+
+    return {
+      ok: true,
+      message: `Balance Refund SalesCredit გაგზავნილია (${kind}, ${creditDocuments.length} დოკ.)`,
+      documentUids: creditDocuments.map((d) => d.uid),
+    };
+  }
+
   async tryPostDeliverySaleForRedispatch(orderId: string): Promise<void> {
     if (!Types.ObjectId.isValid(orderId)) return;
     const order = await this.orderModel.findById(orderId).lean().exec();
@@ -2036,6 +2499,18 @@ export class BogBalanceSaleService {
         .exec();
       return;
     }
+
+    this.logBalanceSaleOutgoing(
+      'Redispatch delivery — გადახდის შემდეგ',
+      String(order._id),
+      bogId,
+      assembled.saleRows,
+      {
+        skusMissingNomUid: assembled.skusMissingNomUid,
+        skusMissingSeriesRef: assembled.skusMissingSeriesRef,
+        warehouseGroupKeys: assembled.warehouseGroupKeys,
+      },
+    );
 
     const result = await this.balanceExchange.putSaleDocument(
       assembled.saleRows,
@@ -2172,5 +2647,26 @@ export class BogBalanceSaleService {
           300,
         ) || 'PUT ვერ მოხერხდა',
     };
+  }
+
+  async retryRefundSalesCreditForAdmin(
+    orderId: string,
+  ): Promise<{ ok: boolean; message: string }> {
+    const order = await this.orderModel.findById(orderId).lean().exec();
+    if (!order) return { ok: false, message: 'შეკვეთა ვერ მოიძებნა' };
+    if (!order.bogProductsRefundAt) {
+      return { ok: false, message: 'BOG refund ჯერ არ არის' };
+    }
+    if (order.balanceRefundCreditPostedAt) {
+      return { ok: false, message: 'Refund SalesCredit უკვe გაგზავნილია' };
+    }
+    const kind = order.bogRefundKind === 'full' ? 'full' : 'products';
+    await this.orderModel
+      .updateOne(
+        { _id: order._id },
+        { $unset: { balanceRefundCreditPostError: 1 } },
+      )
+      .exec();
+    return this.tryPostSalesCreditForRefund(orderId, kind);
   }
 }

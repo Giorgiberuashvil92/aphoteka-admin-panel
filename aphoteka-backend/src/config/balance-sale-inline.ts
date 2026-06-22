@@ -22,6 +22,8 @@ export type BalanceSaleInlineConfig = {
   deliveryVatRate: string;
   /** SalesCredit OperationType — საწყობის ცვლილება (ბუღალტერთან დაადასტურე) */
   salesCreditOperationType: string;
+  /** BOG refund → SalesCredit OperationType (BaseDocument = ორიგინალი Sale) */
+  refundSalesCreditOperationType: string;
   /**
    * Sale `ReceivablesAccount` — კომპანიის ნაგულისხმევი, თუ Mongo Buyer-ზე `balanceReceivablesAccount` ცარიელია.
    * მყიდველზე მიბმული ანგარიში უპირატესდება (Balance მყიდველის კატალოგი).
@@ -98,6 +100,9 @@ export type BalanceSaleInlineConfig = {
 export const BALANCE_SALE_DEFAULT_SALES_CREDIT_OPERATION_TYPE =
   'ფასის კორექტირება';
 
+export const BALANCE_SALE_DEFAULT_REFUND_SALES_CREDIT_OPERATION_TYPE =
+  'დაბრუნება';
+
 export const BALANCE_SALE_INLINE: BalanceSaleInlineConfig = {
   salePutUrl: '',
   salesCreditPutUrl: '',
@@ -108,6 +113,7 @@ export const BALANCE_SALE_INLINE: BalanceSaleInlineConfig = {
   deliveryIncomeAccount: '',
   deliveryVatRate: '',
   salesCreditOperationType: '',
+  refundSalesCreditOperationType: '',
   /**
    * Sale `ReceivablesAccount` — **სტანდარტული, ყოველ დოკუმენტზე ერთი და იგივე**.
    * მოთხოვნილი საბანკო IBAN: `GE59BG0000000611719869`.
@@ -244,6 +250,14 @@ export function balanceSalesCreditOperationType(): string {
     BALANCE_SALE_INLINE.salesCreditOperationType,
     'BALANCE_SALES_CREDIT_OPERATION_TYPE',
     BALANCE_SALE_DEFAULT_SALES_CREDIT_OPERATION_TYPE,
+  );
+}
+
+export function balanceRefundSalesCreditOperationType(): string {
+  return pickWithDefault(
+    BALANCE_SALE_INLINE.refundSalesCreditOperationType,
+    'BALANCE_REFUND_SALES_CREDIT_OPERATION_TYPE',
+    BALANCE_SALE_DEFAULT_REFUND_SALES_CREDIT_OPERATION_TYPE,
   );
 }
 

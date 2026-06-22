@@ -124,6 +124,12 @@ type ApiOrder = {
   bogProductsRefundAt?: string | Date;
   bogProductsRefundActionId?: string;
   bogProductsRefundStatus?: string;
+  bogRefundKind?: 'products' | 'full';
+  balanceRefundCreditPostedAt?: string | Date;
+  balanceRefundCreditKind?: 'products' | 'full';
+  balanceRefundCreditDocuments?: Array<{ warehouse: string; uid: string }>;
+  balanceRefundCreditPostError?: string;
+  balanceRefundCreditPutResponseStatus?: number;
   balanceSalePostedAt?: string | Date;
   balanceSalePostError?: string;
   balanceSalePutResponseAt?: string | Date;
@@ -427,6 +433,30 @@ export function normalizeOrderFromApi(raw: ApiOrder): Order {
       typeof raw.bogProductsRefundStatus === 'string'
         ? raw.bogProductsRefundStatus
         : undefined,
+    bogRefundKind:
+      raw.bogRefundKind === 'products' || raw.bogRefundKind === 'full'
+        ? raw.bogRefundKind
+        : undefined,
+    balanceRefundCreditPostedAt: parseDate(raw.balanceRefundCreditPostedAt),
+    balanceRefundCreditKind:
+      raw.balanceRefundCreditKind === 'products' ||
+      raw.balanceRefundCreditKind === 'full'
+        ? raw.balanceRefundCreditKind
+        : undefined,
+    balanceRefundCreditDocuments: Array.isArray(raw.balanceRefundCreditDocuments)
+      ? raw.balanceRefundCreditDocuments.map((d) => ({
+          warehouse: String(d.warehouse ?? ''),
+          uid: String(d.uid ?? ''),
+        }))
+      : undefined,
+    balanceRefundCreditPostError:
+      typeof raw.balanceRefundCreditPostError === 'string'
+        ? raw.balanceRefundCreditPostError
+        : undefined,
+    balanceRefundCreditPutResponseStatus:
+      typeof raw.balanceRefundCreditPutResponseStatus === 'number'
+        ? raw.balanceRefundCreditPutResponseStatus
+        : undefined,
     balanceSalePostedAt: parseDate(raw.balanceSalePostedAt),
     balanceSalePostError:
       typeof raw.balanceSalePostError === 'string'
@@ -653,9 +683,13 @@ export const ordersApi = {
     return api.get<{
       productsAmount: number;
       deliveryTotal: number;
+      fullAmount: number;
       deliveryNotRefunded: number;
       canRefund: boolean;
+      canRefundProducts: boolean;
+      canRefundFull: boolean;
       alreadyRefunded: boolean;
+      refundKind: 'products' | 'full' | null;
       bogOrderId: string | null;
     }>(`/orders/admin/${encodeURIComponent(orderId)}/payment/bog/refund-preview`);
   },
@@ -664,10 +698,22 @@ export const ordersApi = {
     return api.post<{
       ok: boolean;
       message: string;
+      refundKind?: 'products' | 'full';
       productsRefundAmount?: number;
       deliveryKeptAmount?: number;
       actionId?: string;
     }>(`/orders/admin/${encodeURIComponent(orderId)}/payment/bog/refund-products`, {});
+  },
+
+  refundBogFull: async (orderId: string) => {
+    return api.post<{
+      ok: boolean;
+      message: string;
+      refundKind?: 'products' | 'full';
+      productsRefundAmount?: number;
+      deliveryRefundedAmount?: number;
+      actionId?: string;
+    }>(`/orders/admin/${encodeURIComponent(orderId)}/payment/bog/refund-full`, {});
   },
 
   retryBalanceSale: async (orderId: string) => {
@@ -687,6 +733,13 @@ export const ordersApi = {
   retryDeliveryBalanceSale: async (orderId: string) => {
     return api.post<{ ok: boolean; message: string }>(
       `/orders/admin/${encodeURIComponent(orderId)}/balance/retry-delivery-sale`,
+      {},
+    );
+  },
+
+  retryRefundBalanceCredit: async (orderId: string) => {
+    return api.post<{ ok: boolean; message: string }>(
+      `/orders/admin/${encodeURIComponent(orderId)}/balance/retry-refund-credit`,
       {},
     );
   },

@@ -433,16 +433,81 @@ export class BalanceExchangeService {
       balanceSalesCreditPutUrlInline() ||
       this.env('BALANCE_SALES_CREDIT_PUT_URL');
     if (full) return full;
+    return this.exchangeResourceUrl('SalesCredit');
+  }
+
+  /** GET/PUT ბაზა — `.../hs/Exchange/{resource}` */
+  private exchangeResourceUrl(resource: string): string {
     const pub = this.resolvedPublicationId();
-    const resource =
-      this.config
-        .get<string>('BALANCE_EXCHANGE_SALES_CREDIT_RESOURCE')
-        ?.trim() || 'SalesCredit';
     const mode =
       this.config.get<string>('BALANCE_EXCHANGE_MODE')?.trim() === 'o'
         ? 'o'
         : 'a';
     return `https://cloud.balance.ge/sm/${mode}/Balance/${pub}/hs/Exchange/${resource}`;
+  }
+
+  /**
+   * GET Exchange/Sale — ერთი დოკუმენტი `?uid=` პარამეტრით (Items[].uid → SalesCredit Items[].BaseDocument).
+   */
+  async tryFetchSaleByUid(
+    uid: string,
+  ): Promise<Record<string, unknown> | null> {
+    const trimmed = uid.trim();
+    if (!trimmed || !/^[0-9a-f-]{36}$/i.test(trimmed)) return null;
+    if (!this.hasCredentials()) return null;
+    const base =
+      balanceSalePutUrlInline() ||
+      this.env('BALANCE_SALE_PUT_URL') ||
+      this.exchangeResourceUrl(
+        this.config.get<string>('BALANCE_EXCHANGE_SALE_RESOURCE')?.trim() ||
+          'Sale',
+      );
+    const url = `${base.replace(/\?$/, '')}?uid=${encodeURIComponent(trimmed)}`;
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 45_000);
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: this.authorizationHeader(),
+          Accept: 'application/json',
+        },
+        signal: controller.signal,
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        this.logger.warn(
+          `[Balance Sale GET] HTTP ${res.status} uid=${trimmed} — ${text.slice(0, 240)}`,
+        );
+        return null;
+      }
+      if (!text?.trim()) return null;
+      let data: unknown;
+      try {
+        data = JSON.parse(text) as unknown;
+      } catch {
+        this.logger.warn('[Balance Sale GET] პასუხი არაა სწორი JSON');
+        return null;
+      }
+      if (
+        Array.isArray(data) &&
+        data.length > 0 &&
+        data[0] &&
+        typeof data[0] === 'object'
+      ) {
+        return data[0] as Record<string, unknown>;
+      }
+      if (data && typeof data === 'object') {
+        return data as Record<string, unknown>;
+      }
+      return null;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`[Balance Sale GET] ${msg}`);
+      return null;
+    } finally {
+      clearTimeout(t);
+    }
   }
 
   private itemsCatalogUrl(): string {

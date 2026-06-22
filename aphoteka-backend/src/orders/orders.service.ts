@@ -15,6 +15,19 @@ import { BogBalanceSaleService } from '../bog/bog-balance-sale.service';
 import { BogPaymentsService } from '../bog/bog-payments.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import { QuickshipperService } from '../quickshipper/quickshipper.service';
+import { Product, ProductDocument } from '../products/schemas/product.schema';
+
+type ProductStockRow = {
+  balanceWarehouseName?: string;
+  quantity?: number;
+  reserve?: number;
+};
+
+type ProductStockSnapshot = {
+  sku?: string;
+  name?: string;
+  balanceStockBreakdown?: ProductStockRow[];
+};
 
 const WAREHOUSE_STATUS_FLOW: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.PENDING]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
@@ -48,6 +61,8 @@ export class OrdersService {
   constructor(
     @InjectModel(Order.name)
     private orderModel: Model<OrderDocument>,
+    @InjectModel(Product.name)
+    private productModel: Model<ProductDocument>,
     private readonly bogBalanceSale: BogBalanceSaleService,
     private readonly bogPayments: BogPaymentsService,
     private readonly warehousesService: WarehousesService,
@@ -65,31 +80,40 @@ export class OrdersService {
       packSize: item.packSize,
       balanceSeriesUuid: item.balanceSeriesUuid?.trim() || undefined,
     }));
-    const totalAmount = items.reduce((sum, i) => sum + i.totalPrice, 0);
+    const productsTotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
+    const deliveryTotal =
+      (Number(dto.deliveryPrice) || 0) + (Number(dto.deliveryServiceFee) || 0);
+    const totalAmount = Math.round((productsTotal + deliveryTotal) * 100) / 100;
 
     let warehouseId: Types.ObjectId | undefined;
 
     if (dto.warehouseId && Types.ObjectId.isValid(dto.warehouseId)) {
       warehouseId = new Types.ObjectId(dto.warehouseId);
     } else if (
-      dto.deliveryAddress?.latitude &&
-      dto.deliveryAddress?.longitude
+      dto.deliveryAddress?.latitude != null &&
+      dto.deliveryAddress?.longitude != null
     ) {
-      // Auto-assign based on closest warehouse
       try {
-        const closestWarehouse = await this.findClosestWarehouse(
+        const assigned = await this.resolveWarehouseForOrder(
           dto.deliveryAddress.latitude,
           dto.deliveryAddress.longitude,
+          items.map((i) => ({
+            productId: i.productId,
+            quantity: i.quantity,
+            productName: i.productName,
+          })),
         );
-        if (closestWarehouse) {
-          warehouseId = new Types.ObjectId(closestWarehouse.id);
+        if (assigned) {
+          warehouseId = new Types.ObjectId(assigned.id);
+          const dist = Number.isFinite(assigned.distance)
+            ? `${assigned.distance.toFixed(2)}km`
+            : '—';
           this.logger.log(
-            `Auto-assigned order to closest warehouse: ${closestWarehouse.name} (${closestWarehouse.distance?.toFixed(2)}km away)`,
+            `[Warehouse assign] ${assigned.reason} → ${assigned.name} (${dist})`,
           );
         }
       } catch (error) {
-        this.logger.error('Error finding closest warehouse:', error);
-        // Continue without warehouse assignment
+        this.logger.error('Error resolving warehouse for order:', error);
       }
     }
 
@@ -154,42 +178,166 @@ export class OrdersService {
     return degrees * (Math.PI / 180);
   }
 
+  /** ხელმისაწვდომი მარაგი პროდუქტისთვის კონკრეტულ საწყობის სახელით (Balance breakdown). */
+  private availableStockAtWarehouse(
+    product: ProductStockSnapshot | undefined,
+    warehouseName: string,
+  ): number {
+    if (!product) return 0;
+    const want = warehouseName.trim().toLowerCase();
+    if (!want) return 0;
+    let total = 0;
+    for (const row of product.balanceStockBreakdown ?? []) {
+      const n = row.balanceWarehouseName?.trim().toLowerCase();
+      if (n !== want) continue;
+      const qty = Number(row.quantity) || 0;
+      const reserve = Number(row.reserve) || 0;
+      total += Math.max(0, qty - reserve);
+    }
+    return total;
+  }
+
+  /** ყველა ხაზი ამ საწყობში საკმარისი მარაგით. */
+  private warehouseFulfillsOrderItems(
+    warehouseName: string,
+    orderItems: Array<{
+      productId: Types.ObjectId;
+      quantity: number;
+      productName?: string;
+    }>,
+    productsById: Map<string, ProductStockSnapshot>,
+  ): { ok: true } | { ok: false; missing: string[] } {
+    const missing: string[] = [];
+    for (const line of orderItems) {
+      const p = productsById.get(String(line.productId));
+      const need = Number(line.quantity) || 0;
+      const have = this.availableStockAtWarehouse(p, warehouseName);
+      if (have < need) {
+        const label =
+          p?.sku || line.productName || String(line.productId).slice(-6);
+        missing.push(`${label} (სჭირდება ${need}, არის ${have})`);
+      }
+    }
+    return missing.length === 0 ? { ok: true } : { ok: false, missing };
+  }
+
   /**
-   * Find the closest active warehouse to a delivery location
+   * საწყობის არჩევა: უახლოესი, სადაც **ყველა** პროდუქტის მარაგია.
+   * უახლოესში თუ არ არის — შემდეგი (მანძილის მიუხედავად), სანამ სრული მარაგი არ მოიძებნება.
    */
-  private async findClosestWarehouse(
+  private async resolveWarehouseForOrder(
     deliveryLat: number,
     deliveryLon: number,
-  ): Promise<{ id: string; name: string; distance: number } | null> {
-    // Get all active warehouses with coordinates
+    orderItems: Array<{
+      productId: Types.ObjectId;
+      quantity: number;
+      productName?: string;
+    }>,
+  ): Promise<{
+    id: string;
+    name: string;
+    distance: number;
+    reason: string;
+  } | null> {
     const { data: warehouses } = await this.warehousesService.findAll({
       active: true,
     });
-
-    const warehousesWithCoordinates = warehouses.filter(
-      (w: any) => w.latitude != null && w.longitude != null,
-    );
-
-    if (warehousesWithCoordinates.length === 0) {
-      this.logger.warn('No warehouses with coordinates found');
+    if (!warehouses.length) {
+      this.logger.warn('[Warehouse assign] აქტიური საწყობი არ არის');
       return null;
     }
 
-    const warehousesWithDistances = warehousesWithCoordinates.map((w: any) => ({
-      id: w.id,
-      name: w.name,
-      distance: this.calculateDistance(
-        deliveryLat,
-        deliveryLon,
-        w.latitude,
-        w.longitude,
-      ),
-    }));
+    const productIds = orderItems.map((i) => i.productId);
+    const rawProducts = await this.productModel
+      .find({ _id: { $in: productIds } })
+      .select({ sku: 1, name: 1, balanceStockBreakdown: 1 })
+      .lean()
+      .exec();
+    const productsById = new Map<string, ProductStockSnapshot>(
+      rawProducts.map((p) => [String(p._id), p as ProductStockSnapshot]),
+    );
 
-    // Sort by distance and return closest
-    warehousesWithDistances.sort((a, b) => a.distance - b.distance);
+    type WhCand = { id: string; name: string; distance: number };
+    const candidates: WhCand[] = warehouses.map(
+      (w: {
+        id?: string;
+        name?: string;
+        latitude?: number;
+        longitude?: number;
+      }) => {
+        const lat = w.latitude;
+        const lon = w.longitude;
+        const hasCoords =
+          lat != null &&
+          lon != null &&
+          Number.isFinite(lat) &&
+          Number.isFinite(lon);
+        return {
+          id: String(w.id),
+          name: (w.name || '').trim() || 'საწყობი',
+          distance: hasCoords
+            ? this.calculateDistance(deliveryLat, deliveryLon, lat, lon)
+            : Number.POSITIVE_INFINITY,
+        };
+      },
+    );
+    candidates.sort((a, b) => a.distance - b.distance);
 
-    return warehousesWithDistances[0] || null;
+    if (!candidates.some((c) => Number.isFinite(c.distance))) {
+      this.logger.warn(
+        '[Warehouse assign] კოორდინატები არც ერთ საწყობს არ აქვს — მხოლოდ მარაგით',
+      );
+    }
+
+    for (const wh of candidates) {
+      const check = this.warehouseFulfillsOrderItems(
+        wh.name,
+        orderItems,
+        productsById,
+      );
+      if (check.ok) {
+        const isClosest =
+          wh.id === candidates[0]?.id &&
+          Number.isFinite(candidates[0]?.distance);
+        const reason = isClosest
+          ? 'უახლოესი + სრული მარაგი'
+          : 'სრული მარაგი (სხვა საწყობი, არა უახლოესი)';
+        if (!isClosest && candidates[0]) {
+          const closestCheck = this.warehouseFulfillsOrderItems(
+            candidates[0].name,
+            orderItems,
+            productsById,
+          );
+          if (!closestCheck.ok) {
+            this.logger.log(
+              `[Warehouse assign] უახლოესი „${candidates[0].name}“ — მარაგი არასაკმარისი: ${closestCheck.missing.join('; ')}`,
+            );
+          }
+        }
+        return { id: wh.id, name: wh.name, distance: wh.distance, reason };
+      }
+    }
+
+    const fallback = candidates[0];
+    if (fallback) {
+      const check = this.warehouseFulfillsOrderItems(
+        fallback.name,
+        orderItems,
+        productsById,
+      );
+      this.logger.warn(
+        `[Warehouse assign] სრული მარაგი არც ერთ საწყობში — ფოლბექი უახლოესზე „${fallback.name}“` +
+          (check.ok === false ? `: ${check.missing.join('; ')}` : ''),
+      );
+      return {
+        id: fallback.id,
+        name: fallback.name,
+        distance: fallback.distance,
+        reason: 'უახლოესი (სრული მარაგი ვერ მოიძებნა)',
+      };
+    }
+
+    return null;
   }
 
   private warehouseRecordToPickup(warehouse: {
@@ -625,6 +773,16 @@ export class OrdersService {
   async refundProductsForAdmin(orderId: string) {
     const order = await this.findOneForAdmin(orderId);
     return this.bogPayments.refundProductsExcludingDelivery(order);
+  }
+
+  async refundFullForAdmin(orderId: string) {
+    const order = await this.findOneForAdmin(orderId);
+    return this.bogPayments.refundFullIncludingDelivery(order);
+  }
+
+  async retryRefundBalanceCreditForAdmin(orderId: string) {
+    await this.findOneForAdmin(orderId);
+    return this.bogBalanceSale.retryRefundSalesCreditForAdmin(orderId);
   }
 
   async retryBalanceSaleForAdmin(orderId: string) {
@@ -1086,7 +1244,9 @@ export class OrdersService {
    * BOG callback გამოტოვებული/ჩავარდნული შემთხვევაში — ადმინში შეკვეთის გახსნისას
    * იდემპოტენტურად ცდილობს Balance Sale-ს (completed + ჯერ არ ჩაწერილი).
    */
-  private async reconcileBalanceSaleOnAdminView(orderId: string): Promise<void> {
+  private async reconcileBalanceSaleOnAdminView(
+    orderId: string,
+  ): Promise<void> {
     const order = await this.orderModel.findById(orderId).lean().exec();
     if (!order) return;
 
@@ -1099,7 +1259,10 @@ export class OrdersService {
       const ageMs = Date.now() - new Date(lockAt).getTime();
       if (ageMs >= 0 && ageMs < 120_000) return;
       await this.orderModel
-        .updateOne({ _id: order._id }, { $unset: { balanceSalePostingLock: 1 } })
+        .updateOne(
+          { _id: order._id },
+          { $unset: { balanceSalePostingLock: 1 } },
+        )
         .exec();
     }
 

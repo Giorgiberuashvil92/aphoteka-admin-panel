@@ -20,9 +20,12 @@ import {
   buildBogExternalOrderIdForDeliveryRedispatch,
 } from './bog-external-order-id';
 import {
+  computeBogFullRefundAmount,
   computeBogProductsRefundAmount,
   computeOrderDeliveryTotal,
+  computeOrderGrandTotal,
 } from './bog-order-amounts';
+import { BogBalanceSaleService } from './bog-balance-sale.service';
 
 const TOKEN_URL =
   'https://oauth2.bog.ge/auth/realms/bog/protocol/openid-connect/token';
@@ -95,6 +98,7 @@ export class BogPaymentsService {
   constructor(
     private readonly config: ConfigService,
     @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
+    private readonly bogBalanceSale: BogBalanceSaleService,
   ) {}
 
   /**
@@ -240,7 +244,8 @@ export class BogPaymentsService {
         'გადახდა მხოლოდ მოლოდინში მყოფი შეკვეთისთვისაა ხელმისაწვდომი',
       );
     }
-    if (!order.totalAmount || order.totalAmount <= 0) {
+    const grandTotal = computeOrderGrandTotal(order);
+    if (grandTotal <= 0) {
       throw new BadRequestException('შეკვეთის თანხა არასწორია');
     }
     const mongoOrderId = order._id.toString();
@@ -248,7 +253,9 @@ export class BogPaymentsService {
     const externalId = buildBogExternalOrderIdForStatement(mongoOrderId);
     const token = await this.getAccessToken();
     const sandboxGel = this.bogSandboxAmountGel();
-    let purchaseTotal = order.totalAmount;
+    const deliveryTotal = computeOrderDeliveryTotal(order);
+    /** BOG-ზე იხდის პროდუქტები + მიტანა (არა მხოლოდ totalAmount, რომელიც ძველ შეკვეთებში მხოლოდ პროდუქტია) */
+    let purchaseTotal = computeOrderGrandTotal(order);
     /**
      * basket[].description არ ვაგზავნით — BOG მობილბანკში ხშირად ერთ სტრინგში აერთებს სახელს,
      * პროდუქტის აღწერას და საკუთარ ტექსტებს (თარიღი, ტერმინალი და ა.შ.).
@@ -261,9 +268,17 @@ export class BogPaymentsService {
       total_price: item.totalPrice,
       ...(item.imageUrl ? { image: item.imageUrl } : {}),
     }));
+    if (deliveryTotal > 0) {
+      basket.push({
+        product_id: 'delivery',
+        quantity: 1,
+        unit_price: deliveryTotal,
+        total_price: deliveryTotal,
+      });
+    }
     if (sandboxGel != null) {
       this.logger.warn(
-        `BOG სატესტო თანხა ${sandboxGel}₾ (BOG_TEST_PAY_AMOUNT_GEL) — შეკვეთის ჯამი DB-ში: ${order.totalAmount}₾`,
+        `BOG სატესტო თანხა ${sandboxGel}₾ (BOG_TEST_PAY_AMOUNT_GEL) — შეკვეთის ჯამი (პროდ.+მიტანა): ${purchaseTotal}₾`,
       );
       purchaseTotal = sandboxGel;
       basket = [
@@ -459,18 +474,80 @@ export class BogPaymentsService {
    * BOG refund — მხოლოდ პროდუქტების თანხა (partial). მიტანა არ ბრუნდება.
    * @see https://api.bog.ge/docs/payments/refund
    */
-  async refundProductsExcludingDelivery(order: Pick<
-    OrderDocument,
-    | '_id'
-    | 'bogOrderId'
-    | 'bogPaymentStatus'
-    | 'bogProductsRefundAt'
-    | 'items'
-    | 'deliveryPrice'
-    | 'deliveryServiceFee'
-  >) {
+  async refundProductsExcludingDelivery(
+    order: Pick<
+      OrderDocument,
+      | '_id'
+      | 'bogOrderId'
+      | 'bogPaymentStatus'
+      | 'bogProductsRefundAt'
+      | 'items'
+      | 'deliveryPrice'
+      | 'deliveryServiceFee'
+    >,
+  ) {
+    const productsAmount = computeBogProductsRefundAmount(order);
+    const deliveryTotal = computeOrderDeliveryTotal(order);
+    if (productsAmount <= 0) {
+      throw new BadRequestException('დასაბრუნებელი პროდუქტების თანხა 0-ია');
+    }
+
+    return this.executeBogRefund(order, {
+      kind: 'products',
+      amount: productsAmount,
+      logDetail: `products=${productsAmount}₾ delivery_kept=${deliveryTotal}₾`,
+      successMessage: (refundedAmount) =>
+        `BOG-ზე დაბრუნდა ₾${refundedAmount.toFixed(2)} (პროდუქტები). მიტანა ₾${deliveryTotal.toFixed(2)} არ ბრუნდება.`,
+      extra: {
+        deliveryKeptAmount: deliveryTotal,
+      },
+    });
+  }
+
+  /**
+   * BOG refund — სრული თანხა (პროდუქტები + მიტანა).
+   * @see https://api.bog.ge/docs/payments/refund
+   */
+  async refundFullIncludingDelivery(
+    order: Pick<
+      OrderDocument,
+      | '_id'
+      | 'bogOrderId'
+      | 'bogPaymentStatus'
+      | 'bogProductsRefundAt'
+      | 'items'
+      | 'deliveryPrice'
+      | 'deliveryServiceFee'
+    >,
+  ) {
+    const fullAmount = computeBogFullRefundAmount(order);
+    const deliveryTotal = computeOrderDeliveryTotal(order);
+    const productsAmount = computeBogProductsRefundAmount(order);
+    if (fullAmount <= 0) {
+      throw new BadRequestException('დასაბრუნებელი თანხა 0-ია');
+    }
+
+    return this.executeBogRefund(order, {
+      kind: 'full',
+      amount: fullAmount,
+      logDetail: `full=${fullAmount}₾ products=${productsAmount}₾ delivery=${deliveryTotal}₾`,
+      successMessage: (refundedAmount) =>
+        `BOG-ზე სრულად დაბრუნდა ₾${refundedAmount.toFixed(2)} (პროდუქტები + მიტანა).`,
+      extra: {
+        productsAmount,
+        deliveryRefundedAmount: deliveryTotal,
+      },
+    });
+  }
+
+  private assertCanBogRefund(
+    order: Pick<
+      OrderDocument,
+      'bogOrderId' | 'bogPaymentStatus' | 'bogProductsRefundAt'
+    >,
+  ) {
     if (order.bogProductsRefundAt) {
-      throw new BadRequestException('პროდუქტების თანხა უკვე დაბრუნებულია');
+      throw new BadRequestException('თანხა უკვე დაბრუნებულია BOG-ზე');
     }
     const bogOrderId = order.bogOrderId?.trim();
     if (!bogOrderId) {
@@ -486,22 +563,39 @@ export class BogPaymentsService {
         'refund მხოლოდ წარმატებით გადახდილი BOG შეკვეთისთვისაა',
       );
     }
+    return bogOrderId;
+  }
 
-    const productsAmount = computeBogProductsRefundAmount(order);
-    const deliveryTotal = computeOrderDeliveryTotal(order);
-    if (productsAmount <= 0) {
-      throw new BadRequestException('დასაბრუნებელი პროდუქტების თანხა 0-ია');
-    }
-
+  private async executeBogRefund(
+    order: Pick<
+      OrderDocument,
+      | '_id'
+      | 'bogOrderId'
+      | 'bogPaymentStatus'
+      | 'bogProductsRefundAt'
+      | 'items'
+      | 'deliveryPrice'
+      | 'deliveryServiceFee'
+    >,
+    opts: {
+      kind: 'products' | 'full';
+      amount: number;
+      logDetail: string;
+      successMessage: (refundedAmount: number) => string;
+      extra?: Record<string, unknown>;
+    },
+  ) {
+    const bogOrderId = this.assertCanBogRefund(order);
     const sandboxGel = this.bogSandboxAmountGel();
     const token = await this.getAccessToken();
     const url = `${REFUND_URL}/${encodeURIComponent(bogOrderId)}`;
 
     /** სატესტო რეჟიმში BOG-ზე ჩამოჭრილი იყო sandbox თანხა — refund სრული (amount-ის გარეშე) */
-    const body: Record<string, unknown> = sandboxGel != null ? {} : { amount: productsAmount };
+    const body: Record<string, unknown> =
+      sandboxGel != null ? {} : { amount: opts.amount };
 
     this.logger.log(
-      `[BOG refund] POST ${url} order=${order._id} products=${productsAmount}₾ delivery_kept=${deliveryTotal}₾ sandbox=${sandboxGel ?? '—'}`,
+      `[BOG refund:${opts.kind}] POST ${url} order=${String(order._id)} ${opts.logDetail} sandbox=${sandboxGel ?? '—'}`,
     );
 
     const res = await fetch(url, {
@@ -536,7 +630,7 @@ export class BogPaymentsService {
       typeof parsed.action_id === 'string' ? parsed.action_id : undefined;
     const refundStatus =
       typeof parsed.key === 'string' ? parsed.key : 'request_received';
-    const refundedAmount = sandboxGel != null ? sandboxGel : productsAmount;
+    const refundedAmount = sandboxGel != null ? sandboxGel : opts.amount;
 
     await this.orderModel
       .updateOne(
@@ -548,43 +642,75 @@ export class BogPaymentsService {
             bogProductsRefundActionId: actionId,
             bogProductsRefundStatus: refundStatus,
             bogProductsRefundResponse: parsed,
+            bogRefundKind: opts.kind,
             bogPaymentStatus: 'refunded',
           },
         },
       )
       .exec();
 
+    let balanceCreditMessage = '';
+    try {
+      const balanceCredit =
+        await this.bogBalanceSale.tryPostSalesCreditForRefund(
+          String(order._id),
+          opts.kind,
+        );
+      if (balanceCredit.message) {
+        balanceCreditMessage = balanceCredit.ok
+          ? ` ${balanceCredit.message}`
+          : ` Balance SalesCredit: ${balanceCredit.message}`;
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`[BOG refund] Balance SalesCredit გამონაკლისი: ${msg}`);
+      balanceCreditMessage = ` Balance SalesCredit შეცდომა: ${msg}`;
+    }
+
     return {
       ok: true,
-      message: `BOG-ზე დაბრუნდა ₾${refundedAmount.toFixed(2)} (პროდუქტები). მიტანა ₾${deliveryTotal.toFixed(2)} არ ბრუნდება.`,
+      message: opts.successMessage(refundedAmount) + balanceCreditMessage,
+      refundKind: opts.kind,
       productsRefundAmount: refundedAmount,
-      deliveryKeptAmount: deliveryTotal,
       actionId,
       bogResponse: parsed,
+      ...opts.extra,
     };
   }
 
   /** ადმინ UI — preview დაბრუნების თანხის */
-  previewProductsRefund(order: Pick<
-    Order,
-    'items' | 'deliveryPrice' | 'deliveryServiceFee' | 'bogOrderId' | 'bogPaymentStatus' | 'bogProductsRefundAt'
-  >) {
+  previewProductsRefund(
+    order: Pick<
+      Order,
+      | 'items'
+      | 'deliveryPrice'
+      | 'deliveryServiceFee'
+      | 'bogOrderId'
+      | 'bogPaymentStatus'
+      | 'bogProductsRefundAt'
+      | 'bogRefundKind'
+    >,
+  ) {
     const productsAmount = computeBogProductsRefundAmount(order);
     const deliveryTotal = computeOrderDeliveryTotal(order);
-    const canRefund =
+    const fullAmount = computeBogFullRefundAmount(order);
+    const paid =
       Boolean(order.bogOrderId?.trim()) &&
-      !order.bogProductsRefundAt &&
       ['completed', 'success', 'paid', 'captured'].some((k) =>
         (order.bogPaymentStatus || '').toLowerCase().includes(k),
-      ) &&
-      productsAmount > 0;
+      );
+    const alreadyRefunded = Boolean(order.bogProductsRefundAt);
 
     return {
       productsAmount,
       deliveryTotal,
+      fullAmount,
       deliveryNotRefunded: deliveryTotal,
-      canRefund,
-      alreadyRefunded: Boolean(order.bogProductsRefundAt),
+      canRefundProducts: paid && !alreadyRefunded && productsAmount > 0,
+      canRefundFull: paid && !alreadyRefunded && fullAmount > 0,
+      canRefund: paid && !alreadyRefunded && productsAmount > 0,
+      alreadyRefunded,
+      refundKind: order.bogRefundKind ?? null,
       bogOrderId: order.bogOrderId?.trim() || null,
     };
   }
