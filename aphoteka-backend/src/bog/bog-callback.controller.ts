@@ -27,6 +27,7 @@ import {
   parseMongoOrderIdFromDeliveryRedispatchBogExternal,
 } from './bog-external-order-id';
 import { BogBalanceSaleService } from './bog-balance-sale.service';
+import { parseBogChargedAmountFromCallback } from './bog-order-amounts';
 
 type BogCallbackPayload = {
   event?: string;
@@ -199,6 +200,12 @@ export class BogCallbackController {
       bogLastCallbackAt: now,
       bogLastCallbackRaw: callbackSnapshot,
     };
+    if (statusKey === 'completed') {
+      const charged = parseBogChargedAmountFromCallback(callbackSnapshot);
+      if (charged != null) {
+        update.bogChargedAmountGel = charged;
+      }
+    }
     if (bogPayId) {
       update.bogOrderId = bogPayId;
     }

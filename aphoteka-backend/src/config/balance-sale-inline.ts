@@ -100,8 +100,21 @@ export type BalanceSaleInlineConfig = {
 export const BALANCE_SALE_DEFAULT_SALES_CREDIT_OPERATION_TYPE =
   'ფასის კორექტირება';
 
+/** Balance SalesCredit OperationType — BOG refund / storno (BaseDocument → Sale). */
 export const BALANCE_SALE_DEFAULT_REFUND_SALES_CREDIT_OPERATION_TYPE =
   'დაბრუნება';
+
+/**
+ * Balance SalesCredit OperationType — სრული სია (Balance UI):
+ * - ფასის კორექტირება — საწყობის redispatch (BALANCE_SALES_CREDIT_OPERATION_TYPE)
+ * - დაბრუნება — BOG refund (BALANCE_REFUND_SALES_CREDIT_OPERATION_TYPE)
+ * - საფუძვლის გარეშე უკან დაბრუნება
+ */
+export const BALANCE_SALE_REFUND_SALES_CREDIT_OPERATION_TYPES = [
+  'ფასის კორექტირება',
+  'დაბრუნება',
+  'საფუძვლის გარეშე უკან დაბრუნება',
+] as const;
 
 export const BALANCE_SALE_INLINE: BalanceSaleInlineConfig = {
   salePutUrl: '',

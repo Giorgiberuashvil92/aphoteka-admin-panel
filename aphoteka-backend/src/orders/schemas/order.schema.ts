@@ -75,6 +75,10 @@ export class Order {
   @Prop()
   bogPaymentStatus?: string;
 
+  /** BOG ecommerce order-ზე გაგზავნილი total_amount (სატესტო რეჟიმშიც — refund-ისთვის) */
+  @Prop({ type: Number })
+  bogChargedAmountGel?: number;
+
   /** ბოლო BOG server-to-server callback-ის დრო */
   @Prop({ type: Date })
   bogLastCallbackAt?: Date;
@@ -171,6 +175,17 @@ export class Order {
     default: undefined,
   })
   balanceRefundCreditDocuments?: Array<{ warehouse: string; uid: string }>;
+
+  @Prop({
+    type: [{ warehouse: String, uid: String, postedAt: Date }],
+    _id: false,
+    default: undefined,
+  })
+  balanceRefundCreditHistory?: Array<{
+    warehouse: string;
+    uid: string;
+    postedAt?: Date;
+  }>;
 
   @Prop()
   balanceRefundCreditPostError?: string;

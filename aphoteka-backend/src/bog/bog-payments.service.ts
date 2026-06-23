@@ -24,6 +24,7 @@ import {
   computeBogProductsRefundAmount,
   computeOrderDeliveryTotal,
   computeOrderGrandTotal,
+  parseBogChargedAmountFromCallback,
 } from './bog-order-amounts';
 import { BogBalanceSaleService } from './bog-balance-sale.service';
 
@@ -346,7 +347,13 @@ export class BogPaymentsService {
     await this.orderModel
       .updateOne(
         { _id: order._id },
-        { $set: { bogOrderId, bogPaymentStatus: 'created' } },
+        {
+          $set: {
+            bogOrderId,
+            bogPaymentStatus: 'created',
+            bogChargedAmountGel: purchaseTotal,
+          },
+        },
       )
       .exec();
     return {
@@ -481,6 +488,8 @@ export class BogPaymentsService {
       | 'bogOrderId'
       | 'bogPaymentStatus'
       | 'bogProductsRefundAt'
+      | 'bogChargedAmountGel'
+      | 'bogLastCallbackRaw'
       | 'items'
       | 'deliveryPrice'
       | 'deliveryServiceFee'
@@ -515,6 +524,8 @@ export class BogPaymentsService {
       | 'bogOrderId'
       | 'bogPaymentStatus'
       | 'bogProductsRefundAt'
+      | 'bogChargedAmountGel'
+      | 'bogLastCallbackRaw'
       | 'items'
       | 'deliveryPrice'
       | 'deliveryServiceFee'
@@ -566,6 +577,47 @@ export class BogPaymentsService {
     return bogOrderId;
   }
 
+  /** BOG-ზე რეალურად ჩამოჭრილი თანხა — შეკვეთაზე, callback-ში ან env-ში */
+  private resolveBogChargedAmountGel(
+    order: Pick<OrderDocument, 'bogChargedAmountGel' | 'bogLastCallbackRaw'>,
+  ): number | null {
+    if (
+      typeof order.bogChargedAmountGel === 'number' &&
+      Number.isFinite(order.bogChargedAmountGel) &&
+      order.bogChargedAmountGel > 0
+    ) {
+      return order.bogChargedAmountGel;
+    }
+    const fromCallback = parseBogChargedAmountFromCallback(
+      order.bogLastCallbackRaw,
+    );
+    if (fromCallback != null) {
+      return fromCallback;
+    }
+    return this.bogSandboxAmountGel();
+  }
+
+  private buildBogRefundRequest(
+    chargedGel: number | null,
+    opts: { kind: 'products' | 'full'; amount: number },
+  ): { body: Record<string, unknown>; refundedAmount: number } {
+    const envSandbox = this.bogSandboxAmountGel();
+    const chargedBelowOrder =
+      chargedGel != null && chargedGel + 0.001 < opts.amount;
+
+    /** BOG-ზე ნაკლები ჩამოჭრილია ვიდრე შეკვეთის ჯამი — სრული refund ცარიელი body-ით */
+    if (opts.kind === 'full' && (chargedBelowOrder || envSandbox != null)) {
+      return {
+        body: {},
+        refundedAmount: chargedGel ?? envSandbox ?? opts.amount,
+      };
+    }
+
+    const effective =
+      chargedGel != null ? Math.min(opts.amount, chargedGel) : opts.amount;
+    return { body: { amount: effective }, refundedAmount: effective };
+  }
+
   private async executeBogRefund(
     order: Pick<
       OrderDocument,
@@ -573,6 +625,8 @@ export class BogPaymentsService {
       | 'bogOrderId'
       | 'bogPaymentStatus'
       | 'bogProductsRefundAt'
+      | 'bogChargedAmountGel'
+      | 'bogLastCallbackRaw'
       | 'items'
       | 'deliveryPrice'
       | 'deliveryServiceFee'
@@ -586,16 +640,16 @@ export class BogPaymentsService {
     },
   ) {
     const bogOrderId = this.assertCanBogRefund(order);
-    const sandboxGel = this.bogSandboxAmountGel();
+    const chargedGel = this.resolveBogChargedAmountGel(order);
+    const { body, refundedAmount: plannedRefund } = this.buildBogRefundRequest(
+      chargedGel,
+      opts,
+    );
     const token = await this.getAccessToken();
     const url = `${REFUND_URL}/${encodeURIComponent(bogOrderId)}`;
 
-    /** სატესტო რეჟიმში BOG-ზე ჩამოჭრილი იყო sandbox თანხა — refund სრული (amount-ის გარეშე) */
-    const body: Record<string, unknown> =
-      sandboxGel != null ? {} : { amount: opts.amount };
-
     this.logger.log(
-      `[BOG refund:${opts.kind}] POST ${url} order=${String(order._id)} ${opts.logDetail} sandbox=${sandboxGel ?? '—'}`,
+      `[BOG refund:${opts.kind}] POST ${url} order=${String(order._id)} ${opts.logDetail} charged=${chargedGel ?? '—'}₾ request=${JSON.stringify(body)}`,
     );
 
     const res = await fetch(url, {
@@ -630,7 +684,7 @@ export class BogPaymentsService {
       typeof parsed.action_id === 'string' ? parsed.action_id : undefined;
     const refundStatus =
       typeof parsed.key === 'string' ? parsed.key : 'request_received';
-    const refundedAmount = sandboxGel != null ? sandboxGel : opts.amount;
+    const refundedAmount = plannedRefund;
 
     await this.orderModel
       .updateOne(

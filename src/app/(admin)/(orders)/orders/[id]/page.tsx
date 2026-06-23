@@ -406,6 +406,13 @@ export default function OrderDetailPage() {
 
   const handleRefundCreditRetry = async () => {
     if (!orderId) return;
+    const alreadyPosted = Boolean(order?.balanceRefundCreditPostedAt);
+    if (alreadyPosted) {
+      const ok = window.confirm(
+        "Balance SalesCredit უკვე გაგზავნილია. ხელახლა PUT გავუშვათ? (Balance-ში შეიძლება დუბლიკატი დოკუმენტი შეიქმნას — ხელით შეამოწმე.)",
+      );
+      if (!ok) return;
+    }
     setRefundCreditRetrying(true);
     try {
       const result = await ordersApi.retryRefundBalanceCredit(orderId);
@@ -1128,22 +1135,34 @@ export default function OrderDetailPage() {
                             : null}
                       </p>
                       {order.balanceRefundCreditPostedAt ? (
-                        <p className="mt-2 text-sm text-green-700 dark:text-green-300">
-                          ✓ Balance SalesCredit ·{" "}
-                          {order.balanceRefundCreditPostedAt.toLocaleString("ka-GE")}
-                          {order.balanceRefundCreditPutResponseStatus != null
-                            ? ` · HTTP ${order.balanceRefundCreditPutResponseStatus}`
-                            : null}
-                          {order.balanceRefundCreditDocuments?.length ? (
-                            <span className="block font-mono text-xs text-gray-500 dark:text-gray-400">
-                              {order.balanceRefundCreditDocuments.map((d) => (
-                                <span key={d.uid} className="block">
-                                  {d.warehouse}: {d.uid.slice(0, 8)}…
-                                </span>
-                              ))}
-                            </span>
-                          ) : null}
-                        </p>
+                        <>
+                          <p className="mt-2 text-sm text-green-700 dark:text-green-300">
+                            ✓ Balance SalesCredit ·{" "}
+                            {order.balanceRefundCreditPostedAt.toLocaleString("ka-GE")}
+                            {order.balanceRefundCreditPutResponseStatus != null
+                              ? ` · HTTP ${order.balanceRefundCreditPutResponseStatus}`
+                              : null}
+                            {order.balanceRefundCreditDocuments?.length ? (
+                              <span className="block font-mono text-xs text-gray-500 dark:text-gray-400">
+                                {order.balanceRefundCreditDocuments.map((d) => (
+                                  <span key={d.uid} className="block">
+                                    {d.warehouse}: {d.uid.slice(0, 8)}…
+                                  </span>
+                                ))}
+                              </span>
+                            ) : null}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void handleRefundCreditRetry()}
+                            disabled={refundCreditRetrying}
+                            className="mt-2 rounded-lg border border-indigo-600 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
+                          >
+                            {refundCreditRetrying
+                              ? "..."
+                              : "Balance SalesCredit PUT (ხელახლა)"}
+                          </button>
+                        </>
                       ) : order.balanceRefundCreditPostError ? (
                         <>
                           <pre className="mt-2 max-h-24 overflow-auto rounded bg-red-50 p-2 text-xs text-red-800 dark:bg-red-950/40 dark:text-red-200">

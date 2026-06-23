@@ -721,12 +721,16 @@ export class BalanceExchangeService {
       : text.length > maxBody
         ? `${text.slice(0, maxBody)}\n… [truncated, სულ ${text.length} სიმბოლო]`
         : text || '(ცარიელი)';
-    this.logger.log(
+    const logLine =
       `[Balance SalesCredit] PUT ${url}` +
-        (loc ? `\nLocation: ${loc}` : '') +
-        `\n← HTTP ${res.status} ${res.statusText}` +
-        `\nBalance პასუხის სხეული:\n${bodyBlock}`,
-    );
+      (loc ? `\nLocation: ${loc}` : '') +
+      `\n← HTTP ${res.status} ${res.statusText}` +
+      `\nBalance პასუხის სხეული:\n${bodyBlock}`;
+    if (ok) {
+      this.logger.log(logLine);
+    } else {
+      this.logger.warn(logLine);
+    }
     return { ok, status: res.status, raw: text };
   }
 

@@ -45,3 +45,35 @@ export function computeOrderGrandTotal(
     computeOrderProductsTotal(order) + computeOrderDeliveryTotal(order),
   );
 }
+
+/** BOG callback snapshot-იდან ჩამოჭრილი თანხა (purchase_units.total_amount) */
+export function parseBogChargedAmountFromCallback(
+  raw?: Record<string, unknown>,
+): number | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const candidates: unknown[] = [raw];
+  const body = raw.body;
+  if (body && typeof body === 'object') {
+    candidates.push(body);
+  }
+  for (const src of candidates) {
+    if (!src || typeof src !== 'object') {
+      continue;
+    }
+    const row = src as Record<string, unknown>;
+    const pu = row.purchase_units as Record<string, unknown> | undefined;
+    const total = pu?.total_amount ?? row.total_amount ?? row.amount;
+    if (typeof total === 'number' && Number.isFinite(total) && total > 0) {
+      return roundGel(total);
+    }
+    if (typeof total === 'string') {
+      const n = Number.parseFloat(total);
+      if (Number.isFinite(n) && n > 0) {
+        return roundGel(n);
+      }
+    }
+  }
+  return null;
+}

@@ -3,6 +3,7 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  Logger,
   Param,
   Patch,
   Post,
@@ -31,6 +32,8 @@ import { BogPaymentInitDto } from '../bog/dto/bog-payment-init.dto';
 
 @Controller('orders')
 export class OrdersController {
+  private readonly logger = new Logger(OrdersController.name);
+
   constructor(
     private readonly ordersService: OrdersService,
     private readonly bogPaymentsService: BogPaymentsService,
@@ -144,6 +147,9 @@ export class OrdersController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   retryRefundBalanceCredit(@Param('id') id: string) {
+    this.logger.warn(
+      `[HTTP] POST /orders/admin/${id}/balance/retry-refund-credit`,
+    );
     return this.ordersService.retryRefundBalanceCreditForAdmin(id);
   }
 
