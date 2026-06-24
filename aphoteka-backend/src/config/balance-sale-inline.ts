@@ -107,7 +107,7 @@ export const BALANCE_SALE_DEFAULT_REFUND_SALES_CREDIT_OPERATION_TYPE =
 /**
  * Balance SalesCredit OperationType — სრული სია (Balance UI):
  * - ფასის კორექტირება — საწყობის redispatch (BALANCE_SALES_CREDIT_OPERATION_TYPE)
- * - დაბრუნება — BOG refund (BALANCE_REFUND_SALES_CREDIT_OPERATION_TYPE)
+ * - დაბრუნება — BOG refund + BaseDocument (ნაგულ.)
  * - საფუძვლის გარეშე უკან დაბრუნება
  */
 export const BALANCE_SALE_REFUND_SALES_CREDIT_OPERATION_TYPES = [
@@ -126,7 +126,8 @@ export const BALANCE_SALE_INLINE: BalanceSaleInlineConfig = {
   deliveryIncomeAccount: '',
   deliveryVatRate: '',
   salesCreditOperationType: '',
-  refundSalesCreditOperationType: '',
+  /** BOG refund — ტესტი: „ფასის კორექტირება“ (env: BALANCE_REFUND_SALES_CREDIT_OPERATION_TYPE) */
+  refundSalesCreditOperationType: 'ფასის კორექტირება',
   /**
    * Sale `ReceivablesAccount` — **სტანდარტული, ყოველ დოკუმენტზე ერთი და იგივე**.
    * მოთხოვნილი საბანკო IBAN: `GE59BG0000000611719869`.

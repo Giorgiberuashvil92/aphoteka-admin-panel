@@ -601,21 +601,12 @@ export class BogPaymentsService {
     chargedGel: number | null,
     opts: { kind: 'products' | 'full'; amount: number },
   ): { body: Record<string, unknown>; refundedAmount: number } {
-    const envSandbox = this.bogSandboxAmountGel();
-    const chargedBelowOrder =
-      chargedGel != null && chargedGel + 0.001 < opts.amount;
-
-    /** BOG-ზე ნაკლები ჩამოჭრილია ვიდრე შეკვეთის ჯამი — სრული refund ცარიელი body-ით */
-    if (opts.kind === 'full' && (chargedBelowOrder || envSandbox != null)) {
-      return {
-        body: {},
-        refundedAmount: chargedGel ?? envSandbox ?? opts.amount,
-      };
+    if (chargedGel == null || !Number.isFinite(chargedGel) || chargedGel <= 0) {
+      return { body: { amount: opts.amount }, refundedAmount: opts.amount };
     }
-
-    const effective =
-      chargedGel != null ? Math.min(opts.amount, chargedGel) : opts.amount;
-    return { body: { amount: effective }, refundedAmount: effective };
+    const refundAmount =
+      opts.kind === 'full' ? chargedGel : Math.min(opts.amount, chargedGel);
+    return { body: { amount: refundAmount }, refundedAmount: refundAmount };
   }
 
   private async executeBogRefund(

@@ -382,6 +382,85 @@ function todayDateStr(): string {
   return `${y}-${m}-${day}T00:00:00`;
 }
 
+function todayDateOnly(): string {
+  return todayDateStr().slice(0, 10);
+}
+
+/** Sale Items[].uid — SalesCredit Items[].BaseDocument (დაბრუნების ხაზის მიბმა). */
+function extractSaleLineUid(row: Record<string, unknown>): string {
+  for (const k of ['uid', 'UID', 'Ref', 'LineUID', 'LineUid']) {
+    const v = strField(row[k]);
+    if (v && isUuid(v)) return v;
+  }
+  return '';
+}
+
+function ingestSaleLineUidLookup(
+  lookup: Map<string, string>,
+  row: Record<string, unknown>,
+): void {
+  const lineUid = extractSaleLineUid(row);
+  if (!lineUid) return;
+  const num = strField(row.Number);
+  const item = strField(row.Item);
+  if (num) lookup.set(`n:${num}`, lineUid);
+  if (item) lookup.set(`i:${item.toLowerCase()}`, lineUid);
+}
+
+/** Sale GET + Sale PUT პასუხიდან — ხაზის uid Number/Item-ით. */
+function buildSaleLineUidLookup(
+  saleDoc: Record<string, unknown> | null | undefined,
+  salePutResponseBody?: string,
+): Map<string, string> {
+  const lookup = new Map<string, string>();
+  if (saleDoc && Array.isArray(saleDoc.Items)) {
+    for (const raw of saleDoc.Items) {
+      if (raw && typeof raw === 'object') {
+        ingestSaleLineUidLookup(lookup, raw as Record<string, unknown>);
+      }
+    }
+  }
+  if (salePutResponseBody?.trim()) {
+    try {
+      const data = JSON.parse(salePutResponseBody) as unknown;
+      const docs = Array.isArray(data) ? data : [data];
+      for (const doc of docs) {
+        if (!doc || typeof doc !== 'object') continue;
+        const items = (doc as Record<string, unknown>).Items;
+        if (!Array.isArray(items)) continue;
+        for (const raw of items) {
+          if (raw && typeof raw === 'object') {
+            ingestSaleLineUidLookup(lookup, raw as Record<string, unknown>);
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return lookup;
+}
+
+function resolveSaleLineBaseDocument(
+  row: Record<string, unknown>,
+  lineUidLookup: Map<string, string>,
+  saleDocumentUid: string,
+): string {
+  const direct = extractSaleLineUid(row);
+  if (direct) return direct;
+  const num = strField(row.Number);
+  if (num) {
+    const byNum = lineUidLookup.get(`n:${num}`);
+    if (byNum) return byNum;
+  }
+  const item = strField(row.Item).toLowerCase();
+  if (item) {
+    const byItem = lineUidLookup.get(`i:${item}`);
+    if (byItem) return byItem;
+  }
+  return saleDocumentUid;
+}
+
 function resolveSalesCreditDate(
   baseSaleDoc: Record<string, unknown> | null | undefined,
   fallback: string,
@@ -448,14 +527,6 @@ function collectReuseCreditDocuments(order: {
   }
   return [...byWh.values()];
 }
-
-const SALE_ITEM_ROW_SKIP_KEYS = new Set([
-  'uid',
-  'UID',
-  'RowID',
-  'LineNumber',
-  '_id',
-]);
 
 /** Balance Exchange შეცდომის ტექსტი — admin-ში წაკითხვადი. */
 function formatBalanceExchangeError(raw: string, status: number): string {
@@ -587,6 +658,23 @@ const SALES_CREDIT_HEADER_FROM_SALE = [
   'RevenuesAndExpensesAnalytics',
 ] as const;
 
+/** BOG refund SalesCredit — დოკუმენტის ველები ორიგინალი Sale GET-იდან (Balance UI ფორმატი). */
+const SALES_CREDIT_REFUND_DOC_FROM_SALE = [
+  'Branch',
+  'Agreement',
+  'Department',
+  'PriceType',
+  'Currency',
+  'Multiplicity',
+  'CustomersAccount',
+  'DebtRepaymentAccount',
+  'DownPaymentAccount',
+  'NonOperatingIncomeAccount',
+  'VATFinancialExpenseAccount',
+  'PrimaryDocument',
+  'RevenuesAndExpensesAnalytics',
+] as const;
+
 function pickSalesCreditHeaderFromSale(
   baseSaleDoc: Record<string, unknown> | null | undefined,
   fallbacks: {
@@ -638,21 +726,231 @@ function pickSalesCreditHeaderFromSale(
   return out;
 }
 
+function pickSalesCreditRefundDocFromSale(
+  baseSaleDoc: Record<string, unknown> | null | undefined,
+  fallbacks: {
+    department?: string;
+    currency?: string;
+    receivablesAccount?: string;
+    vatTaxable?: string;
+    vatArticle?: string;
+  },
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (baseSaleDoc) {
+    for (const f of SALES_CREDIT_REFUND_DOC_FROM_SALE) {
+      const v = strField(baseSaleDoc[f]);
+      if (v) out[f] = v;
+    }
+    const vatArticle =
+      strField(baseSaleDoc.VATArticle) || strField(baseSaleDoc.VATarticle);
+    if (vatArticle) out.VATarticle = vatArticle;
+    const vatTaxable =
+      strField(baseSaleDoc.VATTaxable) || strField(baseSaleDoc.VATtaxable);
+    if (vatTaxable) out.VATtaxable = vatTaxable;
+    const rate =
+      strField(baseSaleDoc.Rate) || strField(baseSaleDoc.CurrencyRate);
+    if (rate) out.Rate = rate;
+    const amountIncludesVat = baseSaleDoc.AmountIncludesVAT;
+    if (amountIncludesVat != null && amountIncludesVat !== '') {
+      out.AmountIncludesVAT =
+        typeof amountIncludesVat === 'boolean'
+          ? String(amountIncludesVat)
+          : String(amountIncludesVat).trim();
+    }
+    if (
+      Array.isArray(baseSaleDoc.AdditionalDetails) &&
+      baseSaleDoc.AdditionalDetails.length > 0
+    ) {
+      out.AdditionalDetails = baseSaleDoc.AdditionalDetails;
+    }
+    const customers =
+      strField(baseSaleDoc.CustomersAccount) ||
+      strField(baseSaleDoc.ReceivablesAccount);
+    if (customers) out.CustomersAccount = customers;
+  }
+  putIfNonEmpty(out, 'Department', fallbacks.department);
+  putIfNonEmpty(out, 'Currency', fallbacks.currency);
+  if (!out.CustomersAccount && fallbacks.receivablesAccount) {
+    out.CustomersAccount = fallbacks.receivablesAccount.trim();
+  }
+  if (!out.VATtaxable && fallbacks.vatTaxable) {
+    out.VATtaxable = fallbacks.vatTaxable;
+  }
+  if (!out.VATarticle && fallbacks.vatArticle) {
+    out.VATarticle = fallbacks.vatArticle;
+  }
+  if (!('AmountIncludesVAT' in out)) out.AmountIncludesVAT = 'true';
+  return out;
+}
+
+/** Sale GET ხაზი → SalesCredit „დაბრუნება“ Items (Balance UI ფორმატი). */
+function mapSaleLineToRefundCreditItem(
+  row: Record<string, unknown>,
+  goodsExpFallback: string,
+  lineBaseDocumentUid?: string,
+): Record<string, unknown> | null {
+  const itemUid = strField(row.Item);
+  if (!itemUid) return null;
+
+  const line: Record<string, unknown> = { Item: itemUid };
+  putIfNonEmpty(line, 'Number', strField(row.Number));
+  putIfNonEmpty(line, 'Content', strField(row.Content));
+  putIfNonEmpty(line, 'Unit', strField(row.Unit));
+  putIfNonEmpty(line, 'Quantity', strField(row.Quantity) || '1');
+  putIfNonEmpty(line, 'Price', strField(row.Price));
+  putIfNonEmpty(line, 'Discount', strField(row.Discount) || '0');
+  const amount =
+    strField(row.Amount) ||
+    strField(row.AmountIncludingVAT) ||
+    strField(row.Price);
+  putIfNonEmpty(line, 'Amount', amount);
+  putIfNonEmpty(
+    line,
+    'VATrate',
+    strField(row.VATrate) || strField(row.VATRate),
+  );
+  putIfNonEmpty(line, 'VAT', strField(row.VAT) || '0');
+  putIfNonEmpty(
+    line,
+    'AmountIncludingVAT',
+    strField(row.AmountIncludingVAT) || amount,
+  );
+  putIfNonEmpty(
+    line,
+    'VATArticle',
+    strField(row.VATArticle) || strField(row.VATarticle),
+  );
+
+  const seriesFromSale = validSeriesRef(strField(row.Series));
+  if (seriesFromSale) line.Series = seriesFromSale;
+
+  putIfNonEmpty(
+    line,
+    'AccountingAccount',
+    strField(row.AccountingAccount) || strField(row.AccountNumber),
+  );
+  putIfNonEmpty(
+    line,
+    'VATAccount',
+    strField(row.VATAccount) || strField(row.VATPayableAccount),
+  );
+  putIfNonEmpty(
+    line,
+    'RevenueAccount',
+    strField(row.RevenueAccount) || strField(row.IncomeAccount),
+  );
+  putIfNonEmpty(
+    line,
+    'ExpensesAccount',
+    strField(row.ExpensesAccount) || goodsExpFallback,
+  );
+  putIfNonEmpty(line, 'Cost', strField(row.Cost) || '0');
+  putIfNonEmpty(line, 'Excise', strField(row.Excise) || '0');
+  if (lineBaseDocumentUid && isUuid(lineBaseDocumentUid)) {
+    line.BaseDocument = lineBaseDocumentUid;
+  }
+  return line;
+}
+
+/** SalesCredit Items — API სავალდებულო/კონდიციური ველები (BaseDocument, Series, AmountIncludingVAT, ExpensesAccount). */
+function finalizeSalesCreditItems(
+  items: Record<string, unknown>[],
+  baseDocumentUid: string,
+  goodsExpFallback: string,
+): Record<string, unknown>[] {
+  return items.map((row) => {
+    const copy: Record<string, unknown> = {
+      ...row,
+      BaseDocument: baseDocumentUid,
+    };
+    const amount = strField(copy.Amount);
+    if (amount && !strField(copy.AmountIncludingVAT)) {
+      copy.AmountIncludingVAT = amount;
+    }
+    const itemUid = strField(copy.Item);
+    const accountNumber = strField(copy.AccountNumber);
+    if (
+      itemUid &&
+      isUuid(itemUid) &&
+      accountNumber &&
+      !strField(copy.ExpensesAccount) &&
+      goodsExpFallback.trim()
+    ) {
+      copy.ExpensesAccount = goodsExpFallback.trim();
+    }
+    return copy;
+  });
+}
+
+/** Sale PUT ხაზები → SalesCredit refund Items (Mongo fallback). */
+function mapSalePutLineToRefundCreditItem(
+  row: Record<string, unknown>,
+  goodsExpFallback: string,
+  lineBaseDocumentUid?: string,
+): Record<string, unknown> {
+  const line: Record<string, unknown> = { Item: strField(row.Item) };
+  putIfNonEmpty(line, 'StringCode', strField(row.StringCode));
+  putIfNonEmpty(line, 'Quantity', strField(row.Quantity) || '1');
+  putIfNonEmpty(line, 'Price', strField(row.Price));
+  const amount = strField(row.Amount);
+  putIfNonEmpty(line, 'Amount', amount);
+  putIfNonEmpty(line, 'Unit', strField(row.Unit));
+  putIfNonEmpty(line, 'Discount', '0');
+  putIfNonEmpty(line, 'VAT', '0');
+  putIfNonEmpty(line, 'VATrate', strField(row.VATRate));
+  if (amount) line.AmountIncludingVAT = amount;
+  putIfNonEmpty(line, 'Series', strField(row.Series));
+  putIfNonEmpty(line, 'AccountingAccount', strField(row.AccountNumber));
+  putIfNonEmpty(line, 'RevenueAccount', strField(row.IncomeAccount));
+  putIfNonEmpty(line, 'VATAccount', strField(row.VATPayableAccount));
+  putIfNonEmpty(
+    line,
+    'ExpensesAccount',
+    strField(row.ExpensesAccount) || goodsExpFallback,
+  );
+  putIfNonEmpty(line, 'Cost', '0');
+  putIfNonEmpty(line, 'Excise', '0');
+  if (lineBaseDocumentUid && isUuid(lineBaseDocumentUid)) {
+    line.BaseDocument = lineBaseDocumentUid;
+  }
+  return line;
+}
+
+function finalizeRefundSalesCreditItems(
+  items: Record<string, unknown>[],
+  goodsExpFallback: string,
+  saleDocumentUid?: string,
+): Record<string, unknown>[] {
+  return items.map((row, idx) => {
+    const mapped = mapSalePutLineToRefundCreditItem(
+      row,
+      goodsExpFallback,
+      saleDocumentUid,
+    );
+    if (!strField(mapped.Number)) mapped.Number = String(idx + 1);
+    return mapped;
+  });
+}
+
 /**
- * SalesCredit Items — ორიგინალი Sale GET ხაზების სრული კლონი (BaseDocument → Sale uid).
+ * Refund SalesCredit Items — ორიგინალი გატარებული Sale GET ხაზებიდან.
+ * Items[].BaseDocument = Sale Items[].uid (ხაზი); დოკუმენტზე BaseDocument = Sale uid.
  */
-function buildSalesCreditItemsFromSaleDoc(
+function buildRefundSalesCreditItemsFromSaleGet(
   saleDoc: Record<string, unknown> | null | undefined,
   saleDocumentUid: string,
+  lineUidLookup: Map<string, string>,
   deliveryItemUid: string,
   includeDelivery: boolean,
+  goodsExpFallback: string,
 ): Record<string, unknown>[] {
-  const items = saleDoc?.Items;
-  if (!Array.isArray(items)) return [];
+  const rawItems = saleDoc?.Items;
+  if (!Array.isArray(rawItems)) return [];
   const deliveryKey = deliveryItemUid.trim().toLowerCase();
   const out: Record<string, unknown>[] = [];
 
-  for (const raw of items) {
+  for (const raw of rawItems) {
     if (!raw || typeof raw !== 'object') continue;
     const row = raw as Record<string, unknown>;
     const itemUid = strField(row.Item);
@@ -660,37 +958,17 @@ function buildSalesCreditItemsFromSaleDoc(
     const isDelivery = Boolean(
       deliveryKey && itemUid.toLowerCase() === deliveryKey,
     );
-    if (isDelivery && !includeDelivery) continue;
+    if (isDelivery && !includeDelivery) {
+      continue;
+    }
 
-    const line: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(row)) {
-      if (SALE_ITEM_ROW_SKIP_KEYS.has(k)) continue;
-      if (v == null || v === '') continue;
-      if (typeof v === 'string') {
-        const t = v.trim();
-        if (t) line[k] = t;
-      } else if (typeof v === 'number' || typeof v === 'boolean') {
-        line[k] = v;
-      }
-    }
-    if (!line.AccountNumber) {
-      putIfNonEmpty(line, 'AccountNumber', strField(row.AccountingAccount));
-    }
-    if (!line.IncomeAccount) {
-      putIfNonEmpty(line, 'IncomeAccount', strField(row.RevenueAccount));
-    }
-    if (!line.VATPayableAccount) {
-      putIfNonEmpty(line, 'VATPayableAccount', strField(row.VATAccount));
-    }
-    if (!line.VATRate) {
-      putIfNonEmpty(line, 'VATRate', strField(row.VATrate) || strField(row.VATRate));
-    }
-    if (!line.Item) line.Item = itemUid;
-    line.BaseDocument = saleDocumentUid;
-    if (!line.AmountIncludingVAT && line.Amount) {
-      line.AmountIncludingVAT = line.Amount;
-    }
-    out.push(line);
+    const lineBase = resolveSaleLineBaseDocument(
+      row,
+      lineUidLookup,
+      saleDocumentUid,
+    );
+    const line = mapSaleLineToRefundCreditItem(row, goodsExpFallback, lineBase);
+    if (line) out.push(line);
   }
   return out;
 }
@@ -805,6 +1083,8 @@ type AssembleSaleOptions = {
   skipDeliveryLine?: boolean;
   /** force retry — იგივე Balance SalesCredit uid (PUT update) */
   reuseCreditDocuments?: Array<{ warehouse: string; uid: string }>;
+  /** Sale PUT პასუხი — Items[].uid დაბრუნების BaseDocument-ისთვის */
+  balanceSalePutResponseBody?: string;
 };
 
 @Injectable()
@@ -1576,11 +1856,8 @@ export class BogBalanceSaleService {
       const creditOp = balanceRefundSalesCreditOperationType();
       const saleDocs = options?.balanceSaleDocuments ?? [];
       const includeDelivery = !options?.skipDeliveryLine;
-      const deliveryResolved = await this.resolveDeliveryForLine();
-      const deliveryItemUidForRefund =
-        deliveryResolved.itemUid.trim() || balanceSaleDeliveryItemUid().trim();
 
-      for (const [whKey] of warehouseGroups) {
+      for (const [whKey, ctxs] of warehouseGroups) {
         const baseDoc =
           pickBaseSaleUid(saleDocs, whKey) ||
           options?.baseDocumentUid?.trim() ||
@@ -1600,33 +1877,87 @@ export class BogBalanceSaleService {
           this.logger.log(
             `[Refund SalesCredit] Sale GET ok · uid=${baseDoc} · Items=${itemCount}`,
           );
+          if (Array.isArray(baseSaleDoc.Items)) {
+            for (const [idx, raw] of baseSaleDoc.Items.entries()) {
+              if (!raw || typeof raw !== 'object') continue;
+              const r = raw as Record<string, unknown>;
+              const lineUid = extractSaleLineUid(r);
+              this.logger.log(
+                `[Refund SalesCredit] Sale line ${idx + 1}: StringCode=${strField(r.StringCode)} · lineUid=${lineUid ? `${lineUid.slice(0, 8)}…` : '—'} · Number=${strField(r.Number)} · Series=${strField(r.Series).slice(0, 8)}…`,
+              );
+            }
+          }
         } else {
           this.logger.warn(
             `[Refund SalesCredit] Sale GET ცარიელი/შეცდომა · uid=${baseDoc}`,
           );
         }
-        const items = buildSalesCreditItemsFromSaleDoc(
+        const deliveryUidForFilter =
+          deliveryItemUid.trim() || balanceSaleDeliveryItemUid().trim();
+        const lineUidLookup = buildSaleLineUidLookup(
+          baseSaleDoc ?? undefined,
+          options?.balanceSalePutResponseBody,
+        );
+        if (lineUidLookup.size === 0) {
+          this.logger.warn(
+            `[Refund SalesCredit] Sale Items[].uid ვერ მოიძებნა GET/PUT-ში — Items.BaseDocument=${baseDoc.slice(0, 8)}… (დოკ. uid)`,
+          );
+        }
+        let items = buildRefundSalesCreditItemsFromSaleGet(
           baseSaleDoc ?? undefined,
           baseDoc,
-          deliveryItemUidForRefund,
+          lineUidLookup,
+          deliveryUidForFilter,
           includeDelivery,
+          goodsExpItemFallback,
         );
+        if (!items.length) {
+          this.logger.warn(
+            `[Refund SalesCredit] Sale GET Items ცარიელია — fallback Mongo ხაზებზე`,
+          );
+          items = buildItemsForWarehouse(ctxs, whKey);
+          if (includeDelivery && deliveryTotal > 0) {
+            const dLine = buildDeliveryLineItem(
+              deliveryTotal,
+              revenueAccount,
+              vatTaxable,
+              deliveryItemUid,
+              deliveryProduct,
+              resolveLineVatRate,
+              goodsInvFallback,
+              goodsExpItemFallback,
+              goodsVatPayItemFallback,
+              docExpTrim,
+              docVatTrim,
+            );
+            if (dLine) items = [...items, dLine];
+          }
+          items = finalizeRefundSalesCreditItems(
+            items,
+            goodsExpItemFallback,
+            baseDoc,
+          );
+        }
         if (!items.length) {
           return {
             ok: false,
-            reason: `Refund SalesCredit — ორიგინალი Sale Items ვერ მოიძებნა (GET uid=${baseDoc})`,
+            reason: `Refund SalesCredit — ხაზები ცარიელია საწყობისთვის: ${whKey}`,
           };
         }
-        const saleHeader = pickSalesCreditHeaderFromSale(baseSaleDoc, {
+        for (const [idx, raw] of items.entries()) {
+          if (!raw || typeof raw !== 'object') continue;
+          const bd = strField(raw.BaseDocument);
+          this.logger.log(
+            `[Refund SalesCredit] credit line ${idx + 1}: Item=${strField(raw.Item).slice(0, 8)}… · BaseDocument=${bd ? `${bd.slice(0, 8)}…` : '—'}`,
+          );
+        }
+        const saleHeader = pickSalesCreditRefundDocFromSale(baseSaleDoc, {
           department,
           currency,
-          receivablesWriteoffAccount,
+          receivablesAccount,
           vatTaxable,
           vatArticle,
         });
-        const recvFromSale = baseSaleDoc
-          ? strField(baseSaleDoc.ReceivablesAccount)
-          : '';
         const reuseUid = pickReuseCreditUid(
           options?.reuseCreditDocuments,
           whKey,
@@ -1640,11 +1971,10 @@ export class BogBalanceSaleService {
         const doc: Record<string, unknown> = {
           ...saleHeader,
           uid: docUid,
-          Date: resolveSalesCreditDate(baseSaleDoc, dateStr),
+          Date: todayDateOnly(),
           OperationType: creditOp,
           Warehouse: whKey,
           Client: balanceBuyerUid,
-          ReceivablesAccount: recvFromSale || receivablesAccount,
           Comments: comments,
           BaseDocument: baseDoc,
           Items: items,
@@ -2483,6 +2813,7 @@ export class BogBalanceSaleService {
         mode: 'refundCredit',
         skipDeliveryLine: skipDelivery,
         balanceSaleDocuments: order.balanceSaleDocuments,
+        balanceSalePutResponseBody: order.balanceSalePutResponseBody,
         reuseCreditDocuments: options?.reuseCreditDocuments,
       },
     );
