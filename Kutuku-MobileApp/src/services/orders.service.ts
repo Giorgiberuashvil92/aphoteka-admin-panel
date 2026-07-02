@@ -70,6 +70,8 @@ export type MyOrderListItem = {
   trackingNumber?: string;
   /** BOG ონლაინი — გადახდა ჯერ არ არის დასრულებული (UI ტაიმლაინი) */
   awaitingOnlinePayment?: boolean;
+  /** ბოლო BOG ცდა ვერ მოხერხდა — ხელახალი გადახდა */
+  onlinePaymentFailed?: boolean;
   /** მიტანის redispatch — ახალი საწყობიდან გაგზავნა */
   deliveryRedispatch?: DeliveryRedispatchUi;
   deliveryRedispatchPending?: boolean;
@@ -91,19 +93,40 @@ function normalizeStatus(s: string | undefined): OrderStatusUi {
   return 'pending';
 }
 
-/** შეკვეთა pending-ზეა, მაგრამ ონლაინ გადახდა (BOG) ჯერ არ დასრულებულა */
-function computeAwaitingOnlinePayment(raw: ApiOrder): boolean {
-  const status = (raw.status || '').toLowerCase();
-  if (status !== 'pending') return false;
-  const bogSt = (raw.bogPaymentStatus || '').toLowerCase();
-  if (['completed', 'success', 'paid', 'captured'].includes(bogSt)) return false;
-  if (['rejected', 'failed', 'cancelled', 'declined'].some((k) => bogSt.includes(k)))
-    return false;
+function isBogPaymentCompleted(bogSt: string): boolean {
+  const s = bogSt.toLowerCase();
+  return (
+    ['completed', 'success', 'paid', 'captured'].includes(s) ||
+    s.includes('completed') ||
+    s.includes('success')
+  );
+}
+
+function isOnlineBogOrder(raw: ApiOrder): boolean {
   if (raw.bogOrderId != null && String(raw.bogOrderId).trim() !== '') return true;
   const c = (raw.comment || '').toLowerCase();
   if (c.includes('საქართველოს ბანკი')) return true;
   if (c.includes('ონლაინ') && c.includes('ბანკი')) return true;
   return false;
+}
+
+/** შეკვეთა pending-ზეა და ონლაინ (BOG) გადახდა ჯერ არ დასრულებულა — ხელახალი ცდაც შედის */
+function computeAwaitingOnlinePayment(raw: ApiOrder): boolean {
+  const status = (raw.status || '').toLowerCase();
+  if (status !== 'pending') return false;
+  if (!isOnlineBogOrder(raw)) return false;
+  const bogSt = (raw.bogPaymentStatus || '').toLowerCase();
+  if (isBogPaymentCompleted(bogSt)) return false;
+  return true;
+}
+
+function computeOnlinePaymentFailed(raw: ApiOrder): boolean {
+  if (!computeAwaitingOnlinePayment(raw)) return false;
+  const bogSt = (raw.bogPaymentStatus || '').toLowerCase();
+  if (!bogSt) return false;
+  return ['rejected', 'failed', 'cancelled', 'declined', 'error'].some((k) =>
+    bogSt.includes(k),
+  );
 }
 
 function mapDeliveryRedispatch(
@@ -176,6 +199,7 @@ function mapApiOrder(raw: ApiOrder): MyOrderListItem | null {
     total: Number.isFinite(Number(raw.totalAmount)) ? Number(raw.totalAmount) : 0,
     trackingNumber: raw.comment?.trim() || undefined,
     awaitingOnlinePayment: computeAwaitingOnlinePayment(raw),
+    onlinePaymentFailed: computeOnlinePaymentFailed(raw),
     deliveryRedispatch: mapDeliveryRedispatch(raw.deliveryRedispatch),
     deliveryRedispatchPending: raw.deliveryRedispatch?.status === 'pending_payment',
   };

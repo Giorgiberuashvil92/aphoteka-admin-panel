@@ -786,4 +786,147 @@ export class BalanceExchangeService {
       clearTimeout(t);
     }
   }
+
+  buildExchangeUrl(resource: string, mode: 'a' | 'o' = 'a'): string {
+    const pub = this.resolvedPublicationId();
+    const exchangeMode =
+      this.config.get<string>('BALANCE_EXCHANGE_MODE')?.trim() === 'o'
+        ? 'o'
+        : mode;
+    return `https://cloud.balance.ge/sm/${exchangeMode}/Balance/${pub}/hs/Exchange/${resource}`;
+  }
+
+  private balanceHttpTimeoutMs(): number {
+    const n = Number(this.config.get<string>('BALANCE_HTTP_TIMEOUT_MS'));
+    return Number.isFinite(n) && n >= 5_000 ? n : 120_000;
+  }
+
+  async fetchExchangeJson(url: string): Promise<unknown | null> {
+    if (!this.hasCredentials()) {
+      this.logger.warn('[Balance GET] ავთენტიკაცია არ არის');
+      return null;
+    }
+    const controller = new AbortController();
+    const t = setTimeout(
+      () => controller.abort(),
+      this.balanceHttpTimeoutMs(),
+    );
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: this.authorizationHeader(),
+          Accept: 'application/json',
+        },
+        signal: controller.signal,
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        this.logger.warn(
+          `[Balance GET] HTTP ${res.status} ${url.slice(0, 96)}…`,
+        );
+        return null;
+      }
+      if (!text?.trim()) return null;
+      try {
+        return JSON.parse(text) as unknown;
+      } catch {
+        return null;
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`[Balance GET] ${msg}`);
+      return null;
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  private static readonly BALANCE_EXCHANGE_UID =
+    'b067980d-7eb5-11ec-80d2-000c29409daa';
+
+  async fetchBalanceStocksForSync(): Promise<unknown | null> {
+    const url =
+      this.env('BALANCE_STOCKS_URL') || this.buildExchangeUrl('Items', 'o');
+    return this.fetchExchangeJson(url);
+  }
+
+  async fetchBalanceWarehousesForSync(): Promise<unknown | null> {
+    const url =
+      this.env('BALANCE_WAREHOUSES_URL') ||
+      this.buildExchangeUrl('Warehouses', 'a');
+    return this.fetchExchangeJson(url);
+  }
+
+  async fetchBalancePricesForSync(): Promise<unknown | null> {
+    const base =
+      this.env('BALANCE_PRICES_URL') || this.buildExchangeUrl('Prices', 'a');
+    const u = new URL(base);
+    u.searchParams.set('uid', BalanceExchangeService.BALANCE_EXCHANGE_UID);
+    return this.fetchExchangeJson(u.toString());
+  }
+
+  async fetchBalancePricesByUuidForSync(
+    uuid: string,
+  ): Promise<unknown | null> {
+    const base =
+      this.env('BALANCE_PRICES_URL') || this.buildExchangeUrl('Prices', 'a');
+    const u = new URL(base);
+    u.searchParams.set('uid', BalanceExchangeService.BALANCE_EXCHANGE_UID);
+    u.searchParams.set('Source', uuid.trim());
+    return this.fetchExchangeJson(u.toString());
+  }
+
+  async fetchBalanceItemPricingForSync(): Promise<unknown | null> {
+    const pub = this.resolvedPublicationId();
+    const url =
+      this.env('BALANCE_PRICING_URL') ||
+      `https://cloud.balance.ge/sm/a/Balance/${pub}/hs/Exchange/ItemPricing`;
+    const u = new URL(url);
+    u.searchParams.set('uid', BalanceExchangeService.BALANCE_EXCHANGE_UID);
+    return this.fetchExchangeJson(u.toString());
+  }
+
+  async fetchBalanceExchangeStocksForSync(opts?: {
+    docTemplate?: boolean;
+    total?: boolean;
+  }): Promise<unknown | null> {
+    const base =
+      this.env('BALANCE_EXCHANGE_STOCKS_URL') ||
+      this.buildExchangeUrl('Stocks', 'a');
+    const u = new URL(base);
+    u.searchParams.set('uid', BalanceExchangeService.BALANCE_EXCHANGE_UID);
+    if (opts?.docTemplate) {
+      u.searchParams.set('StartingPeriod', '');
+      u.searchParams.set('EndingPeriod', '');
+      u.searchParams.set('Source', '');
+    }
+    u.searchParams.set(
+      'Total',
+      opts?.total === undefined ? 'false' : opts.total ? 'true' : 'false',
+    );
+    return this.fetchExchangeJson(u.toString());
+  }
+
+  async fetchBalanceItemsSeriesFullListForSync(): Promise<unknown | null> {
+    const url =
+      this.env('BALANCE_ITEMS_SERIES_URL') ||
+      this.buildExchangeUrl('ItemsSeries', 'a');
+    return this.fetchExchangeJson(url);
+  }
+
+  async fetchBalanceItemsSeriesForItemForSync(
+    itemUid: string,
+  ): Promise<unknown | null> {
+    const base =
+      this.env('BALANCE_ITEMS_SERIES_URL') ||
+      this.buildExchangeUrl('ItemsSeries', 'a');
+    const u = new URL(base);
+    u.searchParams.set('Item', itemUid.trim());
+    return this.fetchExchangeJson(u.toString());
+  }
+
+  async fetchBalanceDiscountsForSync(): Promise<unknown | null> {
+    return this.tryFetchExchangeDiscounts();
+  }
 }

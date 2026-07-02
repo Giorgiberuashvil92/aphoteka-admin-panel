@@ -116,7 +116,7 @@ function buildTimeline(
         key: 'await_bank_payment',
         title: 'ონლაინ გადახდა',
         subtitle:
-          'შეკვეთა დადასტურდება მხოლოდ წარმატებული გადახდის შემდეგ. გადახდა შეგიძლიათ „გადახდის“ ან „ჩემი შეკვეთების“ გვერდიდან.',
+          'შეკვეთა დადასტურდება მხოლოდ წარმატებული გადახდის შემდეგ. დააჭირეთ „გადახდა“ ქვემოთ.',
         icon: 'card-outline',
         completed: false,
         active: true,
@@ -153,7 +153,11 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
   type OrderDetail = MyOrderListItem & { shippingAddress?: string; phoneNumber?: string };
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [payingRedispatch, setPayingRedispatch] = useState(false);
+  const [payingOrder, setPayingOrder] = useState(false);
   const [bogCheckoutUrl, setBogCheckoutUrl] = useState<string | null>(null);
+  const [bogPaymentKind, setBogPaymentKind] = useState<'order' | 'redispatch' | null>(
+    null,
+  );
   const [bogWebLoading, setBogWebLoading] = useState(false);
   const [bogVerifying, setBogVerifying] = useState(false);
   const bogFinalizeOnceRef = useRef(false);
@@ -162,7 +166,41 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
     bogFinalizeOnceRef.current = true;
     setBogCheckoutUrl(null);
     setBogWebLoading(false);
+    setBogPaymentKind(null);
   }, []);
+
+  const finalizeOrderPaid = useCallback(async () => {
+    if (bogFinalizeOnceRef.current) return;
+    bogFinalizeOnceRef.current = true;
+    setBogCheckoutUrl(null);
+    setBogWebLoading(false);
+    setBogPaymentKind(null);
+    setBogVerifying(true);
+    try {
+      const r = await OrdersService.waitForOrderPaymentConfirmed(orderId);
+      if (r === 'confirmed') {
+        void OrdersService.ensureBalanceSalePosted(orderId);
+        const res = await OrdersService.fetchOrderById(orderId);
+        if (res.ok) setOrder(res.order);
+        Alert.alert('გადახდა მიღებულია', 'შეკვეთა დადასტურდა და მალე დამუშავდება.');
+      } else {
+        Alert.alert(
+          'გადახდა მუშავდება',
+          'გადახდა მიღებულია, მაგრამ სტატუსის განახლებას რამდენიმე წამი დასჭირდება. განაახლეთ გვერდი.',
+        );
+      }
+    } finally {
+      setBogVerifying(false);
+    }
+  }, [orderId]);
+
+  const finalizeOrderFailed = useCallback(() => {
+    closeBogModal();
+    Alert.alert(
+      'გადახდა ვერ დასრულდა',
+      'შეკვეთა მოლოდინშია. შეგიძლიათ ხელახლა სცადოთ „გადახდა“ ღილაკით.',
+    );
+  }, [closeBogModal]);
 
   const finalizeRedispatchPaid = useCallback(async () => {
     if (bogFinalizeOnceRef.current) return;
@@ -199,25 +237,41 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
   const handleBogUrlNavigation = useCallback(
     (rawUrl: string) => {
       const u = rawUrl.toLowerCase();
+      const isOrderPay = bogPaymentKind === 'order';
       if (u.includes('/payments/bog/mobile-return/success')) {
-        void finalizeRedispatchPaid();
+        if (isOrderPay) void finalizeOrderPaid();
+        else void finalizeRedispatchPaid();
         return true;
       }
       if (u.includes('/payments/bog/mobile-return/fail')) {
-        finalizeRedispatchFailed();
+        if (isOrderPay) finalizeOrderFailed();
+        else finalizeRedispatchFailed();
         return true;
       }
       if (u.startsWith('kutuku://') || u.startsWith('kutuku:')) {
         void Linking.openURL(rawUrl).catch(() => {});
         const br = bogReturnFromDeepLink(rawUrl);
-        if (br === 'paid') void finalizeRedispatchPaid();
-        else if (br === 'failed') finalizeRedispatchFailed();
-        else closeBogModal();
+        if (br === 'paid') {
+          if (isOrderPay) void finalizeOrderPaid();
+          else void finalizeRedispatchPaid();
+        } else if (br === 'failed') {
+          if (isOrderPay) finalizeOrderFailed();
+          else finalizeRedispatchFailed();
+        } else {
+          closeBogModal();
+        }
         return true;
       }
       return false;
     },
-    [closeBogModal, finalizeRedispatchFailed, finalizeRedispatchPaid],
+    [
+      bogPaymentKind,
+      closeBogModal,
+      finalizeOrderFailed,
+      finalizeOrderPaid,
+      finalizeRedispatchFailed,
+      finalizeRedispatchPaid,
+    ],
   );
 
   const onBogWebNavChange = useCallback(
@@ -252,12 +306,38 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
         Alert.alert('გადახდა ვერ დაიწყო', pay.message ?? 'სცადეთ ხელახლა');
         return;
       }
+      setBogPaymentKind('redispatch');
       setBogWebLoading(true);
       setBogCheckoutUrl(pay.redirectUrl);
     } finally {
       setPayingRedispatch(false);
     }
   }, [order?.deliveryRedispatchPending, orderId]);
+
+  const handlePayOrder = useCallback(async () => {
+    if (!order?.awaitingOnlinePayment) return;
+    setPayingOrder(true);
+    bogFinalizeOnceRef.current = false;
+    try {
+      const apiBase = getApiBaseUrl();
+      const bogRedirects = apiBase.toLowerCase().startsWith('https://')
+        ? {
+            successRedirectUrl: `${apiBase}/payments/bog/mobile-return/success`,
+            failRedirectUrl: `${apiBase}/payments/bog/mobile-return/fail`,
+          }
+        : undefined;
+      const pay = await OrdersService.initBogPayment(orderId, bogRedirects);
+      if (!pay.ok) {
+        Alert.alert('გადახდა ვერ დაიწყო', pay.message ?? 'სცადეთ ხელახლა');
+        return;
+      }
+      setBogPaymentKind('order');
+      setBogWebLoading(true);
+      setBogCheckoutUrl(pay.redirectUrl);
+    } finally {
+      setPayingOrder(false);
+    }
+  }, [order?.awaitingOnlinePayment, orderId]);
 
   const load = useCallback(
     async (isRefresh: boolean) => {
@@ -297,7 +377,9 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
   const badgeLabel = order?.deliveryRedispatchPending
     ? 'მიტანის გადახდა'
     : order?.awaitingOnlinePayment
-      ? 'გადახდა მელოდება'
+      ? order.onlinePaymentFailed
+        ? 'გადახდა ვერ მოხერხდა'
+        : 'გადახდა მელოდება'
       : order
         ? getOrderStatusText(order.status)
         : '';
@@ -375,6 +457,44 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
       >
         {order ? (
           <>
+            {order.awaitingOnlinePayment && !order.deliveryRedispatchPending ? (
+              <View style={styles.redispatchBanner}>
+                <View style={styles.redispatchBannerIcon}>
+                  <Ionicons name="card-outline" size={22} color={BADGE_AWAITING_PAYMENT} />
+                </View>
+                <View style={styles.redispatchBannerBody}>
+                  <Text style={styles.redispatchTitle}>
+                    {order.onlinePaymentFailed
+                      ? 'ონლაინ გადახდა ვერ მოხერხდა'
+                      : 'ონლაინ გადახდა მელოდება'}
+                  </Text>
+                  <Text style={styles.redispatchSub}>
+                    შეკვეთა დადასტურდება მხოლოდ წარმატებული გადახდის შემდეგ.
+                  </Text>
+                  <Text style={styles.redispatchAmount}>
+                    გადასახდელი: ₾{order.total.toFixed(2)}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.redispatchPayBtn}
+                    onPress={() => void handlePayOrder()}
+                    disabled={payingOrder}
+                    activeOpacity={0.85}
+                  >
+                    {payingOrder ? (
+                      <ActivityIndicator color={theme.colors.white} />
+                    ) : (
+                      <>
+                        <Ionicons name="card-outline" size={18} color={theme.colors.white} />
+                        <Text style={styles.redispatchPayBtnText}>
+                          გადახდა · ₾{order.total.toFixed(2)}
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : null}
+
             {order.deliveryRedispatchPending && order.deliveryRedispatch ? (
               <View style={styles.redispatchBanner}>
                 <View style={styles.redispatchBannerIcon}>
@@ -520,7 +640,11 @@ export function OrderTrackingScreen({ orderId, onBack }: OrderTrackingScreenProp
       >
         <View style={[styles.bogModalRoot, { paddingTop: insets.top }]}>
           <View style={styles.bogModalHeader}>
-            <Text style={styles.bogModalTitle}>მიტანის გადახდა — BOG</Text>
+            <Text style={styles.bogModalTitle}>
+              {bogPaymentKind === 'redispatch'
+                ? 'მიტანის გადახდა — BOG'
+                : 'ონლაინ გადახდა — BOG'}
+            </Text>
             <TouchableOpacity
               onPress={closeBogModal}
               style={styles.bogModalCloseBtn}

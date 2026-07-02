@@ -60,7 +60,9 @@ export function SettingsScreen({
   const tabNav = useTabNavigation();
   const [firstName, setFirstName] = useState('');
   const [ordersCount, setOrdersCount] = useState(0);
+  const [activeOrdersCount, setActiveOrdersCount] = useState(0);
   const [prescriptionCount, setPrescriptionCount] = useState(0);
+  const [activePrescriptionsCount, setActivePrescriptionsCount] = useState(0);
 
   const loadData = useCallback(async () => {
     const fresh = await UserService.fetchProfile();
@@ -74,7 +76,17 @@ export function SettingsScreen({
       PrescriptionsApi.getMyPrescriptions(),
     ]);
     setOrdersCount(ordersResult.ok ? ordersResult.orders.length : 0);
+    setActiveOrdersCount(
+      ordersResult.ok
+        ? ordersResult.orders.filter(
+            (o) => o.status !== 'delivered' && o.status !== 'cancelled',
+          ).length
+        : 0,
+    );
     setPrescriptionCount(
+      prescriptionsResult.ok ? prescriptionsResult.prescriptions.length : 0,
+    );
+    setActivePrescriptionsCount(
       prescriptionsResult.ok ? prescriptionsResult.prescriptions.length : 0,
     );
   }, []);
@@ -91,6 +103,15 @@ export function SettingsScreen({
     { icon: 'help-circle-outline' as const, label: 'დახმარება', onPress: onHelpSupport },
     { icon: 'information-circle-outline' as const, label: 'აპლიკაციის შესახებ', onPress: onAbout },
   ];
+
+  const renderCountBadge = (count: number) => {
+    if (count <= 0) return null;
+    return (
+      <View style={styles.countBadge}>
+        <Text style={styles.countBadgeText}>{count > 99 ? '99+' : count}</Text>
+      </View>
+    );
+  };
 
   if (isMainTab) {
     return (
@@ -141,10 +162,13 @@ export function SettingsScreen({
               <Text style={styles.ordersCardTitle}>ჩემი შეკვეთები</Text>
               <Text style={styles.ordersCardSub}>
                 {ordersCount > 0
-                  ? `${ordersCount} შეკვეთა ისტორიაში`
+                  ? activeOrdersCount > 0
+                    ? `${activeOrdersCount} აქტიური · ${ordersCount} სულ`
+                    : `${ordersCount} შეკვეთა ისტორიაში`
                   : 'შეკვეთების ისტორია ცარიელია'}
               </Text>
             </View>
+            {renderCountBadge(activeOrdersCount)}
             <Ionicons name="chevron-forward" size={18} color={C.muted} />
           </TouchableOpacity>
 
@@ -165,6 +189,7 @@ export function SettingsScreen({
                     : 'ექიმის მიერ დანიშნული წამლები'}
                 </Text>
               </View>
+              {renderCountBadge(activePrescriptionsCount)}
               <Ionicons name="chevron-forward" size={18} color={C.muted} />
             </TouchableOpacity>
           ) : null}
@@ -338,7 +363,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.border,
     padding: 14,
-    marginBottom: 20,
+    marginBottom: 12,
     ...Platform.select({
       ios: {
         shadowColor: '#2A3A7A',
@@ -370,6 +395,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '400',
     color: C.muted,
+  },
+  countBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#E65100',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  countBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.bg,
   },
   sectionTitle: {
     fontSize: 14,

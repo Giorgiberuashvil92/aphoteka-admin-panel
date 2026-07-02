@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   Image,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -17,6 +16,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type MyOrderScreenProps = {
   onBack: () => void;
@@ -42,6 +42,7 @@ export function MyOrderScreen({
   onOrderPress,
   onLoginPress,
 }: MyOrderScreenProps) {
+  const insets = useSafeAreaInsets();
   const tabNav = useTabNavigation();
 
   const [orders, setOrders] = useState<MyOrderListItem[]>([]);
@@ -90,7 +91,7 @@ export function MyOrderScreen({
   const showAuthGate = loadError === 'auth' && !loading;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar barStyle="dark-content" backgroundColor={theme.colors.white} />
 
       <View style={styles.header}>
@@ -160,7 +161,10 @@ export function MyOrderScreen({
       ) : (
         <ScrollView
           style={styles.content}
-          contentContainerStyle={styles.contentContainer}
+          contentContainerStyle={[
+            styles.contentContainer,
+            { paddingBottom: Math.max(insets.bottom, 8) + 8 },
+          ]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -218,7 +222,9 @@ export function MyOrderScreen({
                       {order.deliveryRedispatchPending
                         ? 'მიტანის გადახდა'
                         : order.awaitingOnlinePayment
-                          ? 'გადახდა მელოდება'
+                          ? order.onlinePaymentFailed
+                            ? 'გადახდა ვერ მოხერხდა'
+                            : 'გადახდა მელოდება'
                           : getOrderStatusText(order.status)}
                     </Text>
                   </View>
@@ -287,8 +293,6 @@ export function MyOrderScreen({
               </View>
             ))
           )}
-
-          <View style={{ height: 100 }} />
         </ScrollView>
       )}
 
@@ -301,7 +305,7 @@ export function MyOrderScreen({
         onProfilePress={tabNav.onProfilePress}
         cartCount={tabNav.cartCount}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 

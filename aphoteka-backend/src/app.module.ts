@@ -3,6 +3,7 @@ import { join } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, registerAs } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ScheduleModule } from '@nestjs/schedule';
 import {
   resolveNestPublicBaseUrl,
   resolveBogCallbackUrl,
@@ -72,6 +73,7 @@ function balanceEnvFilePaths(): string[] {
       ignoreEnvFile: false,
       load: [bogConfig],
     }),
+    ScheduleModule.forRoot(),
     MongooseModule.forRoot(process.env.MONGODB_URI || DEFAULT_MONGODB_URI),
     ProductsModule,
     InventoryModule,

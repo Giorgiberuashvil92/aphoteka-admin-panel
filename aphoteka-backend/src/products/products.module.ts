@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ProductsService } from './products.service';
 import { ProductsController } from './products.controller';
+import { BalanceProductsSyncService } from './balance-products-sync.service';
+import { BalanceSyncScheduler } from './balance-sync.scheduler';
 import {
   Product,
   ProductSchema,
@@ -25,7 +27,11 @@ import { BalanceModule } from '../balance/balance.module';
     ]),
   ],
   controllers: [ProductsController],
-  providers: [ProductsService],
+  providers: [
+    ProductsService,
+    BalanceProductsSyncService,
+    BalanceSyncScheduler,
+  ],
   exports: [ProductsService],
 })
 export class ProductsModule {}
