@@ -7,6 +7,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 import { User, UserDocument } from './schemas/user.schema';
+import { Buyer, BuyerDocument } from '../buyers/schemas/buyer.schema';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import {
@@ -30,11 +31,7 @@ function warehouseIdToObjectId(
   }
   if (typeof w === 'object' && w !== null) {
     if ('_id' in w && w._id instanceof Types.ObjectId) return w._id;
-    if (
-      'id' in w &&
-      typeof w.id === 'string' &&
-      Types.ObjectId.isValid(w.id)
-    ) {
+    if ('id' in w && typeof w.id === 'string' && Types.ObjectId.isValid(w.id)) {
       return new Types.ObjectId(w.id);
     }
   }
@@ -45,6 +42,7 @@ function warehouseIdToObjectId(
 export class UsersService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(Buyer.name) private buyerModel: Model<BuyerDocument>,
     @InjectModel(WarehouseEmployee.name)
     private warehouseEmployeeModel: Model<WarehouseEmployeeDocument>,
   ) {}
@@ -81,11 +79,11 @@ export class UsersService {
    * ნებისმიერი როლის მომხმარებელს შეიძლება ჰქონდეს საწყობი; თუ როლი არ არის warehouse_staff,
    * ჩანაწერი მაინც უნდა იყოს, რომ ადმინში საწყობის გვერდზე ჩანდეს.
    */
-  private async syncWarehouseEmployeeForUser(user: UserDocument): Promise<void> {
+  private async syncWarehouseEmployeeForUser(
+    user: UserDocument,
+  ): Promise<void> {
     const uid = user._id.toString();
-    const wid = warehouseIdToObjectId(
-      user.warehouseId as Types.ObjectId | undefined,
-    );
+    const wid = warehouseIdToObjectId(user.warehouseId);
 
     if (wid) {
       const existing = await this.warehouseEmployeeModel
@@ -114,7 +112,6 @@ export class UsersService {
     return users.map((user) => user.toObject());
   }
 
-  /** მობილური „ექიმის“ რეჟიმი: პაციენტის ძიება ელფოსტით (case-insensitive) */
   async lookupByEmail(email: string): Promise<{
     id: string;
     email?: string;
@@ -144,6 +141,144 @@ export class UsersService {
       fullName: user.fullName,
       phoneNumber: user.phoneNumber,
     };
+  }
+
+  /** ელფოსტის autocomplete — ექიმის რეჟიმი */
+  async searchByEmail(
+    query: string,
+    limit = 8,
+  ): Promise<
+    Array<{
+      id: string;
+      email: string;
+      fullName?: string;
+      phoneNumber?: string;
+    }>
+  > {
+    const trimmed = query?.trim();
+    if (!trimmed || trimmed.length < 2) {
+      return [];
+    }
+    const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const cap = Math.min(Math.max(limit, 1), 20);
+    const users = await this.userModel
+      .find({
+        email: { $regex: escaped, $options: 'i' },
+      })
+      .select('email fullName phoneNumber')
+      .limit(cap)
+      .lean()
+      .exec();
+
+    return users
+      .filter((u) => u.email?.trim())
+      .map((u) => ({
+        id: u._id.toString(),
+        email: u.email!.trim(),
+        fullName: u.fullName,
+        phoneNumber: u.phoneNumber,
+      }));
+  }
+
+  private normalizePersonalId(raw: string): string {
+    return (raw ?? '').replace(/\D/g, '');
+  }
+
+  private async patientFromBuyer(buyer: {
+    userId: Types.ObjectId;
+    personalId?: string;
+    fullName?: string;
+  }): Promise<{
+    id: string;
+    personalId: string;
+    email?: string;
+    fullName?: string;
+    phoneNumber: string;
+  }> {
+    const user = await this.userModel
+      .findById(buyer.userId)
+      .select('email fullName phoneNumber')
+      .lean()
+      .exec();
+    if (!user) {
+      throw new NotFoundException('პაციენტი არ მოიძებნა');
+    }
+    return {
+      id: user._id.toString(),
+      personalId: buyer.personalId ?? '',
+      email: user.email,
+      fullName: user.fullName ?? buyer.fullName,
+      phoneNumber: user.phoneNumber,
+    };
+  }
+
+  /** ექიმის რეჟიმი: პაციენტის ძიება პირადი ნომრით (11 ციფრი) */
+  async lookupByPersonalId(personalId: string): Promise<{
+    id: string;
+    personalId: string;
+    email?: string;
+    fullName?: string;
+    phoneNumber: string;
+  }> {
+    const digits = this.normalizePersonalId(personalId);
+    if (digits.length !== 11) {
+      throw new BadRequestException('პირადი ნომერი უნდა იყოს 11 ციფრი');
+    }
+    const buyer = await this.buyerModel
+      .findOne({ personalId: digits, kind: 'individual' })
+      .lean()
+      .exec();
+    if (!buyer?.personalId) {
+      throw new NotFoundException(
+        'ამ პირადი ნომრით მომხმარებელი არ მოიძებნა (უნდა იყოს რეგისტრირებული)',
+      );
+    }
+    return this.patientFromBuyer(buyer);
+  }
+
+  /** პირადი ნომრის autocomplete — ექიმის რეჟიმი */
+  async searchByPersonalId(
+    query: string,
+    limit = 8,
+  ): Promise<
+    Array<{
+      id: string;
+      personalId: string;
+      email?: string;
+      fullName?: string;
+      phoneNumber?: string;
+    }>
+  > {
+    const digits = this.normalizePersonalId(query);
+    if (digits.length < 3) {
+      return [];
+    }
+    const cap = Math.min(Math.max(limit, 1), 20);
+    const buyers = await this.buyerModel
+      .find({
+        kind: 'individual',
+        personalId: { $regex: `^${digits}` },
+      })
+      .limit(cap)
+      .lean()
+      .exec();
+
+    const out: Array<{
+      id: string;
+      personalId: string;
+      email?: string;
+      fullName?: string;
+      phoneNumber?: string;
+    }> = [];
+    for (const buyer of buyers) {
+      if (!buyer.personalId) continue;
+      try {
+        out.push(await this.patientFromBuyer(buyer));
+      } catch {
+        // skip orphaned buyer rows
+      }
+    }
+    return out;
   }
 
   async findOne(id: string): Promise<User> {

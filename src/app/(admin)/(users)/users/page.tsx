@@ -10,6 +10,7 @@ import CreateUserModal from "@/components/users/CreateUserModal";
 
 const roleLabels: Record<UserRole, string> = {
   [UserRole.CONSUMER]: "მომხმარებელი",
+  [UserRole.DOCTOR]: "ექიმი",
   [UserRole.OPERATIONS]: "ოპერაციები",
   [UserRole.DELIVERY]: "მიტანა",
   [UserRole.WAREHOUSE_STAFF]: "საწყობის თანამშრომელი",

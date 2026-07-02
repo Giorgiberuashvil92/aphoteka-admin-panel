@@ -2,6 +2,7 @@ import { BottomNavigation } from '@/src/components/common/BottomNavigation';
 import { useCart, useFavorites } from '@/src/contexts';
 import { useTabNavigation } from '@/src/hooks/useTabNavigation';
 import { OrdersService } from '@/src/services/orders.service';
+import { PrescriptionsApi } from '@/src/services/prescriptions.service';
 import { UserService } from '@/src/services/user.service';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -35,7 +36,8 @@ type SettingsScreenProps = {
   onLanguage: () => void;
   onHelpSupport: () => void;
   onAbout: () => void;
-  onDoctorPrescribe?: () => void;
+  /** პაციენტი — ექიმის მიერ დანიშნული წამლები */
+  onDoctorPrescription?: () => void;
   onGoToProfile: () => void;
   isMainTab?: boolean;
 };
@@ -48,7 +50,7 @@ export function SettingsScreen({
   onLanguage,
   onHelpSupport,
   onAbout,
-  onDoctorPrescribe,
+  onDoctorPrescription,
   onGoToProfile,
   isMainTab = false,
 }: SettingsScreenProps) {
@@ -58,6 +60,7 @@ export function SettingsScreen({
   const tabNav = useTabNavigation();
   const [firstName, setFirstName] = useState('');
   const [ordersCount, setOrdersCount] = useState(0);
+  const [prescriptionCount, setPrescriptionCount] = useState(0);
 
   const loadData = useCallback(async () => {
     const fresh = await UserService.fetchProfile();
@@ -66,8 +69,14 @@ export function SettingsScreen({
       setFirstName(user.firstName.trim());
     }
 
-    const result = await OrdersService.fetchMyOrders();
-    setOrdersCount(result.ok ? result.orders.length : 0);
+    const [ordersResult, prescriptionsResult] = await Promise.all([
+      OrdersService.fetchMyOrders(),
+      PrescriptionsApi.getMyPrescriptions(),
+    ]);
+    setOrdersCount(ordersResult.ok ? ordersResult.orders.length : 0);
+    setPrescriptionCount(
+      prescriptionsResult.ok ? prescriptionsResult.prescriptions.length : 0,
+    );
   }, []);
 
   useFocusEffect(
@@ -139,6 +148,27 @@ export function SettingsScreen({
             <Ionicons name="chevron-forward" size={18} color={C.muted} />
           </TouchableOpacity>
 
+          {onDoctorPrescription ? (
+            <TouchableOpacity
+              style={styles.ordersCard}
+              onPress={onDoctorPrescription}
+              activeOpacity={0.88}
+            >
+              <View style={styles.ordersCardIcon}>
+                <Ionicons name="medkit-outline" size={22} color={C.navy} />
+              </View>
+              <View style={styles.ordersCardBody}>
+                <Text style={styles.ordersCardTitle}>ექიმის დანიშნულება</Text>
+                <Text style={styles.ordersCardSub}>
+                  {prescriptionCount > 0
+                    ? `${prescriptionCount} დანიშნულება ექიმისგან`
+                    : 'ექიმის მიერ დანიშნული წამლები'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={C.muted} />
+            </TouchableOpacity>
+          ) : null}
+
           <Text style={styles.sectionTitle}>სწრაფი წვდომა</Text>
           <View style={styles.quickGrid}>
             <TouchableOpacity
@@ -169,20 +199,6 @@ export function SettingsScreen({
               </Text>
             </TouchableOpacity>
 
-            {onDoctorPrescribe ? (
-              <TouchableOpacity
-                style={styles.quickCard}
-                onPress={onDoctorPrescribe}
-                activeOpacity={0.85}
-              >
-                <View style={styles.quickCardIcon}>
-                  <Ionicons name="medkit-outline" size={20} color={C.navy} />
-                </View>
-                <Text style={styles.quickCardTitle}>ექიმის რეჟიმი</Text>
-                <Text style={styles.quickCardMeta}>დანიშნულება</Text>
-              </TouchableOpacity>
-            ) : null}
-
             <TouchableOpacity
               style={styles.quickCard}
               onPress={onNotifications}
@@ -196,48 +212,9 @@ export function SettingsScreen({
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.sectionTitle}>სერვისები</Text>
-          <View style={styles.serviceCard}>
-            {serviceItems.map((item, index) => (
-              <TouchableOpacity
-                key={item.label}
-                style={[
-                  styles.serviceItem,
-                  index < serviceItems.length - 1 && styles.serviceItemBorder,
-                ]}
-                onPress={item.onPress}
-                activeOpacity={0.8}
-              >
-                <View style={styles.serviceItemLeft}>
-                  <Ionicons name={item.icon} size={18} color={C.navy} />
-                  <Text style={styles.serviceItemLabel}>{item.label}</Text>
-                </View>
-                <View style={styles.serviceItemRight}>
-                  {item.value ? (
-                    <Text style={styles.serviceItemValue}>{item.value}</Text>
-                  ) : null}
-                  <Ionicons name="chevron-forward" size={16} color={C.muted} />
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
 
-          <TouchableOpacity
-            style={styles.profileCard}
-            onPress={onGoToProfile}
-            activeOpacity={0.85}
-          >
-            <View style={styles.profileCardIcon}>
-              <Ionicons name="person-circle-outline" size={22} color={C.purple} />
-            </View>
-            <View style={styles.profileCardBody}>
-              <Text style={styles.profileCardTitle}>პროფილი და ანგარიში</Text>
-              <Text style={styles.profileCardSub}>
-                პირადი მონაცემები, მისამართები, გადახდა
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={C.muted} />
-          </TouchableOpacity>
+
+          
 
           <Text style={styles.versionText}>ვერსია 1.0.0</Text>
         </ScrollView>

@@ -23,7 +23,9 @@ export class PrescriptionsService {
       throw new BadRequestException('მინიმუმ ერთი წამალი უნდა აირჩიო');
     }
 
-    const patient = await this.usersService.lookupByEmail(dto.patientEmail);
+    const patient = await this.usersService.lookupByPersonalId(
+      dto.patientPersonalId,
+    );
 
     const lines = await Promise.all(
       dto.items.map(async (line) => {
@@ -43,7 +45,7 @@ export class PrescriptionsService {
 
     const doc = await this.prescriptionModel.create({
       patientId: new Types.ObjectId(patient.id),
-      patientEmail: patient.email ?? dto.patientEmail.trim().toLowerCase(),
+      patientEmail: patient.email ?? '',
       prescribedByUserId: new Types.ObjectId(prescribedByUserId),
       items: lines,
     });
@@ -59,13 +61,31 @@ export class PrescriptionsService {
       .find({ patientId: new Types.ObjectId(patientUserId) })
       .sort({ createdAt: -1 })
       .limit(20)
+      .populate('prescribedByUserId', 'fullName email')
       .lean()
       .exec();
     return rows.map((doc) => {
       const created = (doc as { createdAt?: Date }).createdAt;
+      const prescriber = doc.prescribedByUserId as
+        | { fullName?: string; email?: string }
+        | Types.ObjectId
+        | null
+        | undefined;
+      let prescribedByName: string | undefined;
+      let prescribedByEmail: string | undefined;
+      if (
+        prescriber &&
+        typeof prescriber === 'object' &&
+        'fullName' in prescriber
+      ) {
+        prescribedByName = prescriber.fullName?.trim() || undefined;
+        prescribedByEmail = prescriber.email?.trim() || undefined;
+      }
       return {
         id: String(doc._id),
         createdAt: created ? new Date(created).toISOString() : undefined,
+        prescribedByName,
+        prescribedByEmail,
         items: (doc.items ?? []).map((it) => ({
           productId: it.productId?.toString() ?? '',
           productName: it.productName,

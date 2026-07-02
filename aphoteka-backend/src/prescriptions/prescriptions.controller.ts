@@ -10,6 +10,9 @@ import {
 import { PrescriptionsService } from './prescriptions.service';
 import { CreatePrescriptionDto } from './dto/create-prescription.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { UserRole } from '../users/schemas/user.schema';
 
 function extractUserId(user: unknown): string {
   if (!user || typeof user !== 'object') {
@@ -53,7 +56,8 @@ export class PrescriptionsController {
   }
 
   @Post()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.DOCTOR, UserRole.ADMIN)
   create(
     @Body() dto: CreatePrescriptionDto,
     @Request() req: { user?: unknown },

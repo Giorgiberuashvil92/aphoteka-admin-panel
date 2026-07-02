@@ -5,6 +5,8 @@ export type UserDocument = HydratedDocument<User>;
 
 export enum UserRole {
   CONSUMER = 'consumer',
+  /** ექიმი — პაციენტზე დანიშნულების შექმნა (მობილური აპი) */
+  DOCTOR = 'doctor',
   OPERATIONS = 'operations',
   DELIVERY = 'delivery',
   /** საწყობის თანამშრომელი — მხოლოდ თავისი საწყობის შეკვეთების სტატუსები */

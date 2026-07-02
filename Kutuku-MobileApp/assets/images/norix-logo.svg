@@ -1,0 +1,25 @@
+<svg width="520" height="170" viewBox="0 0 520 170" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="95"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="86"
+        font-weight="500"
+        letter-spacing="-3"
+        fill="#132B73">
+    Norix
+  </text>
+
+  <g transform="translate(298 18)">
+    <rect x="0" y="0" width="22" height="50" rx="11" fill="white" stroke="#132B73" stroke-width="4"/>
+    <path d="M3 11C3 5 8 2 11 2C17 2 19 6 19 11V24H3V11Z" fill="#22B8B5"/>
+    <line x1="3" y1="25" x2="19" y2="25" stroke="#132B73" stroke-width="2"/>
+  </g>
+
+  <text x="28" y="140"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="24"
+        font-weight="400"
+        letter-spacing="11"
+        fill="#111111">
+    PHARMACEUTICALS
+  </text>
+</svg>

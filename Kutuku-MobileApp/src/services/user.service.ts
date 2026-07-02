@@ -1,11 +1,27 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_CONFIG, getAuthHeaders } from '@/src/config/api.config';
 
+export enum UserRole {
+  CONSUMER = 'consumer',
+  DOCTOR = 'doctor',
+  OPERATIONS = 'operations',
+  DELIVERY = 'delivery',
+  WAREHOUSE_STAFF = 'warehouse_staff',
+  ADMIN = 'admin',
+}
+
+export function canPrescribe(role?: string): boolean {
+  return role === UserRole.DOCTOR || role === UserRole.ADMIN;
+}
+
+export const PRESCRIBE_ROLES: string[] = [UserRole.DOCTOR, UserRole.ADMIN];
+
 export type User = {
   id: string;
   firstName: string;
   lastName: string;
   email: string;
+  role?: UserRole | string;
   /** Mongo `Buyer` — მყიდველის პროფილი რეგისტრაციისას */
   buyerId?: string;
   /** Balance.ge Exchange Clients `uid` */
@@ -136,6 +152,7 @@ class UserServiceClass {
         parts.slice(1).join(' ') ||
         '',
       email: typeof data.email === 'string' ? data.email : '',
+      ...(typeof data.role === 'string' && data.role ? { role: data.role } : {}),
       ...(typeof data.buyerId === 'string' && data.buyerId ? { buyerId: data.buyerId } : {}),
       ...(meBal ? { balanceBuyerUid: meBal } : {}),
     };
@@ -244,6 +261,7 @@ class UserServiceClass {
           firstName: String(ru.firstName ?? ''),
           lastName: String(ru.lastName ?? ''),
           email: String(ru.email ?? ''),
+          ...(typeof ru.role === 'string' && ru.role ? { role: ru.role } : {}),
           ...(typeof ru.buyerId === 'string' && ru.buyerId ? { buyerId: ru.buyerId } : {}),
           ...(regBal ? { balanceBuyerUid: regBal } : {}),
         };
@@ -328,6 +346,7 @@ class UserServiceClass {
           firstName: String(rawUser.firstName ?? ''),
           lastName: String(rawUser.lastName ?? ''),
           email: String(rawUser.email ?? rawUser.phoneNumber ?? identifier),
+          ...(typeof rawUser.role === 'string' && rawUser.role ? { role: rawUser.role } : {}),
           ...(typeof rawUser.buyerId === 'string' && rawUser.buyerId
             ? { buyerId: rawUser.buyerId }
             : {}),

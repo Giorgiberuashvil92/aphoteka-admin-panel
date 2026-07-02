@@ -10,6 +10,10 @@ import { Model, Types } from 'mongoose';
 import { randomUUID } from 'crypto';
 import { BOG_INLINE } from '../config/bog-inline';
 import {
+  resolveBogCallbackUrl,
+  resolveNestPublicBaseUrl,
+} from '../config/nest-public-url';
+import {
   Order,
   OrderDocument,
   OrderStatus,
@@ -122,13 +126,14 @@ export class BogPaymentsService {
       ).trim(),
       publicBaseUrl: normBase(
         ns?.publicBaseUrl?.trim() ||
-          process.env.NEST_PUBLIC_URL?.trim() ||
+          resolveNestPublicBaseUrl() ||
           BOG_INLINE.publicBaseUrl ||
           '',
       ),
       callbackUrlFull: normBase(
         ns?.callbackUrlFull?.trim() ||
           process.env.BOG_CALLBACK_URL?.trim() ||
+          resolveBogCallbackUrl() ||
           BOG_INLINE.callbackUrlFull ||
           '',
       ),

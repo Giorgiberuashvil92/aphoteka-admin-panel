@@ -1,21 +1,43 @@
 import { useCart } from '@/src/contexts';
-import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import type { Href } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
+import { useCallback, useMemo } from 'react';
 
-/** ქვედა ტაბების ნავიგაცია — ერთიანი მარშრუტები ყველა ეკრანზე */
+export const TAB_PATHS = {
+  home: '/home',
+  categories: '/category',
+  cabinet: '/settings',
+  cart: '/cart',
+  profile: '/profile',
+} as const;
+
+function isActiveTab(path: string, pathname: string): boolean {
+  return pathname === path || pathname.startsWith(`${path}/`);
+}
+
+/** ქვედა ტაბების ნავიგაცია — slide ანიმაციის გარეშე */
 export function useTabNavigation() {
   const router = useRouter();
+  const pathname = usePathname();
   const { itemCount } = useCart();
+
+  const goTab = useCallback(
+    (path: Href) => {
+      if (isActiveTab(String(path), pathname)) return;
+      router.dismissTo(path);
+    },
+    [pathname, router],
+  );
 
   return useMemo(
     () => ({
       cartCount: itemCount,
-      onHomePress: () => router.push('/home' as any),
-      onCategoriesPress: () => router.push('/category' as any),
-      onCabinetPress: () => router.push('/settings' as any),
-      onCartPress: () => router.push('/cart' as any),
-      onProfilePress: () => router.push('/profile' as any),
+      onHomePress: () => goTab(TAB_PATHS.home),
+      onCategoriesPress: () => goTab(TAB_PATHS.categories),
+      onCabinetPress: () => goTab(TAB_PATHS.cabinet),
+      onCartPress: () => goTab(TAB_PATHS.cart),
+      onProfilePress: () => goTab(TAB_PATHS.profile),
     }),
-    [router, itemCount],
+    [goTab, itemCount],
   );
 }

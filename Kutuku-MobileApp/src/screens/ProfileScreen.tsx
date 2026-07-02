@@ -1,6 +1,6 @@
 import { BottomNavigation } from '@/src/components/common/BottomNavigation';
 import { useTabNavigation } from '@/src/hooks/useTabNavigation';
-import { UserService } from '@/src/services/user.service';
+import { UserService, canPrescribe } from '@/src/services/user.service';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
@@ -37,6 +37,8 @@ interface MenuItem {
 
 interface ProfileScreenProps {
   onLogout: () => void;
+  /** ექიმი — პაციენტზე დანიშნულების შექმნა */
+  onDoctorPrescribe?: () => void;
   onPersonalInfoPress: () => void;
   onAddressesPress: () => void;
   onPaymentMethodsPress: () => void;
@@ -49,6 +51,7 @@ interface ProfileScreenProps {
 
 export function ProfileScreen({
   onLogout,
+  onDoctorPrescribe,
   onPersonalInfoPress,
   onAddressesPress,
   onPaymentMethodsPress,
@@ -64,36 +67,35 @@ export function ProfileScreen({
     firstName: string;
     lastName?: string;
     email: string;
+    role?: string;
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const profile = await UserService.fetchProfile();
+      if (profile) {
+        setUser({
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          email: profile.email,
+          role: profile.role,
+        });
+      } else {
+        setUser(null);
+      }
+    } catch {
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      let cancelled = false;
-      const load = async () => {
-        setLoading(true);
-        try {
-          const profile = await UserService.fetchProfile();
-          if (!cancelled && profile) {
-            setUser({
-              firstName: profile.firstName,
-              lastName: profile.lastName,
-              email: profile.email,
-            });
-          } else if (!cancelled) {
-            setUser(null);
-          }
-        } catch {
-          if (!cancelled) setUser(null);
-        } finally {
-          if (!cancelled) setLoading(false);
-        }
-      };
-      load();
-      return () => {
-        cancelled = true;
-      };
-    }, []),
+      void loadData();
+    }, [loadData]),
   );
 
   const displayName = user
@@ -158,7 +160,11 @@ export function ProfileScreen({
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.intro}>
-          <Text style={styles.pageTitle}>პროფილი</Text>
+          <Text style={styles.greeting}>
+            {user?.firstName?.trim()
+              ? `გამარჯობა, ${user.firstName.trim()}`
+              : 'გამარჯობა'}
+          </Text>
           <Text style={styles.pageSub}>ანგარიში და პარამეტრები</Text>
         </View>
 
@@ -190,6 +196,26 @@ export function ProfileScreen({
             </>
           )}
         </TouchableOpacity>
+
+        {canPrescribe(user?.role) && onDoctorPrescribe ? (
+          <>
+            <Text style={styles.sectionTitle}>ექიმის მხარე</Text>
+            <TouchableOpacity
+              style={styles.quickCard}
+              onPress={onDoctorPrescribe}
+              activeOpacity={0.88}
+            >
+              <View style={styles.quickCardIcon}>
+                <Ionicons name="medkit-outline" size={22} color={C.navy} />
+              </View>
+              <View style={styles.quickCardBody}>
+                <Text style={styles.quickCardTitle}>პაციენტის დანიშნულება</Text>
+                <Text style={styles.quickCardMeta}>წამლების მინიშნება პაციენტზე</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={C.muted} />
+            </TouchableOpacity>
+          </>
+        ) : null}
 
         <Text style={styles.sectionTitle}>ანგარიში</Text>
         {renderMenu(accountItems)}
@@ -231,7 +257,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     paddingTop: 4,
   },
-  pageTitle: {
+  greeting: {
     fontSize: 22,
     fontWeight: '600',
     color: C.text,
@@ -291,6 +317,48 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: C.purple,
+  },
+  quickCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: C.bg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 14,
+    marginBottom: 20,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#2A3A7A',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+      },
+      android: { elevation: 2 },
+    }),
+  },
+  quickCardIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: C.lavender,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickCardBody: {
+    flex: 1,
+  },
+  quickCardTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: C.text,
+    marginBottom: 2,
+  },
+  quickCardMeta: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: C.muted,
   },
   sectionTitle: {
     fontSize: 14,

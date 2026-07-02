@@ -1,16 +1,17 @@
-import { theme } from '@/src/theme';
+import { fonts } from '@/src/theme/fonts';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    Dimensions,
-    FlatList,
-    Image,
-    ImageSourcePropType,
-    NativeScrollEvent,
-    NativeSyntheticEvent,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Dimensions,
+  FlatList,
+  Image,
+  ImageSourcePropType,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 interface HeroSlide {
@@ -24,33 +25,39 @@ interface HeroSlide {
 interface HeroSliderProps {
   slides: HeroSlide[];
   autoSlideInterval?: number;
+  onButtonPress?: (slide: HeroSlide) => void;
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const SLIDER_HEIGHT = 500;
-const AUTO_SLIDE_INTERVAL = 10000; // 10 seconds
+const HORIZONTAL_PADDING = 18;
+const CARD_WIDTH = SCREEN_WIDTH - HORIZONTAL_PADDING * 2;
+const SLIDER_HEIGHT = 268;
+const AUTO_SLIDE_INTERVAL = 10000;
 
-export function HeroSlider({ 
-  slides, 
-  autoSlideInterval = AUTO_SLIDE_INTERVAL 
+const C = {
+  navy: '#0D2B78',
+  white: '#FFFFFF',
+};
+
+export function HeroSlider({
+  slides,
+  autoSlideInterval = AUTO_SLIDE_INTERVAL,
+  onButtonPress,
 }: HeroSliderProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const autoSlideTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Auto-slide functionality
   useEffect(() => {
     if (slides.length <= 1) return;
 
     autoSlideTimerRef.current = setInterval(() => {
       setCurrentIndex((prevIndex) => {
         const nextIndex = prevIndex + 1 >= slides.length ? 0 : prevIndex + 1;
-        
         flatListRef.current?.scrollToOffset({
-          offset: nextIndex * SCREEN_WIDTH,
+          offset: nextIndex * CARD_WIDTH,
           animated: true,
         });
-
         return nextIndex;
       });
     }, autoSlideInterval);
@@ -62,72 +69,50 @@ export function HeroSlider({
     };
   }, [slides.length, autoSlideInterval]);
 
-  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetX = event.nativeEvent.contentOffset.x;
-    const newIndex = Math.round(offsetX / SCREEN_WIDTH);
-    
-    if (newIndex !== currentIndex && newIndex >= 0 && newIndex < slides.length) {
-      setCurrentIndex(newIndex);
-    }
-  }, [currentIndex, slides.length]);
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const offsetX = event.nativeEvent.contentOffset.x;
+      const newIndex = Math.round(offsetX / CARD_WIDTH);
+      if (newIndex !== currentIndex && newIndex >= 0 && newIndex < slides.length) {
+        setCurrentIndex(newIndex);
+      }
+    },
+    [currentIndex, slides.length],
+  );
 
   const renderSlide = ({ item }: { item: HeroSlide }) => {
-    const imageSource = typeof item.image === 'string' 
-      ? { uri: item.image } 
-      : item.image;
+    const imageSource = typeof item.image === 'string' ? { uri: item.image } : item.image;
 
     return (
       <View style={styles.slideContainer}>
-        <Image
-          source={imageSource}
-          style={styles.slideImage}
-          resizeMode="cover"
+        <Image source={imageSource} style={styles.slideImage} resizeMode="cover" />
+        <LinearGradient
+          colors={['rgba(255,255,255,0.92)', 'rgba(255,255,255,0.55)', 'rgba(255,255,255,0)']}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 0.75, y: 0.5 }}
+          style={styles.gradient}
         />
-        
-        {/* Dark Overlay */}
-        <View style={styles.overlay}>
-          {/* Content at bottom */}
-          <View style={styles.content}>
-            <Text style={styles.title}>{item.title}</Text>
-            <Text style={styles.description}>{item.description}</Text>
-          </View>
-
-          {/* Button */}
-          {item.buttonText && (
-            <TouchableOpacity style={styles.button}>
+        <View style={styles.textOverlay}>
+          <Text style={styles.title}>{item.title}</Text>
+          <Text style={styles.description}>{item.description}</Text>
+          {item.buttonText ? (
+            <TouchableOpacity
+              style={styles.button}
+              onPress={() => onButtonPress?.(item)}
+              activeOpacity={0.88}
+            >
               <Text style={styles.buttonText}>{item.buttonText}</Text>
             </TouchableOpacity>
-          )}
+          ) : null}
         </View>
       </View>
     );
   };
 
-  // Animated pagination dots
-  const renderPaginationDots = () => (
-    <View style={styles.paginationContainer}>
-      {slides.map((_, index) => {
-        const isActive = index === currentIndex;
-        
-        return (
-          <View
-            key={`dot-${index}`}
-            style={[
-              styles.paginationDot,
-              isActive && styles.paginationDotActive,
-            ]}
-          />
-        );
-      })}
-    </View>
-  );
-
   if (slides.length === 0) return null;
 
   return (
-    <View style={styles.container}>
-      {renderPaginationDots()}
-      
+    <View style={styles.wrapper}>
       <FlatList
         ref={flatListRef}
         data={slides}
@@ -139,92 +124,105 @@ export function HeroSlider({
         onMomentumScrollEnd={handleScroll}
         scrollEventThrottle={16}
         decelerationRate="fast"
-        snapToAlignment="start"
+        snapToInterval={CARD_WIDTH}
         bounces={false}
-        maxToRenderPerBatch={3}
-        windowSize={3}
-        removeClippedSubviews
+        style={styles.list}
       />
+
+      {slides.length > 1 ? (
+        <View style={styles.dots} pointerEvents="none">
+          {slides.map((_, index) => (
+            <View
+              key={`dot-${index}`}
+              style={[styles.dot, index === currentIndex && styles.dotActive]}
+            />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    width: '100%',
+  wrapper: {
+    marginHorizontal: HORIZONTAL_PADDING,
     height: SLIDER_HEIGHT,
-    position: 'relative',
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: C.white,
+    marginTop: 4,
+    marginBottom: 2,
+    shadowColor: '#1a2a5e',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
-  paginationContainer: {
-    position: 'absolute',
-    top: 16,
-    width: '100%',
-    left: 0,
-    height: 20,
-    zIndex: 1,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 4,
-  },
-  paginationDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.5)',
-  },
-  paginationDotActive: {
-    width: 24,
-    backgroundColor: theme.colors.white,
+  list: {
+    flexGrow: 0,
   },
   slideContainer: {
-    width: SCREEN_WIDTH,
+    width: CARD_WIDTH,
     height: SLIDER_HEIGHT,
+    position: 'relative',
   },
   slideImage: {
     width: '100%',
     height: '100%',
   },
-  overlay: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: '100%',
-    height: '100%',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-    paddingBottom: 24,
-    gap: 20,
+  gradient: {
+    ...StyleSheet.absoluteFillObject,
   },
-  content: {
-    gap: 8,
-    paddingHorizontal: 16,
+  textOverlay: {
+    position: 'absolute',
+    left: 22,
+    top: 44,
+    right: 80,
   },
   title: {
-    fontSize: 28,
-    fontWeight: '600',
-    color: theme.colors.white,
-    textAlign: 'center',
-    textTransform: 'uppercase',
+    fontFamily: fonts.extraBold,
+    fontSize: 20,
+    lineHeight: 27,
+    color: C.navy,
   },
   description: {
+    marginTop: 10,
+    fontFamily: fonts.regular,
     fontSize: 12,
-    fontWeight: '400',
-    color: theme.colors.white,
-    textAlign: 'center',
+    lineHeight: 18,
+    color: C.navy,
+    opacity: 0.72,
   },
   button: {
-    alignSelf: 'center',
-    paddingHorizontal: 16,
+    marginTop: 16,
+    backgroundColor: C.navy,
+    paddingHorizontal: 20,
     paddingVertical: 10,
-    backgroundColor: theme.colors.white,
-    borderRadius: 100,
+    borderRadius: 24,
+    alignSelf: 'flex-start',
   },
   buttonText: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: theme.colors.black,
-    textTransform: 'uppercase',
+    fontFamily: fonts.semibold,
+    color: C.white,
+    fontSize: 12,
+  },
+  dots: {
+    position: 'absolute',
+    bottom: 18,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+  },
+  dotActive: {
+    backgroundColor: C.navy,
+    width: 8,
   },
 });

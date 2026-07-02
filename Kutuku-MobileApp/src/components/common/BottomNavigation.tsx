@@ -1,7 +1,14 @@
-import { theme } from '@/src/theme';
+import { fonts } from '@/src/theme/fonts';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const C = {
+  navy: '#0D2B78',
+  muted: '#8B97AE',
+  border: '#E4E9F2',
+  white: '#FFFFFF',
+};
 
 export type BottomNavTab = 'home' | 'categories' | 'cabinet' | 'cart' | 'profile';
 
@@ -13,6 +20,8 @@ interface BottomNavigationProps {
   onCartPress?: () => void;
   onProfilePress?: () => void;
   cartCount?: number;
+  /** ქვედა safe area-ს ფონი (მთავარი ეკრანის ფერი) */
+  safeAreaColor?: string;
 }
 
 export function BottomNavigation({
@@ -23,21 +32,19 @@ export function BottomNavigation({
   onCartPress,
   onProfilePress,
   cartCount = 0,
+  safeAreaColor = C.white,
 }: BottomNavigationProps) {
   const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, 0);
 
   return (
-    <View
-      style={[
-        styles.bottomNav,
-        { paddingBottom: Math.max(insets.bottom, 8) },
-      ]}
-    >
+    <View style={styles.wrapper}>
+      <View style={styles.bottomNav}>
       <TouchableOpacity style={styles.navItem} onPress={onHomePress}>
         <Ionicons
-          name="home"
+          name={activeTab === 'home' ? 'home' : 'home-outline'}
           size={26}
-          color={activeTab === 'home' ? theme.colors.text.primary : theme.colors.text.secondary}
+          color={activeTab === 'home' ? C.navy : C.muted}
         />
         <Text style={[styles.navText, activeTab === 'home' && styles.navTextActive]}>
           მთავარი
@@ -48,7 +55,7 @@ export function BottomNavigation({
         <Ionicons
           name="grid-outline"
           size={26}
-          color={activeTab === 'categories' ? theme.colors.text.primary : theme.colors.text.secondary}
+          color={activeTab === 'categories' ? C.navy : C.muted}
         />
         <Text style={[styles.navText, activeTab === 'categories' && styles.navTextActive]}>
           კატეგორიები
@@ -59,7 +66,7 @@ export function BottomNavigation({
         <Ionicons
           name="id-card-outline"
           size={26}
-          color={activeTab === 'cabinet' ? theme.colors.text.primary : theme.colors.text.secondary}
+          color={activeTab === 'cabinet' ? C.navy : C.muted}
         />
         <Text style={[styles.navText, activeTab === 'cabinet' && styles.navTextActive]}>
           პირადი კაბინეტი
@@ -71,7 +78,7 @@ export function BottomNavigation({
           <Ionicons
             name="cart-outline"
             size={26}
-            color={activeTab === 'cart' ? theme.colors.text.primary : theme.colors.text.secondary}
+            color={activeTab === 'cart' ? C.navy : C.muted}
           />
           {cartCount > 0 ? (
             <View style={styles.navBadge}>
@@ -88,27 +95,34 @@ export function BottomNavigation({
         <Ionicons
           name="person-outline"
           size={26}
-          color={activeTab === 'profile' ? theme.colors.text.primary : theme.colors.text.secondary}
+          color={activeTab === 'profile' ? C.navy : C.muted}
         />
         <Text style={[styles.navText, activeTab === 'profile' && styles.navTextActive]}>
           პროფილი
         </Text>
       </TouchableOpacity>
+      </View>
+      {bottomInset > 0 ? (
+        <View style={{ height: bottomInset, backgroundColor: safeAreaColor }} />
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrapper: {
+    backgroundColor: C.white,
+  },
   bottomNav: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
     paddingTop: 12,
+    paddingBottom: 10,
     paddingHorizontal: 8,
-    backgroundColor: theme.colors.white,
+    backgroundColor: C.white,
     borderTopWidth: 1,
-    borderTopColor: theme.colors.gray[400],
-    ...theme.shadows.md,
+    borderTopColor: C.border,
   },
   navItem: {
     alignItems: 'center',
@@ -123,7 +137,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -4,
     right: -6,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: '#24B7B4',
     borderRadius: 8,
     minWidth: 16,
     height: 16,
@@ -132,17 +146,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   navBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: theme.colors.white,
+    fontFamily: fonts.bold,
+    fontSize: 9,
+    color: C.white,
   },
   navText: {
+    marginTop: 5,
+    fontFamily: fonts.semibold,
     fontSize: 9,
-    color: theme.colors.text.secondary,
+    color: C.muted,
     textAlign: 'center',
   },
   navTextActive: {
-    color: theme.colors.text.primary,
-    fontWeight: '600',
+    fontFamily: fonts.extraBold,
+    color: C.navy,
   },
 });

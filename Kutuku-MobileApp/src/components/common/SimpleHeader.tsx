@@ -1,6 +1,13 @@
-import { theme } from '@/src/theme';
+import { fonts } from '@/src/theme/fonts';
+import { NorixLogo } from '@/src/components/common/NorixLogo';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+const C = {
+  navy: '#0D2B78',
+  teal: '#24B7B4',
+  white: '#FFFFFF',
+};
 
 interface SimpleHeaderProps {
   onMenuPress?: () => void;
@@ -8,82 +15,90 @@ interface SimpleHeaderProps {
   notificationsCount?: number;
 }
 
-export function SimpleHeader({ 
+export function SimpleHeader({
   onMenuPress,
   onNotificationsPress,
   notificationsCount = 0,
 }: SimpleHeaderProps) {
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        {/* Menu Button */}
-        <TouchableOpacity 
-          style={styles.menuButton}
-          onPress={onMenuPress}
-        >
-          <Ionicons name="menu" size={28} color={theme.colors.text.primary} />
-        </TouchableOpacity>
+      <TouchableOpacity style={styles.sideBtn} onPress={onMenuPress} activeOpacity={0.8}>
+        <Ionicons name="menu" size={26} color={C.navy} />
+      </TouchableOpacity>
 
-        <View style={styles.spacer} />
-
-        {/* Notifications Button */}
-        <TouchableOpacity 
-          style={styles.notificationButton}
-          onPress={onNotificationsPress}
-        >
-          <Ionicons name="notifications-outline" size={24} color={theme.colors.text.primary} />
-          {notificationsCount > 0 && (
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationBadgeText}>{notificationsCount}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
+      <View style={styles.logoWrap} pointerEvents="none">
+        <NorixLogo />
       </View>
+
+      <TouchableOpacity
+        style={styles.sideBtn}
+        onPress={onNotificationsPress}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="notifications-outline" size={26} color={C.navy} />
+        {notificationsCount > 0 ? (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>
+              {notificationsCount > 9 ? '9+' : notificationsCount}
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.dot} />
+        )}
+      </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: theme.colors.white,
-  },
-  header: {
+    height: 64,
+    paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    justifyContent: 'space-between',
+    backgroundColor: C.white,
+    position: 'relative',
   },
-  spacer: {
-    flex: 1,
-  },
-  menuButton: {
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
+  logoWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingLeft: 12,
   },
-  notificationButton: {
-    width: 44,
-    height: 44,
+  sideBtn: {
+    width: 40,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
   },
-  notificationBadge: {
+  dot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: C.teal,
     position: 'absolute',
-    top: 8,
-    right: 8,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: theme.colors.primary,
+    right: 5,
+    top: 7,
+  },
+  badge: {
+    position: 'absolute',
+    right: 2,
+    top: 4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: C.teal,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 3,
   },
-  notificationBadgeText: {
-    color: theme.colors.white,
-    fontSize: 10,
-    fontWeight: '700',
+  badgeText: {
+    fontFamily: fonts.bold,
+    color: C.white,
+    fontSize: 8,
   },
 });

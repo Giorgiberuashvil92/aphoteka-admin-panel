@@ -1,6 +1,8 @@
 // User Roles
 export enum UserRole {
   CONSUMER = "consumer",
+  /** ექიმი — პაციენტზე დანიშნულება (მობილური აპი) */
+  DOCTOR = "doctor",
   OPERATIONS = "operations",
   DELIVERY = "delivery",
   /** საწყობის თანამშრომელი — შეკვეთების სტატუსები თავის საწყობზე */

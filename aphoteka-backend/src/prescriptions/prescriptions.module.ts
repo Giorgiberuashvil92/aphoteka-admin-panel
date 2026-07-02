@@ -8,6 +8,7 @@ import {
 } from './schemas/prescription.schema';
 import { UsersModule } from '../users/users.module';
 import { ProductsModule } from '../products/products.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { ProductsModule } from '../products/products.module';
     ]),
     UsersModule,
     ProductsModule,
+    AuthModule,
   ],
   controllers: [PrescriptionsController],
   providers: [PrescriptionsService],

@@ -1,11 +1,11 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
-  IsEmail,
   IsInt,
   IsMongoId,
   IsOptional,
   IsString,
+  Matches,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -24,8 +24,9 @@ export class PrescriptionLineDto {
 }
 
 export class CreatePrescriptionDto {
-  @IsEmail()
-  patientEmail: string;
+  @IsString()
+  @Matches(/^\d{11}$/, { message: 'patientPersonalId must be 11 digits' })
+  patientPersonalId: string;
 
   @IsArray()
   @ValidateNested({ each: true })

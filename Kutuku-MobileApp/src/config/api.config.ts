@@ -66,6 +66,9 @@ export const API_CONFIG = {
     },
     users: {
       lookupByEmail: '/users/lookup-by-email',
+      searchByEmail: '/users/search-by-email',
+      lookupByPersonalId: '/users/lookup-by-personal-id',
+      searchByPersonalId: '/users/search-by-personal-id',
       update: (id: string) => `/users/${encodeURIComponent(id)}`,
     },
     prescriptions: {

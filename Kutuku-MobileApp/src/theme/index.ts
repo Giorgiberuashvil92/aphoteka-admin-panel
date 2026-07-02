@@ -1,10 +1,12 @@
 import { Platform } from 'react-native';
 import { colors } from './colors';
+import { fonts } from './fonts';
 import { spacing } from './spacing';
 import { typography } from './typography';
 
 export const theme = {
   colors,
+  fonts,
   spacing,
   typography,
   
@@ -80,3 +82,4 @@ export const theme = {
 };
 
 export type Theme = typeof theme;
+export { fonts, fontForWeight, applyGlobalFonts } from './fonts';

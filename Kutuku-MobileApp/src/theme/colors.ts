@@ -11,6 +11,7 @@ export const colors = {
   // Base colors
   white: '#FFFFFF',
   black: '#000000',
+  screen: '#F7F9FE',
   
   // Gray scale (UI backgrounds to accessible text)
   gray: {

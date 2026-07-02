@@ -25,6 +25,7 @@ export default function Profile() {
     <RequireAuth loginTab="profile">
       <ProfileScreen
         onLogout={handleLogout}
+        onDoctorPrescribe={() => router.push('/doctor-prescribe' as any)}
         onPersonalInfoPress={() => router.push('/edit-profile' as any)}
         onAddressesPress={() => router.push('/address' as any)}
         onPaymentMethodsPress={() => router.push('/add-card' as any)}

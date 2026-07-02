@@ -3,6 +3,10 @@ import { ValidationPipe } from '@nestjs/common';
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import {
+  resolveBogCallbackUrl,
+  resolveNestPublicBaseUrl,
+} from './config/nest-public-url';
 
 function normalizeOrigin(o: string): string {
   return o.trim().replace(/\/+$/, '');
@@ -117,6 +121,20 @@ async function bootstrap() {
   } else {
     console.log(
       '🌐 CORS: reflect request Origin (set CORS_ORIGIN for strict whitelist)',
+    );
+  }
+
+  const nestPublic = resolveNestPublicBaseUrl();
+  const bogCallback = resolveBogCallbackUrl();
+  if (bogCallback) {
+    const explicit = process.env.NEST_PUBLIC_URL?.trim()
+      ? 'NEST_PUBLIC_URL'
+      : 'auto-detected';
+    console.log(`💳 BOG public base (${explicit}): ${nestPublic}`);
+    console.log(`💳 BOG callback: ${bogCallback}`);
+  } else {
+    console.warn(
+      '⚠️  BOG: callback URL ცარიელია — Railway Variables → NEST_PUBLIC_URL=https://aphoteka-admin-panel-production.up.railway.app',
     );
   }
 }

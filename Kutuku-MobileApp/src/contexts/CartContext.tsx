@@ -21,7 +21,8 @@ interface CartContextType {
   items: CartItem[];
   itemCount: number;
   totalPrice: number;
-  addToCart: (item: Omit<CartItem, 'quantity'>, quantity?: number) => void;
+  /** silent=true — დამატების შეტყობინება არ გამოჩნდება (მასობრივი დამატებისას) */
+  addToCart: (item: Omit<CartItem, 'quantity'>, quantity?: number, silent?: boolean) => void;
   removeFromCart: (itemId: string) => void;
   updateQuantity: (itemId: string, quantity: number) => void;
   clearCart: () => void;
@@ -50,45 +51,47 @@ export function CartProvider({ children }: CartProviderProps) {
   const totalPrice = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   // Add item to cart
-  const addToCart = useCallback((newItem: Omit<CartItem, 'quantity'>, quantity: number = 1) => {
-    setItems((prevItems) => {
-      // Check if item already exists
-      const existingItemIndex = prevItems.findIndex((item) => item.id === newItem.id);
+  const addToCart = useCallback(
+    (newItem: Omit<CartItem, 'quantity'>, quantity: number = 1, silent: boolean = false) => {
+      setItems((prevItems) => {
+        const existingItemIndex = prevItems.findIndex((item) => item.id === newItem.id);
 
-      if (existingItemIndex !== -1) {
-        // Item exists, update quantity
-        const updatedItems = [...prevItems];
-        const existingItem = updatedItems[existingItemIndex];
-        const newQuantity = existingItem.quantity + quantity;
+        if (existingItemIndex !== -1) {
+          const updatedItems = [...prevItems];
+          const existingItem = updatedItems[existingItemIndex];
+          const newQuantity = existingItem.quantity + quantity;
 
-        // Check max quantity limit
-        if (existingItem.maxQuantity && newQuantity > existingItem.maxQuantity) {
-          Alert.alert(
-            'მაქსიმალური რაოდენობა',
-            `ამ პროდუქტის მაქსიმალური რაოდენობაა ${existingItem.maxQuantity}`
-          );
-          return prevItems;
+          if (existingItem.maxQuantity && newQuantity > existingItem.maxQuantity) {
+            if (!silent) {
+              Alert.alert(
+                'მაქსიმალური რაოდენობა',
+                `ამ პროდუქტის მაქსიმალური რაოდენობაა ${existingItem.maxQuantity}`,
+              );
+            }
+            return prevItems;
+          }
+
+          updatedItems[existingItemIndex] = {
+            ...existingItem,
+            quantity: newQuantity,
+          };
+
+          if (!silent) {
+            Alert.alert('✅ დამატებულია', `${newItem.name} - რაოდენობა: ${newQuantity}`);
+          }
+          return updatedItems;
         }
 
-        updatedItems[existingItemIndex] = {
-          ...existingItem,
-          quantity: newQuantity,
-        };
+        const cartItem: CartItem = { ...newItem, quantity };
 
-        Alert.alert('✅ დამატებულია', `${newItem.name} - რაოდენობა: ${newQuantity}`);
-        return updatedItems;
-      } else {
-        // New item, add to cart
-        const cartItem: CartItem = {
-          ...newItem,
-          quantity,
-        };
-
-        Alert.alert('✅ კალათაში დაემატა', newItem.name);
+        if (!silent) {
+          Alert.alert('✅ კალათაში დაემატა', newItem.name);
+        }
         return [...prevItems, cartItem];
-      }
-    });
-  }, []);
+      });
+    },
+    [],
+  );
 
   // Remove item from cart
   const removeFromCart = useCallback((itemId: string) => {

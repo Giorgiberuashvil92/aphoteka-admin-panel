@@ -1,12 +1,12 @@
-import { theme } from '@/src/theme';
+import { fonts } from '@/src/theme/fonts';
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
-import {
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  View
-} from 'react-native';
+import { StyleSheet, TextInput, TouchableOpacity } from 'react-native';
+
+const C = {
+  muted: '#8B97AE',
+  white: '#FFFFFF',
+  text: '#14213D',
+};
 
 interface SearchBarProps {
   placeholder?: string;
@@ -14,54 +14,52 @@ interface SearchBarProps {
   editable?: boolean;
 }
 
-export function SearchBar({ 
-  placeholder = 'რას ეძებ?', 
+export function SearchBar({
+  placeholder = 'რას ეძებთ?',
   onPress,
-  editable = false 
+  editable = false,
 }: SearchBarProps) {
   return (
-    <View style={styles.container}>
-      <TouchableOpacity 
-        style={styles.searchBox} 
-        onPress={onPress}
-        activeOpacity={0.7}
-        disabled={!onPress}
-      >
-        <Ionicons name="search" size={20} color="#9CA3AF" style={styles.icon} />
-        <TextInput
-          style={styles.input}
-          placeholder={placeholder}
-          placeholderTextColor="#9CA3AF"
-          editable={editable}
-          pointerEvents="none"
-        />
-      </TouchableOpacity>
-    </View>
+    <TouchableOpacity
+      style={styles.searchBox}
+      onPress={onPress}
+      activeOpacity={0.88}
+      disabled={!onPress}
+    >
+      <Ionicons name="search" size={22} color={C.muted} />
+      <TextInput
+        style={styles.input}
+        placeholder={placeholder}
+        placeholderTextColor={C.muted}
+        editable={editable}
+        pointerEvents="none"
+      />
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
   searchBox: {
+    marginHorizontal: 18,
+    marginTop: 12,
+    marginBottom: 14,
+    height: 54,
+    borderRadius: 28,
+    backgroundColor: C.white,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.white,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  icon: {
-    marginRight: 10,
+    paddingHorizontal: 20,
+    shadowColor: '#1a2a5e',
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
   input: {
+    marginLeft: 12,
+    fontFamily: fonts.regular,
+    fontSize: 13,
     flex: 1,
-    fontSize: 14,
-    color: theme.colors.text.primary,
-    fontWeight: '400',
+    color: C.text,
   },
 });

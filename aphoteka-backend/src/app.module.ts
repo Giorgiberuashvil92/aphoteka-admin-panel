@@ -3,7 +3,10 @@ import { join } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, registerAs } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
-import { BOG_INLINE } from './config/bog-inline';
+import {
+  resolveNestPublicBaseUrl,
+  resolveBogCallbackUrl,
+} from './config/nest-public-url';
 import { DEFAULT_MONGODB_URI } from './config/default-mongodb-uri';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -37,12 +40,10 @@ const BOG_CLIENT_ID_FIXED = '10006885';
 const BOG_CLIENT_SECRET_FIXED = 'oWMbrG3wVBqS';
 
 const bogConfig = registerAs('bog', () => {
-  const publicBaseUrl =
-    process.env.NEST_PUBLIC_URL?.trim().replace(/\/+$/, '') ||
-    BOG_INLINE.publicBaseUrl.trim().replace(/\/+$/, '');
+  const publicBaseUrl = resolveNestPublicBaseUrl();
   const callbackUrlFull =
     process.env.BOG_CALLBACK_URL?.trim().replace(/\/+$/, '') ||
-    BOG_INLINE.callbackUrlFull.trim().replace(/\/+$/, '');
+    resolveBogCallbackUrl();
   return {
     clientId: BOG_CLIENT_ID_FIXED,
     clientSecret: BOG_CLIENT_SECRET_FIXED,

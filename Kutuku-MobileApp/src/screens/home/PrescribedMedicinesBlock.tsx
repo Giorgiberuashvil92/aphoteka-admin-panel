@@ -59,7 +59,7 @@ export function PrescribedMedicinesBlock({ onProductPress }: Props) {
   const [prescribedBulkAdding, setPrescribedBulkAdding] = useState(false);
 
   const addPrescribedToCartAsync = useCallback(
-    async (it: PrescribedChip): Promise<boolean> => {
+    async (it: PrescribedChip, silent = false): Promise<boolean> => {
       try {
         const p = await ProductService.getProductById(it.productId);
         if (!p) return false;
@@ -75,14 +75,15 @@ export function PrescribedMedicinesBlock({ onProductPress }: Props) {
             form: p.dosageForm,
             maxQuantity: p.stockQuantity ?? undefined,
           },
-          qty
+          qty,
+          silent,
         );
         return true;
       } catch {
         return false;
       }
     },
-    [addToCart]
+    [addToCart],
   );
 
   const closePrescribedModal = useCallback(() => setPrescribedModalVisible(false), []);
@@ -125,7 +126,7 @@ export function PrescribedMedicinesBlock({ onProductPress }: Props) {
       for (const productId of ids) {
         const it = prescribedItems.find((x) => x.productId === productId);
         if (!it) continue;
-        const success = await addPrescribedToCartAsync(it);
+        const success = await addPrescribedToCartAsync(it, true);
         if (success) ok++;
         else fail++;
       }

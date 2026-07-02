@@ -1,9 +1,11 @@
 import { ProductService, type Product } from '@/src/services/product.service';
+import { PatientHistory } from '@/src/services/patientEmailHistory.service';
 import { PrescriptionsApi, type PatientLookup } from '@/src/services/prescriptions.service';
+import { fonts } from '@/src/theme/fonts';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -35,12 +37,41 @@ function initials(name?: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
+function normalizePersonalIdInput(raw: string): string {
+  return raw.replace(/\D/g, '').slice(0, 11);
+}
+
+function mergePatientSuggestions(
+  recent: PatientLookup[],
+  remote: PatientLookup[],
+  query: string,
+): PatientLookup[] {
+  const digits = normalizePersonalIdInput(query);
+  const seen = new Set<string>();
+  const out: PatientLookup[] = [];
+  const add = (p: PatientLookup) => {
+    const id = p.personalId?.replace(/\D/g, '');
+    if (!id || seen.has(id)) return;
+    if (digits && !id.startsWith(digits)) return;
+    seen.add(id);
+    out.push(p);
+  };
+  recent.forEach(add);
+  remote.forEach(add);
+  return out.slice(0, 8);
+}
+
 export function DoctorPrescribeScreen({ onBack }: DoctorPrescribeScreenProps) {
   const insets = useSafeAreaInsets();
-  const [patientEmail, setPatientEmail] = useState('');
+  const [patientPersonalId, setPatientPersonalId] = useState('');
   const [patient, setPatient] = useState<PatientLookup | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
+  const [recentPatients, setRecentPatients] = useState<PatientLookup[]>([]);
+  const [remoteSuggestions, setRemoteSuggestions] = useState<PatientLookup[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [idFocused, setIdFocused] = useState(false);
+  const lookupRequestId = useRef(0);
 
   const [search, setSearch] = useState('');
   const [catalog, setCatalog] = useState<Product[]>([]);
@@ -68,15 +99,67 @@ export function DoctorPrescribeScreen({ onBack }: DoctorPrescribeScreenProps) {
     return () => clearTimeout(t);
   }, [search, loadCatalog]);
 
-  const handleLookupPatient = async () => {
-    setLookupError(null);
-    setPatient(null);
-    if (!patientEmail.trim()) {
-      setLookupError('შეიყვანეთ ელფოსტა');
+  useEffect(() => {
+    void PatientHistory.getRecent().then(setRecentPatients);
+  }, []);
+
+  useEffect(() => {
+    const digits = normalizePersonalIdInput(patientPersonalId);
+    if (digits.length < 3) {
+      setRemoteSuggestions([]);
+      setSuggestionsLoading(false);
       return;
     }
+    const requestId = ++lookupRequestId.current;
+    const t = setTimeout(async () => {
+      setSuggestionsLoading(true);
+      const res = await PrescriptionsApi.searchPatientsByPersonalId(digits, 8);
+      if (lookupRequestId.current !== requestId) return;
+      setSuggestionsLoading(false);
+      if (res.ok) {
+        setRemoteSuggestions(res.patients);
+      } else {
+        setRemoteSuggestions([]);
+      }
+    }, 280);
+    return () => clearTimeout(t);
+  }, [patientPersonalId]);
+
+  const idSuggestions = useMemo(
+    () => mergePatientSuggestions(recentPatients, remoteSuggestions, patientPersonalId),
+    [recentPatients, remoteSuggestions, patientPersonalId],
+  );
+
+  const showIdSuggestions =
+    idFocused &&
+    !patient &&
+    patientPersonalId.trim().length > 0 &&
+    (idSuggestions.length > 0 || suggestionsLoading);
+
+  const applyPatient = useCallback(async (found: PatientLookup) => {
+    setPatient(found);
+    setPatientPersonalId(found.personalId ?? '');
+    setLookupError(null);
+    setIdFocused(false);
+    await PatientHistory.add(found);
+    setRecentPatients(await PatientHistory.getRecent());
+  }, []);
+
+  const handleLookupPatient = async (idOverride?: string) => {
+    setLookupError(null);
+    setPatient(null);
+    const digits = normalizePersonalIdInput(idOverride ?? patientPersonalId);
+    if (!digits) {
+      setLookupError('შეიყვანეთ პირადი ნომერი');
+      return;
+    }
+    if (digits.length !== 11) {
+      setLookupError('პირადი ნომერი უნდა იყოს 11 ციფრი');
+      return;
+    }
+    setPatientPersonalId(digits);
     setLookupLoading(true);
-    const res = await PrescriptionsApi.lookupPatientByEmail(patientEmail);
+    const res = await PrescriptionsApi.lookupPatientByPersonalId(digits);
     setLookupLoading(false);
     if (!res.ok) {
       if (res.error === 'auth') {
@@ -86,7 +169,15 @@ export function DoctorPrescribeScreen({ onBack }: DoctorPrescribeScreenProps) {
       }
       return;
     }
-    setPatient(res.patient);
+    await applyPatient(res.patient);
+  };
+
+  const selectIdSuggestion = async (suggestion: PatientLookup) => {
+    if (suggestion.id && suggestion.personalId) {
+      await applyPatient(suggestion);
+      return;
+    }
+    await handleLookupPatient(suggestion.personalId);
   };
 
   const clearPatient = () => {
@@ -124,9 +215,11 @@ export function DoctorPrescribeScreen({ onBack }: DoctorPrescribeScreenProps) {
   };
 
   const handleSubmit = async () => {
-    const emailForApi = patient?.email?.trim() || patientEmail.trim();
-    if (!emailForApi) {
-      Alert.alert('პაციენტი', 'ჯერ მოძებნეთ პაციენტი ელფოსტით');
+    const personalIdForApi =
+      patient?.personalId?.replace(/\D/g, '') ||
+      normalizePersonalIdInput(patientPersonalId);
+    if (personalIdForApi.length !== 11) {
+      Alert.alert('პაციენტი', 'ჯერ მოძებნეთ პაციენტი პირადი ნომრით');
       return;
     }
     const lines = Object.values(selected);
@@ -136,7 +229,7 @@ export function DoctorPrescribeScreen({ onBack }: DoctorPrescribeScreenProps) {
     }
     setSubmitting(true);
     const res = await PrescriptionsApi.createPrescription(
-      emailForApi,
+      personalIdForApi,
       lines.map((l) => ({
         productId: l.productId,
         quantity: l.quantity,
@@ -157,7 +250,7 @@ export function DoctorPrescribeScreen({ onBack }: DoctorPrescribeScreenProps) {
         onPress: () => {
           setSelected({});
           setPatient(null);
-          setPatientEmail('');
+          setPatientPersonalId('');
         },
       },
     ]);
@@ -209,7 +302,7 @@ export function DoctorPrescribeScreen({ onBack }: DoctorPrescribeScreenProps) {
             </View>
             <Text style={styles.heroTitle}>პაციენტს წამლების მინიშნება</Text>
             <Text style={styles.heroDesc}>
-              მოძებნეთ პაციენტი რეგისტრირებული ელფოსტით, შემდეგ აირჩიეთ პროდუქტები კატალოგიდან.
+              მოძებნეთ პაციენტი პირადი ნომრით (11 ციფრი), შემდეგ აირჩიეთ პროდუქტები კატალოგიდან.
             </Text>
           </View>
 
@@ -249,35 +342,82 @@ export function DoctorPrescribeScreen({ onBack }: DoctorPrescribeScreenProps) {
           </View>
 
           {/* პაციენტი */}
-          <Text style={styles.blockLabel}>1. პაციენტის ელფოსტა</Text>
+          <Text style={styles.blockLabel}>1. პაციენტის პირადი ნომერი</Text>
           <View style={styles.card}>
-            <View style={styles.emailRow}>
-              <Ionicons
-                name="mail-outline"
-                size={22}
-                color={theme.colors.text.tertiary}
-                style={styles.emailIcon}
-              />
-              <TextInput
-                style={styles.emailInput}
-                placeholder="მაგ. patient@gmail.com"
-                placeholderTextColor={theme.colors.gray[900]}
-                value={patientEmail}
-                onChangeText={(t) => {
-                  setPatientEmail(t);
-                  setPatient(null);
-                  setLookupError(null);
-                }}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                autoCorrect={false}
-                returnKeyType="search"
-                onSubmitEditing={handleLookupPatient}
-              />
+            <View style={styles.emailFieldWrap}>
+              <View style={[styles.emailRow, idFocused && styles.emailRowFocused]}>
+                <Ionicons
+                  name="card-outline"
+                  size={18}
+                  color={theme.colors.text.tertiary}
+                  style={styles.emailIcon}
+                />
+                <TextInput
+                  style={styles.emailInput}
+                  placeholder="მაგ. 01234567890"
+                  placeholderTextColor={theme.colors.gray[900]}
+                  value={patientPersonalId}
+                  onChangeText={(t) => {
+                    setPatientPersonalId(normalizePersonalIdInput(t));
+                    setPatient(null);
+                    setLookupError(null);
+                  }}
+                  onFocus={() => setIdFocused(true)}
+                  onBlur={() => {
+                    setTimeout(() => setIdFocused(false), 160);
+                  }}
+                  keyboardType="number-pad"
+                  autoCorrect={false}
+                  maxLength={11}
+                  returnKeyType="search"
+                  onSubmitEditing={() => void handleLookupPatient()}
+                />
+                {suggestionsLoading ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                ) : null}
+              </View>
+
+              {showIdSuggestions ? (
+                <View style={styles.suggestionsBox}>
+                  {idSuggestions.length === 0 && suggestionsLoading ? (
+                    <Text style={styles.suggestionsHint}>ძიება...</Text>
+                  ) : null}
+                  {idSuggestions.map((item) => (
+                    <TouchableOpacity
+                      key={item.id || item.personalId}
+                      style={styles.suggestionRow}
+                      onPress={() => void selectIdSuggestion(item)}
+                      activeOpacity={0.75}
+                    >
+                      <View style={styles.suggestionAvatar}>
+                        <Text style={styles.suggestionAvatarText}>
+                          {initials(item.fullName)}
+                        </Text>
+                      </View>
+                      <View style={styles.suggestionBody}>
+                        <Text style={styles.suggestionEmail} numberOfLines={1}>
+                          {item.personalId}
+                        </Text>
+                        {item.fullName ? (
+                          <Text style={styles.suggestionName} numberOfLines={1}>
+                            {item.fullName}
+                          </Text>
+                        ) : null}
+                      </View>
+                      <Ionicons
+                        name="arrow-forward-circle-outline"
+                        size={18}
+                        color={theme.colors.text.tertiary}
+                      />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
             </View>
+
             <TouchableOpacity
               style={[styles.primaryBtn, lookupLoading && styles.primaryBtnDisabled]}
-              onPress={handleLookupPatient}
+              onPress={() => void handleLookupPatient()}
               disabled={lookupLoading}
               activeOpacity={0.85}
             >
@@ -318,12 +458,11 @@ export function DoctorPrescribeScreen({ onBack }: DoctorPrescribeScreenProps) {
                       <Ionicons name="close-circle" size={24} color={theme.colors.text.tertiary} />
                     </TouchableOpacity>
                   </View>
-                  <Text style={styles.patientFoundEmail}>{patient.email}</Text>
-                  {patient.phoneNumber ? (
-                    <View style={styles.phoneRow}>
-                      <Ionicons name="call-outline" size={14} color={theme.colors.text.tertiary} />
-                      <Text style={styles.patientPhone}>{patient.phoneNumber}</Text>
-                    </View>
+                  <Text style={styles.patientFoundEmail}>
+                    პ/ნ: {patient.personalId}
+                  </Text>
+                  {patient.email ? (
+                    <Text style={styles.patientPhone}>{patient.email}</Text>
                   ) : null}
                 </View>
               </View>
@@ -516,15 +655,16 @@ const styles = StyleSheet.create({
   headerCenter: { alignItems: 'center' },
   headerPlaceholder: { width: 44 },
   headerTitle: {
-    fontSize: 17,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
+    fontSize: 15,
     color: theme.colors.text.primary,
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
   },
   headerSubtitle: {
-    fontSize: 12,
+    fontFamily: fonts.regular,
+    fontSize: 11,
     color: theme.colors.text.tertiary,
-    marginTop: 2,
+    marginTop: 1,
   },
   scroll: { flex: 1 },
   scrollContent: {
@@ -533,50 +673,45 @@ const styles = StyleSheet.create({
   },
   hero: {
     backgroundColor: theme.colors.background.purple.light,
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 20,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: theme.colors.purple[200],
   },
   heroIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     backgroundColor: theme.colors.white,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 14,
-    shadowColor: theme.colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 3,
+    marginBottom: 10,
   },
   heroTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
+    fontSize: 15,
     color: theme.colors.text.primary,
-    marginBottom: 8,
-    letterSpacing: -0.4,
+    marginBottom: 6,
   },
   heroDesc: {
-    fontSize: 14,
-    lineHeight: 21,
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 18,
     color: theme.colors.text.secondary,
   },
   stepsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
-    paddingHorizontal: 4,
+    marginBottom: 14,
+    paddingHorizontal: 2,
   },
   stepPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    gap: 5,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     borderRadius: 999,
     backgroundColor: theme.colors.white,
     borderWidth: 1,
@@ -591,8 +726,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.purple[100],
   },
   stepPillText: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontFamily: fonts.semibold,
+    fontSize: 11,
     color: theme.colors.text.tertiary,
   },
   stepPillTextDone: { color: theme.colors.success },
@@ -634,14 +769,76 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border.light,
     paddingHorizontal: 14,
+    marginBottom: 0,
+  },
+  emailRowFocused: {
+    borderColor: theme.colors.primary + '88',
+    backgroundColor: theme.colors.white,
+  },
+  emailFieldWrap: {
     marginBottom: 12,
+    position: 'relative',
+    zIndex: 10,
+  },
+  suggestionsBox: {
+    marginTop: 6,
+    backgroundColor: theme.colors.white,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.border.light,
+    overflow: 'hidden',
+  },
+  suggestionsHint: {
+    padding: 12,
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: theme.colors.text.tertiary,
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.colors.border.light,
+  },
+  suggestionAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: theme.colors.purple[200],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  suggestionAvatarText: {
+    fontFamily: fonts.bold,
+    fontSize: 11,
+    color: theme.colors.primaryDark,
+  },
+  suggestionBody: {
+    flex: 1,
+    marginLeft: 10,
+    marginRight: 8,
+  },
+  suggestionEmail: {
+    fontFamily: fonts.semibold,
+    fontSize: 13,
+    color: theme.colors.text.primary,
+  },
+  suggestionName: {
+    marginTop: 2,
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: theme.colors.text.tertiary,
   },
   emailIcon: { marginRight: 10 },
   emailInput: {
     flex: 1,
-    paddingVertical: 14,
-    fontSize: 16,
+    paddingVertical: 12,
+    fontFamily: fonts.medium,
+    fontSize: 14,
     color: theme.colors.text.primary,
+    letterSpacing: 0.5,
   },
   primaryBtn: {
     flexDirection: 'row',

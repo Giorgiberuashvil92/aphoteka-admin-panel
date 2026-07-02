@@ -16,7 +16,7 @@ export default function Settings() {
         onLanguage={() => router.push('/language' as any)}
         onHelpSupport={() => {}}
         onAbout={() => {}}
-        onDoctorPrescribe={() => router.push('/doctor-prescribe' as any)}
+        onDoctorPrescription={() => router.push('/doctor-prescription' as any)}
         onGoToProfile={() => router.push('/profile' as any)}
       />
     </RequireAuth>
