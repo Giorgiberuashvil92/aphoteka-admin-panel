@@ -24,6 +24,12 @@ const TAB_SCREEN_NAMES = new Set([
   'login',
 ]);
 
+/** კატეგორია → პროდუქტები: slide გვერდის გარეშე (იგრძნობა როგორც იგივე ნაკადი) */
+const NO_SLIDE_SCREEN_NAMES = new Set([
+  ...TAB_SCREEN_NAMES,
+  'search-results',
+]);
+
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     Montserrat_400Regular,
@@ -51,7 +57,7 @@ export default function RootLayout() {
           screenOptions={({ route }) => ({
             headerShown: false,
             contentStyle: { backgroundColor: '#F7F9FE' },
-            animation: TAB_SCREEN_NAMES.has(route.name) ? 'none' : 'default',
+            animation: NO_SLIDE_SCREEN_NAMES.has(route.name) ? 'none' : 'default',
           })}
         >
           <Stack.Screen name="index" />

@@ -1,19 +1,18 @@
 import { BottomNavigation } from '@/src/components/common/BottomNavigation';
-import { CategoryFilterModal } from '@/src/components/common/CategoryFilterModal';
 import { MAIN_CATEGORY_API_NAMES, type MainCategoryType } from '@/src/components/common/MainCategoryCard';
 import { CategoryService } from '@/src/services/category.service';
-import type { CategoryItem, SubcategoryItem } from '@/src/services/category.service';
+import type { CategoryItem } from '@/src/services/category.service';
 import { theme } from '@/src/theme';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  ImageBackground,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  ImageBackground,
 } from 'react-native';
 import { useTabNavigation } from '@/src/hooks/useTabNavigation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,6 +22,11 @@ type CategoryScreenProps = {
   onHomePress: () => void;
   initialMainCategory?: MainCategoryType;
 };
+
+type StackEntry = { id: string; name: string };
+
+const FALLBACK_IMAGE =
+  'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=400';
 
 function displayCategoryName(raw: string): string {
   const t = raw.trim();
@@ -53,58 +57,127 @@ export function CategoryScreen({
 }: CategoryScreenProps) {
   const insets = useSafeAreaInsets();
   const tabNav = useTabNavigation();
-  const [categories, setCategories] = useState<CategoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState<CategoryItem | null>(null);
-  const [filterModalVisible, setFilterModalVisible] = useState(false);
-  const [subcategories, setSubcategories] = useState<SubcategoryItem[]>([]);
-  const [subcategoriesLoading, setSubcategoriesLoading] = useState(false);
+  const [rootCategories, setRootCategories] = useState<CategoryItem[]>([]);
+  const [rootsLoading, setRootsLoading] = useState(true);
+  const [stack, setStack] = useState<StackEntry[]>([]);
+  const [childCategories, setChildCategories] = useState<CategoryItem[]>([]);
+  const [childrenLoading, setChildrenLoading] = useState(false);
   const [initialCategoryHandled, setInitialCategoryHandled] = useState(false);
 
-  const displayList = useMemo(() => dedupeCategories(categories), [categories]);
+  const atRoot = stack.length === 0;
+  const currentTitle = atRoot ? 'კატეგორიები' : stack[stack.length - 1].name;
+
+  const displayList = useMemo(
+    () => dedupeCategories(atRoot ? rootCategories : childCategories),
+    [atRoot, rootCategories, childCategories],
+  );
+
+  const loading = atRoot ? rootsLoading : childrenLoading;
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    setRootsLoading(true);
     CategoryService.getCategories()
       .then((list) => {
-        if (!cancelled) setCategories(list);
+        if (!cancelled) setRootCategories(list);
       })
       .catch(() => {
-        if (!cancelled) setCategories([]);
+        if (!cancelled) setRootCategories([]);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setRootsLoading(false);
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const handleCategoryPress = async (category: CategoryItem) => {
-    setSelectedCategory(category);
-    setFilterModalVisible(true);
-    setSubcategoriesLoading(true);
-    setSubcategories([]);
-    
-    try {
-      const subs = await CategoryService.getSubcategories(category.id);
-      setSubcategories(subs);
-    } catch (error) {
-      console.error('Error loading subcategories:', error);
-      setSubcategories([]);
-    } finally {
-      setSubcategoriesLoading(false);
+  /** კატალოგი არჩეული ქვეკატეგორიისთვის (ან root-ისთვის, თუ შვილი აღარ აქვს) */
+  const openCatalogForItem = useCallback(
+    (item: CategoryItem) => {
+      if (stack.length === 0) {
+        onCategoryPress(item.name);
+        return;
+      }
+      onCategoryPress(stack[0].name, [item.name]);
+    },
+    [onCategoryPress, stack],
+  );
+
+  /** კატალოგი მიმდინარე (სტეკის ბოლო) კატეგორიისთვის — ცარიელი დონის ღილაკი */
+  const openCatalogForCurrentLevel = useCallback(() => {
+    if (stack.length === 0) return;
+    const current = stack[stack.length - 1];
+    if (stack.length === 1) {
+      onCategoryPress(current.name);
+      return;
     }
-  };
+    onCategoryPress(stack[0].name, [current.name]);
+  }, [onCategoryPress, stack]);
+
+  const drillInto = useCallback(
+    async (category: CategoryItem) => {
+      setChildrenLoading(true);
+      try {
+        const subs = await CategoryService.getSubcategories(category.id);
+        const normalized = dedupeCategories(subs);
+        if (normalized.length === 0) {
+          // ბოლო დონე — შვილები აღარ არის → პროდუქტები
+          openCatalogForItem(category);
+          return;
+        }
+        setStack((prev) => [...prev, { id: category.id, name: category.name }]);
+        setChildCategories(normalized);
+      } catch (error) {
+        console.error('Error loading subcategories:', error);
+        openCatalogForItem(category);
+      } finally {
+        setChildrenLoading(false);
+      }
+    },
+    [openCatalogForItem],
+  );
+
+  const handleCategoryPress = useCallback(
+    (category: CategoryItem) => {
+      void drillInto(category);
+    },
+    [drillInto],
+  );
+
+  const handleBack = useCallback(async () => {
+    if (stack.length === 0) return;
+    const nextStack = stack.slice(0, -1);
+    setStack(nextStack);
+    if (nextStack.length === 0) {
+      setChildCategories([]);
+      return;
+    }
+    const parent = nextStack[nextStack.length - 1];
+    setChildrenLoading(true);
+    try {
+      const subs = await CategoryService.getSubcategories(parent.id);
+      setChildCategories(dedupeCategories(subs));
+    } catch {
+      setChildCategories([]);
+    } finally {
+      setChildrenLoading(false);
+    }
+  }, [stack]);
 
   useEffect(() => {
-    if (!initialMainCategory || loading || initialCategoryHandled || displayList.length === 0) {
+    if (
+      !initialMainCategory ||
+      rootsLoading ||
+      initialCategoryHandled ||
+      rootCategories.length === 0
+    ) {
       return;
     }
 
+    const roots = dedupeCategories(rootCategories);
     const targetName = MAIN_CATEGORY_API_NAMES[initialMainCategory];
-    const match = displayList.find(
+    const match = roots.find(
       (category) =>
         category.name === targetName ||
         displayCategoryName(category.name) === targetName,
@@ -112,25 +185,45 @@ export function CategoryScreen({
 
     if (match) {
       setInitialCategoryHandled(true);
-      void handleCategoryPress(match);
+      void drillInto(match);
     }
-  }, [initialMainCategory, loading, initialCategoryHandled, displayList]);
-
-  const handleApplyFilter = (selectedSubcategoryIds: string[]) => {
-    if (!selectedCategory) return;
-    const selectedNames = subcategories
-      .filter((s) => selectedSubcategoryIds.includes(s.id))
-      .map((s) => s.name);
-    onCategoryPress(selectedCategory.name, selectedNames.length > 0 ? selectedNames : undefined);
-  };
+  }, [
+    initialMainCategory,
+    rootsLoading,
+    initialCategoryHandled,
+    rootCategories,
+    drillInto,
+  ]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
+      {!atRoot ? (
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => void handleBack()}
+            style={styles.backButton}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="უკან"
+          >
+            <Text style={styles.backChevron}>‹</Text>
+            <Text style={styles.backLabel}>უკან</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {currentTitle}
+          </Text>
+          <View style={styles.headerSpacer} />
+        </View>
+      ) : null}
+
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 88 }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: insets.bottom + 88 },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         {loading ? (
@@ -139,13 +232,24 @@ export function CategoryScreen({
           </View>
         ) : displayList.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>კატეგორიები ჯერ არ არის</Text>
+            <Text style={styles.emptyTitle}>
+              {atRoot ? 'კატეგორიები ჯერ არ არის' : 'ქვეკატეგორიები არ არის'}
+            </Text>
+            {!atRoot ? (
+              <TouchableOpacity
+                style={styles.catalogButton}
+                activeOpacity={0.85}
+                onPress={openCatalogForCurrentLevel}
+              >
+                <Text style={styles.catalogButtonText}>პროდუქტების ნახვა</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         ) : (
           <View style={styles.gridContainer}>
             {displayList.map((category) => {
-              const imageUrl = category.imageUrl || 'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=400';
-              
+              const imageUrl = category.imageUrl || FALLBACK_IMAGE;
+
               return (
                 <TouchableOpacity
                   key={category.id}
@@ -172,15 +276,6 @@ export function CategoryScreen({
         )}
       </ScrollView>
 
-      <CategoryFilterModal
-        visible={filterModalVisible}
-        categoryName={selectedCategory?.name || ''}
-        subcategories={subcategories}
-        loading={subcategoriesLoading}
-        onClose={() => setFilterModalVisible(false)}
-        onApply={handleApplyFilter}
-      />
-
       <BottomNavigation
         activeTab="categories"
         onHomePress={onHomePress}
@@ -198,6 +293,42 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 72,
+  },
+  backChevron: {
+    fontSize: 28,
+    lineHeight: 30,
+    color: theme.colors.primary,
+    marginRight: 2,
+    marginTop: -2,
+  },
+  backLabel: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: theme.colors.primary,
+  },
+  headerTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.gray[1200],
+    paddingHorizontal: 8,
+  },
+  headerSpacer: {
+    minWidth: 72,
   },
   scrollView: { flex: 1 },
   scrollContent: {
@@ -217,6 +348,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: theme.colors.gray[1200],
+  },
+  catalogButton: {
+    marginTop: 16,
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  catalogButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
   },
   gridContainer: {
     flexDirection: 'row',

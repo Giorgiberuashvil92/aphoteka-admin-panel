@@ -14,6 +14,7 @@ export default function EditCategoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
   const [color, setColor] = useState("#E8F5E9");
   const [icon, setIcon] = useState("folder");
   const [sortOrder, setSortOrder] = useState(0);
@@ -31,6 +32,7 @@ export default function EditCategoryPage() {
           setCategory(data);
           setName(data.name);
           setDescription(data.description ?? "");
+          setImageUrl(data.imageUrl ?? "");
           setColor(data.color ?? "#E8F5E9");
           setIcon(data.icon ?? "folder");
           setSortOrder(data.sortOrder ?? 0);
@@ -51,13 +53,20 @@ export default function EditCategoryPage() {
       await categoriesApi.update(id, {
         name,
         description: description || undefined,
+        imageUrl: imageUrl.trim(),
         color: color || undefined,
         icon: icon || undefined,
         sortOrder,
         active,
       });
       alert("კატეგორია განახლდა!");
-      router.push("/categories");
+      if (category?.parentId) {
+        router.push(
+          `/categories?parent=${encodeURIComponent(category.parentId)}`,
+        );
+      } else {
+        router.push("/categories");
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : "შეცდომა");
     } finally {
@@ -119,6 +128,31 @@ export default function EditCategoryPage() {
                 rows={2}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                ფოტოს ლინკი (imageUrl)
+              </label>
+              <input
+                type="url"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                placeholder="https://..."
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              />
+              {imageUrl.trim() ? (
+                <div className="mt-3 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-600">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imageUrl.trim()}
+                    alt="პრევიუ"
+                    className="h-36 w-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = "none";
+                    }}
+                  />
+                </div>
+              ) : null}
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
@@ -185,7 +219,11 @@ export default function EditCategoryPage() {
             {saving ? "იგზავნება..." : "ცვლილებების შენახვა"}
           </button>
           <a
-            href="/categories"
+            href={
+              category.parentId
+                ? `/categories?parent=${encodeURIComponent(category.parentId)}`
+                : "/categories"
+            }
             className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
           >
             გაუქმება

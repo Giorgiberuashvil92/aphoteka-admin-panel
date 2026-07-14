@@ -41,7 +41,9 @@ export class CategoriesService {
       list.map(async (c: any) => ({
         id: c._id?.toString() ?? c.id,
         name: c.name,
-        productCount: await this.productsService.countByMainCategoryName(c.name),
+        productCount: await this.productsService.countByMainCategoryName(
+          c.name,
+        ),
         color: c.color,
         icon: c.icon,
         imageUrl: c.imageUrl,
@@ -50,28 +52,55 @@ export class CategoriesService {
     return result;
   }
 
-  /** მობილური/ვები: კატეგორიის საბკატეგორიები (Category.parentId) */
-  async findSubcategories(
-    parentId: string,
-  ): Promise<{ id: string; name: string; productCount: number }[]> {
+  async findSubcategories(parentId: string): Promise<
+    {
+      id: string;
+      name: string;
+      productCount: number;
+      color?: string;
+      icon?: string;
+      imageUrl?: string;
+    }[]
+  > {
     const parent = await this.categoryModel.findById(parentId).lean().exec();
     if (!parent) throw new NotFoundException(`Category ${parentId} not found`);
 
+    const parentOid = Types.ObjectId.isValid(parentId)
+      ? new Types.ObjectId(parentId)
+      : null;
+    if (!parentOid) {
+      throw new NotFoundException(`Category ${parentId} not found`);
+    }
+
     const list = await this.categoryModel
-      .find({ active: true, parentId: new Types.ObjectId(parentId) })
+      .find({
+        active: true,
+        $or: [{ parentId: parentOid }, { parentId: parentId as any }],
+      })
       .sort({ sortOrder: 1, name: 1 })
       .lean()
       .exec();
 
     return Promise.all(
-      list.map(async (c: any) => ({
-        id: c._id?.toString() ?? c.id,
-        name: c.name,
-        productCount: await this.productsService.countBySubcategoryName(
-          parent.name,
-          c.name,
-        ),
-      })),
+      list.map(async (c: any) => {
+        let productCount = 0;
+        try {
+          productCount = await this.productsService.countBySubcategoryName(
+            parent.name,
+            c.name,
+          );
+        } catch {
+          productCount = 0;
+        }
+        return {
+          id: c._id?.toString() ?? c.id,
+          name: c.name,
+          productCount,
+          color: c.color,
+          icon: c.icon,
+          imageUrl: c.imageUrl,
+        };
+      }),
     );
   }
 
@@ -111,12 +140,7 @@ export class CategoriesService {
     const result = await Promise.all(
       list.map(async (c: any) => {
         const parentName = c.parentId
-          ? (
-              await this.categoryModel
-                .findById(c.parentId)
-                .lean()
-                .exec()
-            )?.name
+          ? (await this.categoryModel.findById(c.parentId).lean().exec())?.name
           : undefined;
 
         const productCount = parentName
@@ -150,7 +174,10 @@ export class CategoriesService {
 
     let productCount = 0;
     if (c.parentId) {
-      const parent = await this.categoryModel.findById(c.parentId).lean().exec();
+      const parent = await this.categoryModel
+        .findById(c.parentId)
+        .lean()
+        .exec();
       if (parent) {
         productCount = await this.productsService.countBySubcategoryName(
           parent.name,
@@ -176,7 +203,7 @@ export class CategoriesService {
   }
 
   async create(dto: CreateCategoryDto) {
-    const payload: any = {
+    const payload: Record<string, unknown> = {
       name: dto.name,
       description: dto.description,
       color: dto.color ?? '#E8F5E9',
@@ -185,7 +212,9 @@ export class CategoriesService {
       active: dto.active ?? true,
       sortOrder: dto.sortOrder ?? 0,
     };
-    if (dto.parentId) payload.parentId = dto.parentId;
+    if (dto.parentId && Types.ObjectId.isValid(dto.parentId)) {
+      payload.parentId = new Types.ObjectId(dto.parentId);
+    }
     const doc = await this.categoryModel.create(payload);
     const c = doc.toObject ? doc.toObject() : doc;
     return { ...c, id: (doc as any)._id?.toString() };

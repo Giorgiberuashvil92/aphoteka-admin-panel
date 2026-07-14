@@ -9,12 +9,33 @@ export interface CategoryItem {
   imageUrl?: string;
 }
 
-export interface SubcategoryItem {
-  id: string;
-  name: string;
-}
+/** იგივე shape რაც CategoryItem — drill-down ქარდებისთვის */
+export type SubcategoryItem = CategoryItem;
 
 const USE_API = true;
+
+function normalizeCategoryList(data: unknown): CategoryItem[] {
+  if (Array.isArray(data)) {
+    return data
+      .map((row) => {
+        if (!row || typeof row !== 'object') return null;
+        const o = row as Record<string, unknown>;
+        const id = String(o.id ?? o._id ?? '').trim();
+        const name = String(o.name ?? '').trim();
+        if (!id || !name) return null;
+        return {
+          id,
+          name,
+          productCount: Number(o.productCount) || 0,
+          color: typeof o.color === 'string' ? o.color : undefined,
+          icon: typeof o.icon === 'string' ? o.icon : undefined,
+          imageUrl: typeof o.imageUrl === 'string' ? o.imageUrl : undefined,
+        } satisfies CategoryItem;
+      })
+      .filter((x): x is CategoryItem => x != null);
+  }
+  return [];
+}
 
 export class CategoryServiceClass {
   async getCategories(): Promise<CategoryItem[]> {
@@ -23,7 +44,7 @@ export class CategoryServiceClass {
       const res = await fetch(API_CONFIG.BASE_URL + API_CONFIG.endpoints.categories.mobile);
       if (!res.ok) return [];
       const data = await res.json();
-      return Array.isArray(data) ? data : [];
+      return normalizeCategoryList(data);
     } catch (e) {
       console.error('Error fetching categories:', e);
       return [];
@@ -31,12 +52,24 @@ export class CategoryServiceClass {
   }
 
   async getSubcategories(categoryId: string): Promise<SubcategoryItem[]> {
-    if (!USE_API) return [];
+    if (!USE_API || !categoryId.trim()) return [];
+    const id = encodeURIComponent(categoryId.trim());
+
     try {
-      const res = await fetch(`${API_CONFIG.BASE_URL}/categories/${categoryId}/subcategories`);
-      if (!res.ok) return [];
-      const data = await res.json();
-      return Array.isArray(data) ? data : [];
+      const primary = await fetch(
+        `${API_CONFIG.BASE_URL}/categories/${id}/subcategories`,
+      );
+      if (primary.ok) {
+        const list = normalizeCategoryList(await primary.json());
+        if (list.length > 0) return list;
+      }
+
+      /** იგივე query რაც ადმინ drill-down — fallback თუ /subcategories ცარიელი/ვერ მოვიდა */
+      const fallback = await fetch(
+        `${API_CONFIG.BASE_URL}/categories?parentId=${id}&active=true`,
+      );
+      if (!fallback.ok) return [];
+      return normalizeCategoryList(await fallback.json());
     } catch (e) {
       console.error('Error fetching subcategories:', e);
       return [];

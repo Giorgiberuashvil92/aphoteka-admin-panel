@@ -5,6 +5,10 @@ import { Product } from "@/types";
 import { productsApi, categoriesApi } from "@/lib/api";
 import type { AdminCategory } from "@/lib/api/categories";
 import { filterFieldsApi, type FilterField } from "@/lib/api/filter-fields";
+import CategoryPathPicker, {
+  pathIdsToCategoryFields,
+  resolveCategoryPathIds,
+} from "@/components/products/CategoryPathPicker";
 
 interface ProductFormModalProps {
   isOpen: boolean;
@@ -53,8 +57,7 @@ export default function ProductFormModal({
   const [formData, setFormData] = useState(initialFormData);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [categories, setCategories] = useState<AdminCategory[]>([]);
-  const [subcategories, setSubcategories] = useState<AdminCategory[]>([]);
-  const [loadingSubcategories, setLoadingSubcategories] = useState(false);
+  const [categoryPathIds, setCategoryPathIds] = useState<string[]>([]);
   const [filterFields, setFilterFields] = useState<FilterField[]>([]);
   const [filterValues, setFilterValues] = useState<
     Record<string, string | string[] | boolean>
@@ -62,13 +65,15 @@ export default function ProductFormModal({
 
   useEffect(() => {
     let cancelled = false;
-    categoriesApi.getRoots().then((list) => {
+    categoriesApi.getAll().then((list) => {
       if (!cancelled) setCategories(Array.isArray(list) ? list : []);
     });
     filterFieldsApi.getActive().then((list) => {
       if (!cancelled) setFilterFields(Array.isArray(list) ? list : []);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const resolveCategoryFields = (
@@ -99,30 +104,15 @@ export default function ProductFormModal({
     };
   };
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!formData.mainCategory) {
-      setSubcategories([]);
-      return;
-    }
-    const parent = categories.find((c) => c.name === formData.mainCategory);
-    if (!parent) {
-      setSubcategories([]);
-      return;
-    }
-    setLoadingSubcategories(true);
-    categoriesApi
-      .getSubcategories(parent.id)
-      .then((list) => {
-        if (!cancelled) setSubcategories(Array.isArray(list) ? list : []);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingSubcategories(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [formData.mainCategory, categories]);
+  const applyCategoryPath = (pathIds: string[]) => {
+    setCategoryPathIds(pathIds);
+    const fields = pathIdsToCategoryFields(categories, pathIds);
+    setFormData((prev) => ({
+      ...prev,
+      mainCategory: fields.mainCategory,
+      subcategory: fields.subcategory,
+    }));
+  };
 
   // Load product data when editing
   useEffect(() => {
@@ -133,7 +123,9 @@ export default function ProductFormModal({
     };
 
     if (product) {
-      const mainCategoryNames = new Set(categories.map((c) => c.name));
+      const mainCategoryNames = new Set(
+        categories.filter((c) => !c.parentId).map((c) => c.name),
+      );
       const { mainCategory, subcategory, therapeuticClass } = resolveCategoryFields(
         product,
         mainCategoryNames,
@@ -172,6 +164,9 @@ export default function ProductFormModal({
         subcategory,
         therapeuticClass,
       });
+      setCategoryPathIds(
+        resolveCategoryPathIds(categories, mainCategory, subcategory),
+      );
       setFilterValues(product.filterValues ?? {});
     } else {
       setFormData({
@@ -204,6 +199,7 @@ export default function ProductFormModal({
         subcategory: "",
         therapeuticClass: "",
       });
+      setCategoryPathIds([]);
       setFilterValues({});
     }
   }, [product, categories]);
@@ -734,67 +730,12 @@ export default function ProductFormModal({
               />
             </div>
 
-            {/* მთავარი კატეგორია */}
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                მთავარი კატეგორია
-              </label>
-              <select
-                value={formData.mainCategory}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    mainCategory: e.target.value,
-                    subcategory: "",
-                  })
-                }
-                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">— არ არის არჩეული —</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.name}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* საბკატეგორია — ადმინის საბკატეგორიებიდან */}
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                საბკატეგორია
-              </label>
-              <select
-                value={formData.subcategory}
-                onChange={(e) =>
-                  setFormData({ ...formData, subcategory: e.target.value })
-                }
-                disabled={!formData.mainCategory || loadingSubcategories}
-                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">
-                  {!formData.mainCategory
-                    ? "— ჯერ აირჩიეთ მთავარი კატეგორია —"
-                    : loadingSubcategories
-                      ? "იტვირთება..."
-                      : "— არ არის არჩეული —"}
-                </option>
-                {formData.subcategory &&
-                  !subcategories.some((s) => s.name === formData.subcategory) && (
-                    <option value={formData.subcategory}>
-                      {formData.subcategory} (არსებული)
-                    </option>
-                  )}
-                {subcategories.map((sub) => (
-                  <option key={sub.id} value={sub.name}>
-                    {sub.name}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-gray-500">
-                Norix/აპში ნავიგაციისთვის. საბკატეგორიების მართვა: კატეგორიები → საბკატეგორიები
-              </p>
-            </div>
+            {/* კატეგორიის გზა (ნებისმიერი სიღრმე) */}
+            <CategoryPathPicker
+              categories={categories}
+              pathIds={categoryPathIds}
+              onPathChange={applyCategoryPath}
+            />
 
             {/* Therapeutic Class — მედიკამენტებისთვის (Balance) */}
             <div>

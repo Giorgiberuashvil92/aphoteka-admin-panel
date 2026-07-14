@@ -83,9 +83,14 @@ export function SearchResultsScreen({
   const loadProducts = useCallback(async () => {
     setLoading(true);
     try {
+      const subcategoryParam =
+        activeSubcategories.length > 0
+          ? activeSubcategories.join(',')
+          : undefined;
       const { data } = await ProductService.getProductsFiltered({
         search: debouncedQuery?.trim() || undefined,
         category: initialCategory?.trim() || undefined,
+        subcategory: subcategoryParam,
         filters:
           Object.keys(attributeFilters).length > 0 ? attributeFilters : undefined,
         page: 1,
@@ -98,20 +103,14 @@ export function SearchResultsScreen({
     } finally {
       setLoading(false);
     }
-  }, [debouncedQuery, initialCategory, attributeFilters]);
+  }, [debouncedQuery, initialCategory, attributeFilters, activeSubcategories]);
 
   useEffect(() => {
     loadProducts();
   }, [loadProducts]);
 
   const filteredProducts = useMemo(() => {
-    let result = [...products];
-
-    if (activeSubcategories.length > 0) {
-      result = result.filter((p) =>
-        activeSubcategories.includes(p.subcategory?.trim() || p.category?.trim() || ''),
-      );
-    }
+    const result = [...products];
 
     switch (selectedSort) {
       case 'ფასი: ზრდადობით':
@@ -129,11 +128,7 @@ export function SearchResultsScreen({
     }
 
     return result;
-  }, [products, activeSubcategories, selectedSort]);
-
-  const removeSubcategoryFilter = (name: string) => {
-    setActiveSubcategories((prev) => prev.filter((s) => s !== name));
-  };
+  }, [products, selectedSort]);
 
   const removeAttributeFilter = (key: string, value?: string) => {
     setAttributeFilters((prev) => {
@@ -154,15 +149,13 @@ export function SearchResultsScreen({
     });
   };
 
-  const activeFilterChips = useMemo(() => {
+  const categoryTitle =
+    activeSubcategories.length > 0
+      ? activeSubcategories.join(' · ')
+      : initialCategory?.trim() || '';
+
+  const attributeChips = useMemo(() => {
     const chips: { id: string; label: string; onRemove: () => void }[] = [];
-    activeSubcategories.forEach((chip) => {
-      chips.push({
-        id: `sub-${chip}`,
-        label: chip,
-        onRemove: () => removeSubcategoryFilter(chip),
-      });
-    });
     for (const [key, value] of Object.entries(attributeFilters)) {
       const field = filterFields.find((f) => f.key === key);
       const prefix = field?.label ? `${field.label}: ` : '';
@@ -189,45 +182,18 @@ export function SearchResultsScreen({
       }
     }
     return chips;
-  }, [activeSubcategories, attributeFilters, filterFields]);
+  }, [attributeFilters, filterFields]);
+
+  const activeFilterCount = activeSubcategories.length + attributeChips.length;
 
   const listHeader = (
     <View style={styles.listHeaderWrap}>
-      <View style={styles.controlsRow}>
-        <TouchableOpacity
-          style={styles.sortDropdown}
-          onPress={() => setShowSortModal(true)}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.sortDropdownText}>{selectedSort}</Text>
-          <Ionicons name="chevron-down" size={14} color="#2A3A7A" />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.filterButton}
-          onPress={() => setShowFilterModal(true)}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="funnel-outline" size={16} color="#2A3A7A" />
-          <Text style={styles.filterButtonText}>ფილტრი</Text>
-        </TouchableOpacity>
-      </View>
-
-      {activeFilterChips.length > 0 && (
-        <View style={styles.chipsRow}>
-          {activeFilterChips.map((chip) => (
-            <View key={chip.id} style={styles.filterChip}>
-              <Text style={styles.filterChipText}>{chip.label}</Text>
-              <TouchableOpacity
-                onPress={chip.onRemove}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="close" size={14} color="#5B5FC7" />
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-      )}
+      <Text style={styles.resultCount} numberOfLines={1}>
+        {loading ? '…' : `${filteredProducts.length} პროდუქტი`}
+        {attributeChips.length > 0
+          ? ` · ${attributeChips.map((c) => c.label).join(', ')}`
+          : ''}
+      </Text>
     </View>
   );
 
@@ -235,15 +201,37 @@ export function SearchResultsScreen({
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      <View style={styles.topBar}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton} activeOpacity={0.75}>
-          <Ionicons name="chevron-back" size={24} color="#2A3A7A" />
-        </TouchableOpacity>
+      <View style={styles.header}>
+        <View style={styles.headerTop}>
+          <TouchableOpacity onPress={onBack} style={styles.backButton} activeOpacity={0.75}>
+            <Ionicons name="chevron-back" size={24} color="#2A3A7A" />
+          </TouchableOpacity>
+          {categoryTitle ? (
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {categoryTitle}
+            </Text>
+          ) : (
+            <View style={styles.headerTitleSpacer} />
+          )}
+          {attributeChips.length > 0 ? (
+            <TouchableOpacity
+              onPress={() => setAttributeFilters({})}
+              hitSlop={8}
+              activeOpacity={0.7}
+              style={styles.headerAction}
+            >
+              <Text style={styles.headerActionText}>გასუფთავება</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.headerActionSpacer} />
+          )}
+        </View>
+
         <View style={styles.searchPill}>
           <Ionicons name="search-outline" size={18} color="#9CA3AF" />
           <TextInput
             style={styles.searchInput}
-            placeholder="ძიება..."
+            placeholder={categoryTitle ? 'ძიება ამ კატეგორიაში...' : 'ძიება...'}
             placeholderTextColor="#9CA3AF"
             value={query}
             onChangeText={setQuery}
@@ -284,7 +272,7 @@ export function SearchResultsScreen({
           style={styles.productsFlatList}
           contentContainerStyle={[
             styles.productsList,
-            { paddingBottom: insets.bottom + 120 },
+            { paddingBottom: insets.bottom + 150 },
           ]}
           columnWrapperStyle={styles.productsRow}
           showsVerticalScrollIndicator={false}
@@ -312,7 +300,7 @@ export function SearchResultsScreen({
         />
       )}
 
-      <View style={[styles.floatingBar, { bottom: insets.bottom + 72 }]}>
+      <View style={[styles.floatingBar, { bottom: insets.bottom + 100 }]}>
         <TouchableOpacity
           style={styles.floatingBarBtn}
           onPress={() => setShowSortModal(true)}
@@ -329,6 +317,11 @@ export function SearchResultsScreen({
         >
           <Ionicons name="funnel-outline" size={18} color={theme.colors.white} />
           <Text style={styles.floatingBarText}>ფილტრი</Text>
+          {activeFilterCount > 0 ? (
+            <View style={styles.floatingBadge}>
+              <Text style={styles.floatingBadgeText}>{activeFilterCount}</Text>
+            </View>
+          ) : null}
         </TouchableOpacity>
       </View>
 
@@ -388,7 +381,6 @@ export function SearchResultsScreen({
         }}
         onClear={() => {
           setAttributeFilters({});
-          setActiveSubcategories([]);
           setShowFilterModal(false);
         }}
       />
@@ -401,13 +393,42 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
-  topBar: {
+  header: {
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#EEF0F3',
+  },
+  headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#FFFFFF',
+    minHeight: 40,
+    marginBottom: 8,
+  },
+  headerTitle: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#1A1A2E',
+    textAlign: 'center',
+    paddingHorizontal: 4,
+  },
+  headerTitleSpacer: {
+    flex: 1,
+  },
+  headerAction: {
+    paddingHorizontal: 4,
+    minWidth: 36,
+    alignItems: 'flex-end',
+  },
+  headerActionSpacer: {
+    width: 36,
+  },
+  headerActionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2A3A7A',
   },
   backButton: {
     width: 36,
@@ -416,14 +437,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   searchPill: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    height: 46,
-    borderRadius: 23,
+    height: 44,
+    borderRadius: 12,
     backgroundColor: '#F2F3F5',
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
   },
   searchPillText: {
     flex: 1,
@@ -441,58 +461,13 @@ const styles = StyleSheet.create({
   listHeaderWrap: {
     marginHorizontal: -16,
     paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 10,
-    marginBottom: 4,
+    paddingTop: 10,
+    paddingBottom: 6,
   },
-  controlsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-    paddingHorizontal: 2,
-  },
-  sortDropdown: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 4,
-  },
-  sortDropdownText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#2A3A7A',
-  },
-  filterButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingVertical: 4,
-  },
-  filterButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#2A3A7A',
-  },
-  chipsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
-  },
-  filterChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#E8EAF6',
-  },
-  filterChipText: {
+  resultCount: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#5B5FC7',
+    color: '#8B8C8E',
   },
   loadingContainer: {
     flex: 1,
@@ -566,6 +541,20 @@ const styles = StyleSheet.create({
   floatingBarDivider: {
     width: 1,
     backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  floatingBadge: {
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 9,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  floatingBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#2A3A7A',
   },
   modalBackdrop: {
     flex: 1,

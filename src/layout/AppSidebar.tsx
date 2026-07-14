@@ -61,8 +61,6 @@ const navItems: NavItem[] = [
     subItems: [
       { name: "ყველა კატეგორია", path: "/categories", pro: false },
       { name: "ახალი კატეგორია", path: "/categories/new", pro: false },
-      { name: "საბკატეგორიები", path: "/subcategories", pro: false },
-      { name: "ახალი საბკატეგორია", path: "/subcategories/new", pro: false },
     ],
   },
   {

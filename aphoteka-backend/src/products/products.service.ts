@@ -91,11 +91,19 @@ export class ProductsService {
 
     const filter: Record<string, unknown> = {};
 
-    if (search) {
+    if (search?.trim()) {
+      const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const rx = { $regex: escaped, $options: 'i' };
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { sku: { $regex: search, $options: 'i' } },
+        { name: rx },
+        { description: rx },
+        { sku: rx },
+        { genericName: rx },
+        { productNameBrand: rx },
+        { manufacturer: rx },
+        { activeIngredients: rx },
+        { barcode: rx },
+        { productCode: rx },
       ];
     }
 
@@ -112,8 +120,16 @@ export class ProductsService {
       }
     }
 
-    if (subcategory) {
-      filter.subcategory = subcategory;
+    if (subcategory?.trim()) {
+      const parts = subcategory
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (parts.length === 1) {
+        filter.subcategory = parts[0];
+      } else if (parts.length > 1) {
+        filter.subcategory = { $in: parts };
+      }
     }
 
     if (active !== undefined) {
