@@ -21,6 +21,8 @@ type CategoryScreenProps = {
   onCategoryPress: (categoryName: string, subcategories?: string[]) => void;
   onHomePress: () => void;
   initialMainCategory?: MainCategoryType;
+  /** ადმინიდან დაბმული კატეგორიის id */
+  initialCategoryId?: string;
 };
 
 type StackEntry = { id: string; name: string };
@@ -54,15 +56,17 @@ export function CategoryScreen({
   onCategoryPress,
   onHomePress,
   initialMainCategory,
+  initialCategoryId,
 }: CategoryScreenProps) {
   const insets = useSafeAreaInsets();
   const tabNav = useTabNavigation();
+  const hasDeepLink = Boolean(initialCategoryId || initialMainCategory);
   const [rootCategories, setRootCategories] = useState<CategoryItem[]>([]);
   const [rootsLoading, setRootsLoading] = useState(true);
   const [stack, setStack] = useState<StackEntry[]>([]);
   const [childCategories, setChildCategories] = useState<CategoryItem[]>([]);
   const [childrenLoading, setChildrenLoading] = useState(false);
-  const [initialCategoryHandled, setInitialCategoryHandled] = useState(false);
+  const [deepLinkLoading, setDeepLinkLoading] = useState(hasDeepLink);
 
   const atRoot = stack.length === 0;
   const currentTitle = atRoot ? 'კატეგორიები' : stack[stack.length - 1].name;
@@ -72,25 +76,109 @@ export function CategoryScreen({
     [atRoot, rootCategories, childCategories],
   );
 
-  const loading = atRoot ? rootsLoading : childrenLoading;
+  const loading = deepLinkLoading || (atRoot ? rootsLoading : childrenLoading);
 
   useEffect(() => {
     let cancelled = false;
-    setRootsLoading(true);
-    CategoryService.getCategories()
-      .then((list) => {
-        if (!cancelled) setRootCategories(list);
-      })
-      .catch(() => {
-        if (!cancelled) setRootCategories([]);
-      })
-      .finally(() => {
+
+    const bootstrap = async () => {
+      setRootsLoading(true);
+      if (hasDeepLink) setDeepLinkLoading(true);
+
+      try {
+        const list = await CategoryService.getCategories();
+        if (cancelled) return;
+
+        const roots = dedupeCategories(list);
+        setRootCategories(list);
+
+        if (!hasDeepLink) {
+          return;
+        }
+
+        let matchId: string | undefined;
+        let matchName: string | undefined;
+
+        if (initialCategoryId) {
+          matchId = initialCategoryId;
+        } else if (initialMainCategory) {
+          const targetName = MAIN_CATEGORY_API_NAMES[initialMainCategory];
+          const match = roots.find(
+            (category) =>
+              category.name === targetName ||
+              displayCategoryName(category.name) === targetName,
+          );
+          if (match) {
+            matchId = match.id;
+            matchName = match.name;
+          }
+        }
+
+        if (!matchId) {
+          setDeepLinkLoading(false);
+          return;
+        }
+
+        let navigatedAway = false;
+        try {
+          const path = await CategoryService.getPath(matchId);
+          if (cancelled) return;
+
+          const pathEntries: StackEntry[] =
+            path.length > 0
+              ? path.map((p) => ({
+                  id: p.id,
+                  name: displayCategoryName(p.name),
+                }))
+              : matchName
+                ? [{ id: matchId, name: displayCategoryName(matchName) }]
+                : [{ id: matchId, name: 'კატეგორია' }];
+
+          const target = pathEntries[pathEntries.length - 1];
+          const root = pathEntries[0];
+          const subs = await CategoryService.getSubcategories(target.id);
+          if (cancelled) return;
+          const normalized = dedupeCategories(subs);
+
+          if (normalized.length === 0) {
+            navigatedAway = true;
+            if (pathEntries.length <= 1) {
+              onCategoryPress(target.name);
+            } else {
+              onCategoryPress(root.name, [target.name]);
+            }
+            return;
+          }
+
+          setStack(pathEntries);
+          setChildCategories(normalized);
+        } catch (error) {
+          console.error('Error loading deep-link subcategories:', error);
+          if (!cancelled) {
+            navigatedAway = true;
+            onCategoryPress(matchName || 'კატეგორია');
+          }
+        } finally {
+          if (!cancelled && !navigatedAway) {
+            setDeepLinkLoading(false);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setRootCategories([]);
+          setDeepLinkLoading(false);
+        }
+      } finally {
         if (!cancelled) setRootsLoading(false);
-      });
+      }
+    };
+
+    void bootstrap();
     return () => {
       cancelled = true;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- მხოლოდ mount / deep-link პარამებზე
+  }, [hasDeepLink, initialCategoryId, initialMainCategory]);
 
   /** კატალოგი არჩეული ქვეკატეგორიისთვის (ან root-ისთვის, თუ შვილი აღარ აქვს) */
   const openCatalogForItem = useCallback(
@@ -122,7 +210,6 @@ export function CategoryScreen({
         const subs = await CategoryService.getSubcategories(category.id);
         const normalized = dedupeCategories(subs);
         if (normalized.length === 0) {
-          // ბოლო დონე — შვილები აღარ არის → პროდუქტები
           openCatalogForItem(category);
           return;
         }
@@ -165,35 +252,15 @@ export function CategoryScreen({
     }
   }, [stack]);
 
-  useEffect(() => {
-    if (
-      !initialMainCategory ||
-      rootsLoading ||
-      initialCategoryHandled ||
-      rootCategories.length === 0
-    ) {
-      return;
-    }
-
-    const roots = dedupeCategories(rootCategories);
-    const targetName = MAIN_CATEGORY_API_NAMES[initialMainCategory];
-    const match = roots.find(
-      (category) =>
-        category.name === targetName ||
-        displayCategoryName(category.name) === targetName,
+  if (deepLinkLoading) {
+    return (
+      <View style={[styles.container, styles.deepLinkLoader, { paddingTop: insets.top }]}>
+        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={styles.deepLinkLoaderText}>იტვირთება...</Text>
+      </View>
     );
-
-    if (match) {
-      setInitialCategoryHandled(true);
-      void drillInto(match);
-    }
-  }, [
-    initialMainCategory,
-    rootsLoading,
-    initialCategoryHandled,
-    rootCategories,
-    drillInto,
-  ]);
+  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -338,6 +405,16 @@ const styles = StyleSheet.create({
   loadingContainer: {
     paddingVertical: 48,
     alignItems: 'center',
+  },
+  deepLinkLoader: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  deepLinkLoaderText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: theme.colors.gray[1000],
   },
   emptyState: {
     paddingVertical: 36,

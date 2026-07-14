@@ -128,6 +128,7 @@ const othersItems: NavItem[] = [
       { name: "სექციის ტიპები", path: "/section-types", pro: false },
       { name: "ფილტრები", path: "/filters", pro: false },
       { name: "მთავარი გვერდის სექციები", path: "/home-sections", pro: false },
+      { name: "მთავარი კატეგორიის ბარათები", path: "/home-category-cards", pro: false },
       { name: "პარამეტრები", path: "/mobile-app", pro: false },
     ],
   },

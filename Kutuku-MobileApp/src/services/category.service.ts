@@ -75,6 +75,42 @@ export class CategoryServiceClass {
       return [];
     }
   }
+
+  /** root → … → target */
+  async getPath(
+    categoryId: string,
+  ): Promise<{ id: string; name: string; parentId?: string }[]> {
+    if (!USE_API || !categoryId.trim()) return [];
+    const id = encodeURIComponent(categoryId.trim());
+    try {
+      const res = await fetch(`${API_CONFIG.BASE_URL}/categories/${id}/path`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      if (!Array.isArray(data)) return [];
+      return data
+        .map((row) => {
+          if (!row || typeof row !== 'object') return null;
+          const o = row as Record<string, unknown>;
+          const cid = String(o.id ?? o._id ?? '').trim();
+          const name = String(o.name ?? '').trim();
+          if (!cid || !name) return null;
+          return {
+            id: cid,
+            name,
+            parentId:
+              typeof o.parentId === 'string' && o.parentId
+                ? o.parentId
+                : undefined,
+          };
+        })
+        .filter(
+          (x): x is { id: string; name: string; parentId?: string } => x != null,
+        );
+    } catch (e) {
+      console.error('Error fetching category path:', e);
+      return [];
+    }
+  }
 }
 
 export const CategoryService = new CategoryServiceClass();

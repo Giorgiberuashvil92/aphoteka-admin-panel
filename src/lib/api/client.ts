@@ -41,6 +41,7 @@ export async function apiRequest<T>(
       path === '/orders' || path.startsWith('/orders/') ||
       path === '/section-types' || path.startsWith('/section-types/') ||
       path === '/home-sections' || path.startsWith('/home-sections/') ||
+      path === '/home-category-cards' || path.startsWith('/home-category-cards/') ||
       path === '/filter-fields' || path.startsWith('/filter-fields/')) {
     // Skip mock data, go directly to real API
   } else if (USE_MOCK_DATA) {

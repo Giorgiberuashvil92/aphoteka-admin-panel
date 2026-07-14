@@ -10,14 +10,22 @@ const MAIN_CATEGORY_TYPES = new Set<MainCategoryType>([
 
 export default function Category() {
   const router = useRouter();
-  const { main } = useLocalSearchParams<{ main?: string }>();
+  const { main, categoryId } = useLocalSearchParams<{
+    main?: string;
+    categoryId?: string;
+  }>();
   const initialMainCategory = MAIN_CATEGORY_TYPES.has(main as MainCategoryType)
     ? (main as MainCategoryType)
     : undefined;
+  const initialCategoryId =
+    typeof categoryId === 'string' && categoryId.trim()
+      ? categoryId.trim()
+      : undefined;
 
   return (
     <CategoryScreen
       initialMainCategory={initialMainCategory}
+      initialCategoryId={initialCategoryId}
       onCategoryPress={(categoryName: string, subcategories?: string[]) => {
         const params = new URLSearchParams({ category: categoryName });
         if (subcategories?.length) {

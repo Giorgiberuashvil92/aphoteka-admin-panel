@@ -202,6 +202,47 @@ export class CategoriesService {
     };
   }
 
+  /** root → … → target გზა (მობილური deep-link-ისთვის) */
+  async findPath(
+    id: string,
+  ): Promise<
+    { id: string; name: string; parentId?: string; imageUrl?: string }[]
+  > {
+    const path: {
+      id: string;
+      name: string;
+      parentId?: string;
+      imageUrl?: string;
+    }[] = [];
+    let currentId: string | null = id;
+    const guard = new Set<string>();
+
+    while (currentId) {
+      if (guard.has(currentId)) break;
+      guard.add(currentId);
+
+      const doc = await this.categoryModel.findById(currentId).lean().exec();
+      if (!doc) {
+        if (path.length === 0) {
+          throw new NotFoundException(`Category ${id} not found`);
+        }
+        break;
+      }
+      const c = doc as any;
+      const nodeId = c._id?.toString() ?? c.id;
+      const parentId = c.parentId?.toString?.() ?? c.parentId ?? undefined;
+      path.unshift({
+        id: nodeId,
+        name: c.name,
+        parentId: parentId ? String(parentId) : undefined,
+        imageUrl: c.imageUrl,
+      });
+      currentId = parentId ? String(parentId) : null;
+    }
+
+    return path;
+  }
+
   async create(dto: CreateCategoryDto) {
     const payload: Record<string, unknown> = {
       name: dto.name,

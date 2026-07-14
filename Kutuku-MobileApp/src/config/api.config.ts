@@ -85,6 +85,9 @@ export const API_CONFIG = {
     homeSections: {
       visible: '/home-sections/visible',
     },
+    homeCategoryCards: {
+      visible: '/home-category-cards/visible',
+    },
   },
 } as const;
 

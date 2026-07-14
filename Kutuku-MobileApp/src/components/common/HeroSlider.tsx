@@ -1,5 +1,4 @@
 import { fonts } from '@/src/theme/fonts';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
@@ -86,12 +85,11 @@ export function HeroSlider({
     return (
       <View style={styles.slideContainer}>
         <Image source={imageSource} style={styles.slideImage} resizeMode="cover" />
-        <LinearGradient
-          colors={['rgba(255,255,255,0.92)', 'rgba(255,255,255,0.55)', 'rgba(255,255,255,0)']}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 0.75, y: 0.5 }}
-          style={styles.gradient}
-        />
+        {/* LinearGradient-ის native error (ViewManagerAdapter unimplemented) თავიდან ასაცილებლად */}
+        <View style={styles.scrim} pointerEvents="none">
+          <View style={styles.scrimStrong} />
+          <View style={styles.scrimSoft} />
+        </View>
         <View style={styles.textOverlay}>
           <Text style={styles.title}>{item.title}</Text>
           <Text style={styles.description}>{item.description}</Text>
@@ -170,8 +168,24 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  gradient: {
+  scrim: {
     ...StyleSheet.absoluteFillObject,
+  },
+  scrimStrong: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: '58%',
+    backgroundColor: 'rgba(255,255,255,0.88)',
+  },
+  scrimSoft: {
+    position: 'absolute',
+    left: '48%',
+    top: 0,
+    bottom: 0,
+    width: '28%',
+    backgroundColor: 'rgba(255,255,255,0.35)',
   },
   textOverlay: {
     position: 'absolute',

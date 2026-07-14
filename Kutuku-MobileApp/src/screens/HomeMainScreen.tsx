@@ -1,7 +1,6 @@
 import { SimpleHeader } from '@/src/components/common/SimpleHeader';
 import { SearchBar } from '@/src/components/common/SearchBar';
 import { MainCategoryCard } from '@/src/components/common/MainCategoryCard';
-import type { MainCategoryType } from '@/src/components/common/MainCategoryCard';
 import { DeliveryPromoCard } from '@/src/components/common/DeliveryPromoCard';
 import { HomeBenefitsRow } from '@/src/components/common/HomeBenefitsRow';
 import { BottomNavigation } from '@/src/components/common/BottomNavigation';
@@ -9,6 +8,11 @@ import { DrawerMenu } from '@/src/components/common/DrawerMenu';
 import { HeroSlider } from '@/src/components/common/HeroSlider';
 import { useTabNavigation } from '@/src/hooks/useTabNavigation';
 import { NotificationService } from '@/src/services/notification.service';
+import {
+  FALLBACK_HOME_CATEGORY_CARDS,
+  HomeCategoryCardService,
+  type HomeCategoryCardItem,
+} from '@/src/services/home-category-card.service';
 import { theme } from '@/src/theme';
 import { useFocusEffect } from '@react-navigation/native';
 import * as SystemUI from 'expo-system-ui';
@@ -23,7 +27,7 @@ const C = {
 type HomeMainScreenProps = {
   onSearch: () => void;
   onCategory: () => void;
-  onMainCategoryPress: (type: MainCategoryType) => void;
+  onMainCategoryPress: (card: HomeCategoryCardItem) => void;
   onProductPress: (productId: string) => void;
   onNotifications: () => void;
   onSeeAllPress?: (query?: string) => void;
@@ -39,11 +43,15 @@ export function HomeMainScreen({
   const tabNav = useTabNavigation();
   const [unreadCount, setUnreadCount] = useState(0);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [categoryCards, setCategoryCards] = useState<HomeCategoryCardItem[]>(
+    FALLBACK_HOME_CATEGORY_CARDS,
+  );
 
   useFocusEffect(
     useCallback(() => {
       void SystemUI.setBackgroundColorAsync(C.bg);
       void NotificationService.getUnreadCount().then(setUnreadCount);
+      void HomeCategoryCardService.getVisible().then(setCategoryCards);
     }, []),
   );
 
@@ -100,18 +108,13 @@ export function HomeMainScreen({
           <SearchBar placeholder="რას ეძებ?" onPress={onSearch} />
 
           <View style={styles.categoriesRow}>
-            <MainCategoryCard
-              type="medications"
-              onPress={() => onMainCategoryPress('medications')}
-            />
-            <MainCategoryCard
-              type="cosmetics"
-              onPress={() => onMainCategoryPress('cosmetics')}
-            />
-            <MainCategoryCard
-              type="mother-child"
-              onPress={() => onMainCategoryPress('mother-child')}
-            />
+            {categoryCards.map((card) => (
+              <MainCategoryCard
+                key={card.id}
+                card={card}
+                onPress={() => onMainCategoryPress(card)}
+              />
+            ))}
           </View>
 
           <DeliveryPromoCard onPress={onCategory} />

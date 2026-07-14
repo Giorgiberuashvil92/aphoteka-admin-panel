@@ -31,6 +31,12 @@ export class CategoriesController {
     return this.categoriesService.findSubcategories(id);
   }
 
+  /** root → target გზა (deep-link ნებისმიერ დონეზე) */
+  @Get(':id/path')
+  findPath(@Param('id') id: string) {
+    return this.categoriesService.findPath(id);
+  }
+
   /** ადმინი: ყველა კატეგორია (?active=, ?parentId=, ?root=true) */
   @Get()
   findAll(

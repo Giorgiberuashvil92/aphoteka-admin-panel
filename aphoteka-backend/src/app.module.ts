@@ -22,6 +22,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { PrescriptionsModule } from './prescriptions/prescriptions.module';
 import { SmsModule } from './sms/sms.module';
 import { HomeSectionsModule } from './home-sections/home-sections.module';
+import { HomeCategoryCardsModule } from './home-category-cards/home-category-cards.module';
 import { SectionTypesModule } from './section-types/section-types.module';
 import { FilterFieldsModule } from './filter-fields/filter-fields.module';
 import { QuickshipperModule } from './quickshipper/quickshipper.module';
@@ -86,6 +87,7 @@ function balanceEnvFilePaths(): string[] {
     PrescriptionsModule,
     SmsModule,
     HomeSectionsModule,
+    HomeCategoryCardsModule,
     SectionTypesModule,
     FilterFieldsModule,
     QuickshipperModule,

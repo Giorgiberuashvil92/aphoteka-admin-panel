@@ -1,7 +1,9 @@
 import { fonts } from '@/src/theme/fonts';
+import type { HomeCategoryCardItem } from '@/src/services/home-category-card.service';
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+/** @deprecated ძველი deep link — უკუთავსებადობა */
 export type MainCategoryType = 'medications' | 'cosmetics' | 'mother-child';
 
 export const MAIN_CATEGORY_API_NAMES: Record<MainCategoryType, string> = {
@@ -17,61 +19,49 @@ const C = {
   white: '#FFFFFF',
 };
 
+type IconName = keyof typeof Ionicons.glyphMap;
+
 interface MainCategoryCardProps {
-  type: MainCategoryType;
+  card: HomeCategoryCardItem;
   onPress?: () => void;
 }
 
-const CATEGORY_CONFIG = {
-  medications: {
-    title: 'მედიკამენტები',
-    subtitle: 'სრულყოფილი ასორტიმენტი',
-    backgroundColor: '#EAF7FF',
-  },
-  cosmetics: {
-    title: 'კოსმეტიკა',
-    subtitle: 'ზრუნვა თქვენი სილამაზისთვის',
-    backgroundColor: '#FFEAF5',
-    iconColor: '#E24D9A',
-  },
-  'mother-child': {
-    title: 'დედა და ბავშვი',
-    subtitle: 'მოვლა და ზრუნვა პატარებისთვის',
-    backgroundColor: '#FFF2D9',
-    iconColor: '#F5A018',
-  },
-};
+function CategoryIcon({ card }: { card: HomeCategoryCardItem }) {
+  if (card.iconUrl) {
+    return (
+      <Image source={{ uri: card.iconUrl }} style={styles.iconImage} resizeMode="contain" />
+    );
+  }
 
-function CategoryIcon({ type }: { type: MainCategoryType }) {
-  if (type === 'medications') {
+  if (card.iconKey === 'pills') {
     return (
       <View style={styles.pillsWrap}>
-        <View style={[styles.pill, styles.pillTeal]} />
-        <View style={[styles.pill, styles.pillWhite]} />
+        <View style={[styles.pill, { backgroundColor: card.iconColor || C.teal }]} />
+        <View
+          style={[
+            styles.pill,
+            styles.pillOutline,
+            { borderColor: card.iconColor || C.teal },
+          ]}
+        />
       </View>
     );
   }
 
-  const config = CATEGORY_CONFIG[type];
-  return (
-    <Ionicons
-      name={type === 'cosmetics' ? 'flower-outline' : 'heart'}
-      size={32}
-      color={config.iconColor}
-    />
-  );
+  const iconName = (card.iconKey || 'heart') as IconName;
+  const resolved = Ionicons.glyphMap[iconName] ? iconName : ('ellipse-outline' as IconName);
+
+  return <Ionicons name={resolved} size={32} color={card.iconColor || C.teal} />;
 }
 
-export function MainCategoryCard({ type, onPress }: MainCategoryCardProps) {
-  const config = CATEGORY_CONFIG[type];
-
+export function MainCategoryCard({ card, onPress }: MainCategoryCardProps) {
   return (
     <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.88}>
-      <View style={[styles.iconContainer, { backgroundColor: config.backgroundColor }]}>
-        <CategoryIcon type={type} />
+      <View style={[styles.iconContainer, { backgroundColor: card.backgroundColor }]}>
+        <CategoryIcon card={card} />
       </View>
-      <Text style={styles.title}>{config.title}</Text>
-      <Text style={styles.subtitle}>{config.subtitle}</Text>
+      <Text style={styles.title}>{card.title}</Text>
+      {card.subtitle ? <Text style={styles.subtitle}>{card.subtitle}</Text> : null}
     </TouchableOpacity>
   );
 }
@@ -97,6 +87,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  iconImage: {
+    width: 36,
+    height: 36,
+  },
   pillsWrap: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -108,13 +102,9 @@ const styles = StyleSheet.create({
     height: 28,
     borderRadius: 8,
   },
-  pillTeal: {
-    backgroundColor: C.teal,
-  },
-  pillWhite: {
+  pillOutline: {
     backgroundColor: C.white,
     borderWidth: 2,
-    borderColor: C.teal,
   },
   title: {
     marginTop: 14,
