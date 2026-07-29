@@ -1,0 +1,11 @@
+# Railway → Service → Settings → Root Directory = aphoteka-backend
+# Variables-ში არ დაამატო PORT=3000 — Railway თავად აძლევს PORT-ს.
+
+[build]
+buildCommand = "npm run build"
+
+[deploy]
+startCommand = "npm run start:prod"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 120
+restartPolicyType = "on_failure"
