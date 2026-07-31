@@ -1579,7 +1579,7 @@ function ProductsPageContent() {
             <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>
                 <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
-                  SKU / საქონლის კოდი
+                  საქონლის კოდი
                 </th>
                 <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   დასახელება (მყიდველისგან)
@@ -1615,6 +1615,9 @@ function ProductsPageContent() {
                   ვარიგისია -მდე
                 </th>
                 <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                  SKU
+                </th>
+                <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
                   1) Product Name (Brand Name)
                 </th>
                 <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
@@ -1639,7 +1642,7 @@ function ProductsPageContent() {
                   8) Product Description (Short)
                 </th>
                 <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
-                  Product Identifier (Internal ID) in APP
+                  ბარკოდი
                 </th>
                 <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
                   Market / Country
@@ -1664,7 +1667,7 @@ function ProductsPageContent() {
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={27} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={28} className="px-6 py-8 text-center text-sm text-gray-500">
                     პროდუქტები არ მოიძებნა
                   </td>
                 </tr>
@@ -1705,7 +1708,6 @@ function ProductsPageContent() {
                     product.documentNumber && `დოკ. N: ${product.documentNumber}`,
                     product.manufacturer && `მწარმოებელი: ${product.manufacturer}`,
                     product.packSize && `შეფუთვა: ${product.packSize}`,
-                    product.barcode && `ბარკოდი: ${product.barcode}`,
                     product.packagingType && `შეფუთვის სახე: ${product.packagingType}`,
                     product.activeIngredients && `აქტ. ნივთ.: ${product.activeIngredients}`,
                   ].filter(Boolean);
@@ -1851,6 +1853,12 @@ function ProductsPageContent() {
                     >
                       {productBalanceExpiryDisplay(product) || "—"}
                     </td>
+                    <td
+                      className="max-w-[120px] truncate px-3 py-3 font-mono text-xs text-gray-600 dark:text-gray-300"
+                      title={product.internalSku || undefined}
+                    >
+                      {product.internalSku?.trim() || "—"}
+                    </td>
                     <td className="max-w-[160px] truncate px-3 py-3 text-sm text-gray-900 dark:text-white" title={product.productNameBrand || undefined}>
                       {product.productNameBrand || "—"}
                     </td>
@@ -1875,8 +1883,8 @@ function ProductsPageContent() {
                     <td className="max-w-[180px] truncate px-3 py-3 text-sm text-gray-600 dark:text-gray-300" title={product.description}>
                       {product.description?.trim() || "—"}
                     </td>
-                    <td className="max-w-[100px] truncate px-3 py-3 font-mono text-xs text-gray-600 dark:text-gray-300" title={product.id}>
-                      {product.id || "—"}
+                    <td className="max-w-[140px] truncate px-3 py-3 font-mono text-xs text-gray-600 dark:text-gray-300" title={product.barcode}>
+                      {product.barcode?.trim() || "—"}
                     </td>
                     <td className="max-w-[100px] truncate px-3 py-3 text-sm text-gray-600 dark:text-gray-300">
                       {product.countryOfOrigin?.trim() || "—"}
@@ -1911,13 +1919,6 @@ function ProductsPageContent() {
                     </td>
                     <td className="px-3 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Link
-                          href={`/products/${product.id}`}
-                          className="rounded p-1 text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-                          title="ნახვა"
-                        >
-                          <EyeIcon className="h-4 w-4" />
-                        </Link>
                         <button
                           onClick={() => handleEdit(product)}
                           className="rounded p-1 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"

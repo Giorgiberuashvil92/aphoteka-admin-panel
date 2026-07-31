@@ -111,7 +111,9 @@ export interface Product {
   imageUrl?: string;
   
   // Specific product information
-  sku: string; // SKU / internal product code (unique)
+  sku: string; // Balance-ის კოდი / სინქრონიზაციის გასაღები (unique)
+  /** ადმინის მიერ ხელით შევსებული SKU */
+  internalSku?: string;
   packSize?: string; // 10 tablets, 100 ml
   barcode?: string; // GTIN, if available (unique)
   unitOfMeasure?: string; // ზომის ერთეული

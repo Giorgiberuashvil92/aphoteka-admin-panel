@@ -153,6 +153,9 @@ export class Product {
   sku: string;
 
   @Prop()
+  internalSku?: string;
+
+  @Prop()
   packSize?: string;
 
   @Prop({ unique: true, sparse: true })

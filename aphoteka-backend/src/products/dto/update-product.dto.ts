@@ -62,6 +62,10 @@ export class UpdateProductDto {
 
   @IsString()
   @IsOptional()
+  internalSku?: string;
+
+  @IsString()
+  @IsOptional()
   packSize?: string;
 
   @IsString()

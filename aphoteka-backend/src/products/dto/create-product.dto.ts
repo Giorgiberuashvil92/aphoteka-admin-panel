@@ -55,6 +55,10 @@ export class CreateProductDto {
 
   @IsString()
   @IsOptional()
+  internalSku?: string;
+
+  @IsString()
+  @IsOptional()
   packSize?: string;
 
   @IsString()
