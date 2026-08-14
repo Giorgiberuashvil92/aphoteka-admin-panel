@@ -36,14 +36,14 @@ export default function AdminLoginForm() {
     setLoading(true);
     try {
       const base = getApiBaseUrl();
-      const normalizedPhone = normalizePhoneForAdminLogin(phoneNumber);
+      const normalizedLogin = normalizePhoneForAdminLogin(phoneNumber);
+      const loginPayload = normalizedLogin.includes("@")
+        ? { email: normalizedLogin, password }
+        : { phoneNumber: normalizedLogin, password };
       const res = await fetch(`${base}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phoneNumber: normalizedPhone,
-          password,
-        }),
+        body: JSON.stringify(loginPayload),
       });
 
       const data = (await res.json().catch(() => ({}))) as {

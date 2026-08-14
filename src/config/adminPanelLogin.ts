@@ -17,3 +17,7 @@ export const ADMIN_PANEL_LOGIN = {
   password:
     process.env.NEXT_PUBLIC_ADMIN_LOGIN_PASSWORD?.trim() || "123456",
 };
+
+export const ADMIN_PANEL_LOGIN_ALIASES: Record<string, string> = {
+  user: "user@example.com",
+};

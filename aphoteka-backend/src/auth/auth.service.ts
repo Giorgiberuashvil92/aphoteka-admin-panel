@@ -148,14 +148,19 @@ export class AuthService {
   }
 
   async login(loginDto: LoginDto) {
-    // Find user by phone number
+    const loginId = loginDto.email?.trim() || loginDto.phoneNumber?.trim();
+    if (!loginId) {
+      throw new UnauthorizedException('Invalid email/phone or password');
+    }
+
+    // Find user by email or phone number
     const user = await this.userModel
-      .findOne({ phoneNumber: loginDto.phoneNumber })
+      .findOne(buildLoginLookupFilter(loginId))
       .populate('warehouseId')
       .exec();
 
     if (!user) {
-      throw new UnauthorizedException('Invalid phone number or password');
+      throw new UnauthorizedException('Invalid email/phone or password');
     }
 
     // Check if user has password set
@@ -172,7 +177,7 @@ export class AuthService {
     );
 
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid phone number or password');
+      throw new UnauthorizedException('Invalid email/phone or password');
     }
 
     // Check if user is active

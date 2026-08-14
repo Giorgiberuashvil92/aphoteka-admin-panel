@@ -40,6 +40,7 @@ function loadDotenv() {
 loadDotenv();
 
 const DEFAULT_PHONE = 'user';
+const DEFAULT_EMAIL = 'user@example.com';
 const DEFAULT_PASSWORD = '123456';
 
 function allPermissions(): UserPermission[] {
@@ -52,6 +53,7 @@ async function main() {
   const uri = process.env.MONGODB_URI?.trim() || DEFAULT_MONGODB_URI;
 
   const phoneNumber = process.env.SEED_ADMIN_PHONE?.trim() || DEFAULT_PHONE;
+  const email = process.env.SEED_ADMIN_EMAIL?.trim() || DEFAULT_EMAIL;
   const plainPassword =
     process.env.SEED_ADMIN_PASSWORD?.trim() || DEFAULT_PASSWORD;
 
@@ -72,6 +74,7 @@ async function main() {
     {
       $set: {
         phoneNumber,
+        email,
         password,
         role: UserRole.ADMIN,
         status: 'active',
@@ -85,6 +88,7 @@ async function main() {
   console.log(
     'შექმნილი/განახლებული ადმინი:',
     doc.phoneNumber,
+    doc.email,
     'role=',
     doc.role,
   );

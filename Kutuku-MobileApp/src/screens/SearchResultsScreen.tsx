@@ -43,6 +43,48 @@ const SORT_OPTIONS: SortOption[] = [
   'სახელი',
 ];
 
+function productFilterValue(
+  product: Product,
+  key: string,
+): string | string[] | boolean | undefined {
+  const fromFilters = product.filterValues?.[key];
+  if (fromFilters !== undefined) return fromFilters;
+  const fromProduct = (product as unknown as Record<string, unknown>)[key];
+  if (
+    typeof fromProduct === 'string' ||
+    typeof fromProduct === 'boolean' ||
+    (Array.isArray(fromProduct) &&
+      fromProduct.every((v) => typeof v === 'string'))
+  ) {
+    return fromProduct as string | string[] | boolean;
+  }
+  return undefined;
+}
+
+function hasFilterValue(value: string | string[] | boolean | undefined): boolean {
+  if (value === undefined) return false;
+  if (typeof value === 'boolean') return true;
+  if (Array.isArray(value)) return value.some((v) => v.trim().length > 0);
+  return value.trim().length > 0;
+}
+
+function filterValuesForField(products: Product[], key: string): Set<string> {
+  const values = new Set<string>();
+  products.forEach((product) => {
+    const value = productFilterValue(product, key);
+    if (Array.isArray(value)) {
+      value.forEach((v) => {
+        const normalized = v.trim();
+        if (normalized) values.add(normalized);
+      });
+    } else if (typeof value === 'string') {
+      const normalized = value.trim();
+      if (normalized) values.add(normalized);
+    }
+  });
+  return values;
+}
+
 export function SearchResultsScreen({
   searchQuery,
   initialCategory,
@@ -185,6 +227,37 @@ export function SearchResultsScreen({
   }, [attributeFilters, filterFields]);
 
   const activeFilterCount = activeSubcategories.length + attributeChips.length;
+
+  const relevantFilterFields = useMemo(() => {
+    return filterFields
+      .map((field) => {
+        const selectedValue = attributeFilters[field.key];
+        const fieldHasValues = products.some((product) =>
+          hasFilterValue(productFilterValue(product, field.key)),
+        );
+
+        if (!fieldHasValues && selectedValue === undefined) return null;
+
+        if (field.type === 'boolean' || field.type === 'range') {
+          return field;
+        }
+
+        const availableValues = filterValuesForField(products, field.key);
+        const selectedValues = Array.isArray(selectedValue)
+          ? selectedValue
+          : typeof selectedValue === 'string'
+            ? [selectedValue]
+            : [];
+        const options = (field.options ?? []).filter(
+          (option) =>
+            availableValues.has(option) || selectedValues.includes(option),
+        );
+
+        if (options.length === 0 && selectedValues.length === 0) return null;
+        return { ...field, options };
+      })
+      .filter((field): field is FilterField => field !== null);
+  }, [attributeFilters, filterFields, products]);
 
   const listHeader = (
     <View style={styles.listHeaderWrap}>
@@ -372,7 +445,7 @@ export function SearchResultsScreen({
 
       <ProductFilterSheet
         visible={showFilterModal}
-        fields={filterFields}
+        fields={relevantFilterFields}
         values={attributeFilters}
         onClose={() => setShowFilterModal(false)}
         onApply={(values) => {

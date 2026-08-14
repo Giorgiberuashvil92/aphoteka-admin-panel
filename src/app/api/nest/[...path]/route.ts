@@ -11,6 +11,7 @@ const HOP_BY_HOP = new Set([
   'transfer-encoding',
   'upgrade',
   'host',
+  'content-length',
 ]);
 
 async function proxyToNest(
@@ -34,7 +35,7 @@ async function proxyToNest(
     cache: 'no-store',
   };
   if (req.method !== 'GET' && req.method !== 'HEAD') {
-    init.body = await req.arrayBuffer();
+    init.body = await req.text();
   }
 
   try {

@@ -114,22 +114,32 @@ export function ProductFilterSheet({
           </View>
 
           <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-            {visibleFields.map((field) => (
-              <TouchableOpacity
-                key={field.key}
-                style={styles.row}
-                onPress={() => openPicker(field)}
-                activeOpacity={0.75}
-              >
-                <Text style={styles.rowLabel}>{field.label}</Text>
-                <View style={styles.rowRight}>
-                  <Text style={styles.rowValue} numberOfLines={1}>
-                    {formatValueSummary(field, draft[field.key])}
-                  </Text>
-                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
-                </View>
-              </TouchableOpacity>
-            ))}
+            {visibleFields.length > 0 ? (
+              visibleFields.map((field) => (
+                <TouchableOpacity
+                  key={field.key}
+                  style={styles.row}
+                  onPress={() => openPicker(field)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.rowLabel}>{field.label}</Text>
+                  <View style={styles.rowRight}>
+                    <Text style={styles.rowValue} numberOfLines={1}>
+                      {formatValueSummary(field, draft[field.key])}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                  </View>
+                </TouchableOpacity>
+              ))
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="funnel-outline" size={28} color="#9CA3AF" />
+                <Text style={styles.emptyTitle}>ფილტრები არ არის</Text>
+                <Text style={styles.emptyText}>
+                  ამ პროდუქტებისთვის დამატებითი ფილტრი ჯერ არ არის მითითებული.
+                </Text>
+              </View>
+            )}
           </ScrollView>
 
           <View style={styles.footer}>
@@ -301,6 +311,23 @@ const styles = StyleSheet.create({
   },
   list: {
     maxHeight: 420,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 36,
+    gap: 8,
+  },
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1A1A2E',
+  },
+  emptyText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#6B7280',
+    textAlign: 'center',
   },
   row: {
     flexDirection: 'row',

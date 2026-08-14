@@ -52,6 +52,7 @@ const navItems: NavItem[] = [
     name: "პროდუქტები",
     subItems: [
       { name: "კატალოგი", path: "/products", pro: false },
+      { name: "ნაშთები (Stocks)", path: "/products/balance-stocks", pro: false },
       { name: "Excel-იდან იმპორტი", path: "/products/import", pro: false },
     ],
   },

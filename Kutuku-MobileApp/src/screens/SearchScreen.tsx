@@ -108,6 +108,10 @@ export function SearchScreen({
     }
   };
 
+  const handleAllProducts = () => {
+    onSearch('');
+  };
+
   const handleClearHistory = async () => {
     await searchHistoryService.clearHistory();
     setSearchHistory([]);
@@ -154,6 +158,18 @@ export function SearchScreen({
             <Text style={styles.cancelButton}>გაუქმება</Text>
           </TouchableOpacity>
         </View>
+
+        <TouchableOpacity
+          style={styles.allProductsButton}
+          onPress={handleAllProducts}
+          activeOpacity={0.85}
+        >
+          <View style={styles.allProductsIconBadge}>
+            <Ionicons name="grid-outline" size={18} color={theme.colors.primary} />
+          </View>
+          <Text style={styles.allProductsButtonText}>ყველა პროდუქტი</Text>
+          <Ionicons name="arrow-forward" size={17} color={theme.colors.primary} />
+        </TouchableOpacity>
 
         {showSuggestions ? (
           <View style={styles.section}>
@@ -344,6 +360,33 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: theme.colors.primary,
     fontWeight: '600',
+  },
+  allProductsButton: {
+    marginTop: 12,
+    marginHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    backgroundColor: theme.colors.white,
+    borderWidth: 1,
+    borderColor: '#DCE8FF',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  allProductsIconBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F2F6FF',
+  },
+  allProductsButtonText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
   },
   quickActionsCard: {
     marginTop: 14,

@@ -44,7 +44,7 @@ import React, {
   useCallback,
   Suspense,
 } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Product, type BalanceItemsSeriesApiRow } from "@/types";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
 import { PlusIcon, PencilIcon, TrashBinIcon, EyeIcon } from "@/icons";
@@ -187,7 +187,9 @@ function unitAndTotalAfterBalanceDiscount(
 
 function ProductsPageContent() {
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const warehouseId = searchParams.get("warehouseId") || undefined;
+  const isBalanceStocksPage = pathname === "/products/balance-stocks";
   
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
@@ -198,6 +200,7 @@ function ProductsPageContent() {
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const [isWarehouseModalOpen, setIsWarehouseModalOpen] = useState(false);
   const [warehouseProduct, setWarehouseProduct] = useState<Product | null>(null);
+  const [showBalanceColumns, setShowBalanceColumns] = useState(false);
   const [balanceStocksRows, setBalanceStocksRows] = useState<Record<string, unknown>[]>([]);
   const [balanceStocksRaw, setBalanceStocksRaw] = useState<unknown>(null);
   const [balanceStocksLoading, setBalanceStocksLoading] = useState(true);
@@ -946,7 +949,7 @@ function ProductsPageContent() {
     setWarehouseProduct(null);
   };
 
-  if (loading) {
+  if (loading && !isBalanceStocksPage) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -957,7 +960,7 @@ function ProductsPageContent() {
     );
   }
 
-  if (error) {
+  if (error && !isBalanceStocksPage) {
     return (
       <div className="space-y-6">
         <PageBreadCrumb pageTitle="პროდუქტების კატალოგი" />
@@ -981,10 +984,18 @@ function ProductsPageContent() {
 
   return (
     <div className="space-y-6">
-      <PageBreadCrumb pageTitle={warehouse ? `${warehouse.name} - პროდუქტები` : "პროდუქტების კატალოგი"} />
+      <PageBreadCrumb
+        pageTitle={
+          isBalanceStocksPage
+            ? "Balance - ნაშთები (Stocks)"
+            : warehouse
+              ? `${warehouse.name} - პროდუქტები`
+              : "პროდუქტების კატალოგი"
+        }
+      />
 
       {/* Warehouse Filter Info */}
-      {warehouse && (
+      {!isBalanceStocksPage && warehouse && (
         <div className="rounded-lg border border-brand-200 bg-brand-50 p-4 dark:border-brand-800 dark:bg-brand-900/20">
           <div className="flex items-center justify-between">
             <div>
@@ -1006,6 +1017,7 @@ function ProductsPageContent() {
       )}
 
       {/* Header Actions */}
+      {!isBalanceStocksPage && (
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex-1">
           <input
@@ -1047,6 +1059,22 @@ function ProductsPageContent() {
             Excel Import
           </Link>
           <button
+            type="button"
+            onClick={() => void syncBalanceToDb()}
+            disabled={syncLoading || balanceStocksLoading}
+            className="flex items-center justify-center gap-2 rounded-lg border border-brand-500 bg-white px-4 py-2 text-sm font-medium text-brand-500 hover:bg-brand-50 disabled:opacity-50 dark:bg-gray-800 dark:hover:bg-gray-700"
+          >
+            {syncLoading ? "იტვირთება..." : "განახლება ბაზა"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowBalanceColumns((v) => !v)}
+            className="flex items-center justify-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-900/40"
+            aria-expanded={showBalanceColumns}
+          >
+            {showBalanceColumns ? "Balance სვეტების დაკეცვა" : "Balance სვეტების გაშლა"}
+          </button>
+          <button
             onClick={() => {
               setEditingProduct(null);
               setIsModalOpen(true);
@@ -1058,8 +1086,32 @@ function ProductsPageContent() {
           </button>
         </div>
       </div>
+      )}
 
-      {(fixedProbeItemsSeriesError != null ||
+      {isBalanceStocksPage && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={runFixedProbeItemsSeries}
+            disabled={fixedProbeItemsSeriesLoading}
+            title="დებაგი: GET /api/balance/item-series-manual-url (იხილე route.ts)"
+            className="flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+          >
+            {fixedProbeItemsSeriesLoading ? "ItemsSeries…" : "ItemsSeries (ეს Item)"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void fetchItemsSeriesBareFromProxy()}
+            disabled={itemsSeriesBareLoading}
+            title="GET /api/balance/items-series-bare — იგივე cloud ItemsSeries სრული სია"
+            className="flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+          >
+            {itemsSeriesBareLoading ? "ItemsSeries…" : "ItemsSeries განახლება"}
+          </button>
+        </div>
+      )}
+
+      {isBalanceStocksPage && (fixedProbeItemsSeriesError != null ||
         fixedProbeItemsSeriesPayload != null) && (
         <div
           className={`rounded-lg border p-3 text-sm ${
@@ -1082,7 +1134,7 @@ function ProductsPageContent() {
         </div>
       )}
 
-      {(itemsSeriesBareError != null ||
+      {isBalanceStocksPage && (itemsSeriesBareError != null ||
         itemsSeriesBareLoading ||
         itemsSeriesBareData !== null) && (
         <div
@@ -1155,6 +1207,7 @@ function ProductsPageContent() {
       )}
 
       {/* Balance – ნაშთები (Stocks) – აკეცვადი */}
+      {isBalanceStocksPage && (
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
         <div
           onClick={() => setBalanceStocksCollapsed((c) => !c)}
@@ -1571,8 +1624,10 @@ function ProductsPageContent() {
         </div>
         )}
       </div>
+      )}
 
       {/* Products Table — თანმიმდევრობა: Balance/ზედნადები (10) → ფარმაცევტის სვეტები (12) → სხვა... → ადმინი: რეზერვი, Balance, მოქმედებები */}
+      {!isBalanceStocksPage && (
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -1584,6 +1639,8 @@ function ProductsPageContent() {
                 <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   დასახელება (მყიდველისგან)
                 </th>
+                {showBalanceColumns && (
+                <>
                 <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   ზომის ერთეული
                 </th>
@@ -1596,9 +1653,13 @@ function ProductsPageContent() {
                 <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   საქონლის ფასი
                 </th>
+                </>
+                )}
                 <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   ფასდაკლებული (ერთ. / ჯამი)
                 </th>
+                {showBalanceColumns && (
+                <>
                 <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   Balance ფასდაკლება
                 </th>
@@ -1614,6 +1675,8 @@ function ProductsPageContent() {
                 <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   ვარიგისია -მდე
                 </th>
+                </>
+                )}
                 <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
                   SKU
                 </th>
@@ -1667,7 +1730,7 @@ function ProductsPageContent() {
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={28} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={showBalanceColumns ? 28 : 20} className="px-6 py-8 text-center text-sm text-gray-500">
                     პროდუქტები არ მოიძებნა
                   </td>
                 </tr>
@@ -1766,6 +1829,8 @@ function ProductsPageContent() {
                     <td className={`max-w-[200px] truncate px-3 py-3 text-sm text-gray-900 dark:text-white ${cellBalance}`} title={product.name}>
                       {product.name || "—"}
                     </td>
+                    {showBalanceColumns && (
+                    <>
                     <td className={`whitespace-nowrap px-3 py-3 text-sm text-gray-800 dark:text-gray-200 ${cellBalance}`}>
                       {product.unitOfMeasure || "—"}
                     </td>
@@ -1780,6 +1845,8 @@ function ProductsPageContent() {
                         ? `₾${Number(product.totalPrice).toFixed(2)}`
                         : `₾${product.price.toFixed(2)}`}
                     </td>
+                    </>
+                    )}
                     <td
                       className={`px-3 py-3 text-sm text-gray-900 dark:text-white ${cellBalance}`}
                       title={priced.apply && discountTitle ? discountTitle : undefined}
@@ -1817,6 +1884,8 @@ function ProductsPageContent() {
                         <span className="text-gray-500 dark:text-gray-400">—</span>
                       )}
                     </td>
+                    {showBalanceColumns && (
+                    <>
                     <td
                       className={`whitespace-nowrap px-3 py-3 text-sm tabular-nums ${cellBalance} ${
                         hasDiscPct || hasDiscAmt
@@ -1853,6 +1922,8 @@ function ProductsPageContent() {
                     >
                       {productBalanceExpiryDisplay(product) || "—"}
                     </td>
+                    </>
+                    )}
                     <td
                       className="max-w-[120px] truncate px-3 py-3 font-mono text-xs text-gray-600 dark:text-gray-300"
                       title={product.internalSku || undefined}
@@ -1957,9 +2028,10 @@ function ProductsPageContent() {
           </table>
         </div>
       </div>
+      )}
 
       {/* Balance ნაშთის დეტალები (საწყობები / რეზერვი) */}
-      {balanceStockDetailProduct && (
+      {!isBalanceStocksPage && balanceStockDetailProduct && (
         <div
           className="fixed inset-0 z-100 flex items-center justify-center p-4"
           role="dialog"
@@ -2125,15 +2197,17 @@ function ProductsPageContent() {
       )}
 
       {/* Product Form Modal */}
+      {!isBalanceStocksPage && (
       <ProductFormModal
         isOpen={isModalOpen}
         onClose={handleModalClose}
         onSuccess={handleModalSuccess}
         product={editingProduct || undefined}
       />
+      )}
 
       {/* Add to Warehouse Modal */}
-      {warehouseProduct && (
+      {!isBalanceStocksPage && warehouseProduct && (
         <AddToWarehouseModal
           isOpen={isWarehouseModalOpen}
           onClose={handleWarehouseModalClose}

@@ -1,3 +1,5 @@
+import { ADMIN_PANEL_LOGIN_ALIASES } from "@/config/adminPanelLogin";
+
 /**
  * Nest `/auth/login` ეძებს `phoneNumber`-ს ზუსტად DB-ის მნიშვნელობით —
  * ხშირად `+9955XXXXXXXX`. აპიდან შეყვანილი `555...` / `995...` ერთ სტანდარტზე მოვიყვანოთ.
@@ -5,6 +7,8 @@
 export function normalizePhoneForAdminLogin(raw: string): string {
   const t = raw.trim();
   if (!t) return t;
+  const alias = ADMIN_PANEL_LOGIN_ALIASES[t.toLowerCase()];
+  if (alias) return alias;
   const digits = t.replace(/\D/g, '');
   if (digits.length === 9 && digits.startsWith('5')) {
     return `+995${digits}`;
