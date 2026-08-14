@@ -44,6 +44,16 @@
         }
       ],
       [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Norix იყენებს მიკროფონს ხმოვანი ძიებისთვის.",
+          "speechRecognitionPermission": "Norix იყენებს ხმის ამოცნობას პროდუქტის ძიებისთვის.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",

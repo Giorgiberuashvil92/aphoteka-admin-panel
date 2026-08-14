@@ -2,6 +2,10 @@ import { searchHistoryService } from '@/src/services/searchHistory.service';
 import { ProductService, type Product } from '@/src/services/product.service';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from 'expo-speech-recognition';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -45,7 +49,33 @@ export function SearchScreen({
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<Product[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
+
+  useSpeechRecognitionEvent('start', () => {
+    setIsListening(true);
+    setVoiceError(null);
+  });
+
+  useSpeechRecognitionEvent('end', () => {
+    setIsListening(false);
+  });
+
+  useSpeechRecognitionEvent('result', (event) => {
+    const transcript = event.results[0]?.transcript?.trim();
+    if (!transcript) return;
+    setSearchQuery(transcript);
+  });
+
+  useSpeechRecognitionEvent('error', (event) => {
+    setIsListening(false);
+    setVoiceError(
+      event.error === 'not-allowed'
+        ? 'მიკროფონის ნებართვა საჭიროა ხმოვანი ძიებისთვის.'
+        : event.message || 'ხმის ამოცნობა ვერ მოხერხდა.',
+    );
+  });
 
   const loadHistory = useCallback(async () => {
     const list = await searchHistoryService.getHistory();
@@ -99,6 +129,7 @@ export function SearchScreen({
   const handleClearSearch = () => {
     setSearchQuery('');
     setSuggestions([]);
+    setVoiceError(null);
   };
 
   const handleSearch = (query: string) => {
@@ -110,6 +141,25 @@ export function SearchScreen({
 
   const handleAllProducts = () => {
     onSearch('');
+  };
+
+  const handleVoiceSearch = async () => {
+    if (isListening) {
+      ExpoSpeechRecognitionModule.stop();
+      return;
+    }
+
+    setVoiceError(null);
+    const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+    if (!permission.granted) {
+      setVoiceError('მიკროფონის ნებართვა საჭიროა ხმოვანი ძიებისთვის.');
+      return;
+    }
+
+    ExpoSpeechRecognitionModule.start({
+      interimResults: true,
+      continuous: false,
+    });
   };
 
   const handleClearHistory = async () => {
@@ -153,11 +203,32 @@ export function SearchScreen({
                 <Ionicons name="close" size={16} color={theme.colors.text.secondary} />
               </TouchableOpacity>
             )}
+            <TouchableOpacity
+              onPress={() => void handleVoiceSearch()}
+              style={[
+                styles.voiceButton,
+                isListening && styles.voiceButtonActive,
+              ]}
+              activeOpacity={0.8}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons
+                name={isListening ? 'stop' : 'mic-outline'}
+                size={18}
+                color={isListening ? theme.colors.white : theme.colors.primary}
+              />
+            </TouchableOpacity>
           </View>
           <TouchableOpacity onPress={onBack}>
             <Text style={styles.cancelButton}>გაუქმება</Text>
           </TouchableOpacity>
         </View>
+
+        {voiceError ? (
+          <Text style={styles.voiceError}>{voiceError}</Text>
+        ) : isListening ? (
+          <Text style={styles.voiceHint}>გისმენთ... თქვით პროდუქტის სახელი</Text>
+        ) : null}
 
         <TouchableOpacity
           style={styles.allProductsButton}
@@ -355,6 +426,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#E9EEF8',
+  },
+  voiceButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E8F0FF',
+  },
+  voiceButtonActive: {
+    backgroundColor: theme.colors.primary,
+  },
+  voiceHint: {
+    marginTop: 8,
+    marginHorizontal: 18,
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.primary,
+  },
+  voiceError: {
+    marginTop: 8,
+    marginHorizontal: 18,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#EB5757',
   },
   cancelButton: {
     fontSize: 15,
