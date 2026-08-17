@@ -128,6 +128,10 @@ export interface Product {
   // Additional catalog fields
   productCode?: string; // საქონლის კოდი
   quantity?: number; // რაოდენობა
+  /** ფარმაცევტის კატალოგი — რეცეპტით გასაცემია თუ არა */
+  prescriptionRequired?: boolean;
+  /** ფარმაცევტის კატალოგი — მინიმალური მარაგი LOW STOCK გამოსათვლელად */
+  reorderLevel?: number;
   /** Balance Exchange/Stocks Reserve ჯამი */
   reservedQuantity?: number;
   /** Balance Items ნომენკლატურის `uid` (რეალიზაციის `Item`) */

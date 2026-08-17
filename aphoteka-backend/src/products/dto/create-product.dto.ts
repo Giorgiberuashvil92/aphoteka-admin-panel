@@ -99,6 +99,16 @@ export class CreateProductDto {
   @IsOptional()
   quantity?: number;
 
+  @IsBoolean()
+  @IsOptional()
+  prescriptionRequired?: boolean;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  reorderLevel?: number;
+
   @IsNumber()
   @IsOptional()
   reservedQuantity?: number;

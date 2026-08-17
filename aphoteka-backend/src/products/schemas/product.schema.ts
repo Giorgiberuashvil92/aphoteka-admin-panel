@@ -185,6 +185,12 @@ export class Product {
   @Prop({ type: Number })
   quantity?: number; // რაოდენობა (Balance Exchange/Stocks ჯამი)
 
+  @Prop({ type: Boolean })
+  prescriptionRequired?: boolean;
+
+  @Prop({ type: Number })
+  reorderLevel?: number;
+
   @Prop({ type: Number })
   reservedQuantity?: number; // დარეზერვებული (Balance Reserve ჯამი)
 

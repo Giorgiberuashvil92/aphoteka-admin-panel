@@ -28,6 +28,8 @@ export default function ProductFormModal({
     name: "",
     unitOfMeasure: "",
     quantity: "",
+    prescriptionRequired: false,
+    reorderLevel: "",
     price: "",
     totalPrice: "",
     taxation: "",
@@ -137,6 +139,8 @@ export default function ProductFormModal({
         name: product.name || "",
         unitOfMeasure: product.unitOfMeasure || "",
         quantity: product.quantity?.toString() || "",
+        prescriptionRequired: product.prescriptionRequired ?? false,
+        reorderLevel: product.reorderLevel?.toString() || "",
         price: product.price?.toString() || "",
         totalPrice: product.totalPrice?.toString() || "",
         taxation: product.taxation || "",
@@ -178,6 +182,8 @@ export default function ProductFormModal({
         name: "",
         unitOfMeasure: "",
         quantity: "",
+        prescriptionRequired: false,
+        reorderLevel: "",
         price: "",
         totalPrice: "",
         taxation: "",
@@ -288,6 +294,10 @@ export default function ProductFormModal({
               .filter(Boolean)
           : undefined,
         storageConditions: formData.storageConditions || undefined,
+        prescriptionRequired: formData.prescriptionRequired,
+        reorderLevel: formData.reorderLevel
+          ? parseFloat(formData.reorderLevel)
+          : undefined,
         filterValues:
           Object.keys(filterValues).length > 0 ? filterValues : undefined,
       };
@@ -500,6 +510,46 @@ export default function ProductFormModal({
               <label htmlFor="active-modal" className="ml-2 text-sm text-gray-700 dark:text-gray-300">
                 სტატუსი: აქტიური
               </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="flex items-center rounded-lg border border-gray-200 px-4 py-3 dark:border-gray-600">
+                <input
+                  type="checkbox"
+                  id="prescription-required-modal"
+                  checked={formData.prescriptionRequired}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      prescriptionRequired: e.target.checked,
+                    })
+                  }
+                  className="h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+                />
+                <label
+                  htmlFor="prescription-required-modal"
+                  className="ml-2 text-sm text-gray-700 dark:text-gray-300"
+                >
+                  Prescription Required
+                </label>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Reorder Level
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={formData.reorderLevel}
+                  onChange={(e) =>
+                    setFormData({ ...formData, reorderLevel: e.target.value })
+                  }
+                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  placeholder="მაგ: 100"
+                />
+              </div>
             </div>
 
             {!product && (

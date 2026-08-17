@@ -117,6 +117,49 @@ function formatDisplayDate(value: unknown): string {
   return s;
 }
 
+function productFilterValue(product: Product, keys: string[]): unknown {
+  const anyProduct = product as Product & Record<string, unknown>;
+  for (const key of keys) {
+    const direct = anyProduct[key];
+    if (direct !== undefined && direct !== null && direct !== "") return direct;
+    const filterValue = product.filterValues?.[key];
+    if (filterValue !== undefined && filterValue !== null && filterValue !== "") {
+      return filterValue;
+    }
+  }
+  return undefined;
+}
+
+function yesNoDisplay(value: unknown): string {
+  if (value === true) return "Y";
+  if (value === false) return "N";
+  const s = String(value ?? "").trim();
+  if (!s) return "—";
+  if (/^(y|yes|true|კი|1)$/i.test(s)) return "Y";
+  if (/^(n|no|false|არა|0)$/i.test(s)) return "N";
+  return s;
+}
+
+function numericProductValue(product: Product, keys: string[]): number | undefined {
+  const value = productFilterValue(product, keys);
+  if (value === undefined) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function stockStatusDisplay(product: Product): string {
+  const explicit = productFilterValue(product, ["stockStatus", "stock_status", "Stock Status"]);
+  if (explicit !== undefined) return String(explicit);
+  const reorderLevel = numericProductValue(product, [
+    "reorderLevel",
+    "reorder_level",
+    "Reorder Level",
+  ]);
+  const qty = Number(product.quantity);
+  if (!Number.isFinite(qty) || reorderLevel === undefined) return "—";
+  return qty <= reorderLevel ? "LOW STOCK" : "OK";
+}
+
 /** Balance Discounts API (Items → ნომენკლატურა) + უპირობო წესი — ცხრილში DB-ს გარდა ცოცხალი მნიშვნელობებიც */
 function liveBalanceDiscountForProduct(
   product: Product,
@@ -189,7 +232,12 @@ function ProductsPageContent() {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const warehouseId = searchParams.get("warehouseId") || undefined;
+  const isBalanceCatalogPage = pathname === "/products/balance-catalog";
   const isBalanceStocksPage = pathname === "/products/balance-stocks";
+  const isPharmacistCatalogPage = pathname === "/products/pharmacist-catalog";
+  const isRegularCatalogPage = pathname === "/products" || pathname === "/products/catalog";
+  const showProductTable = !isBalanceStocksPage;
+  const canEditCatalog = isRegularCatalogPage || isPharmacistCatalogPage;
   
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
@@ -201,6 +249,7 @@ function ProductsPageContent() {
   const [isWarehouseModalOpen, setIsWarehouseModalOpen] = useState(false);
   const [warehouseProduct, setWarehouseProduct] = useState<Product | null>(null);
   const [showBalanceColumns, setShowBalanceColumns] = useState(false);
+  const showAllBalanceColumns = isBalanceCatalogPage || showBalanceColumns;
   const [balanceStocksRows, setBalanceStocksRows] = useState<Record<string, unknown>[]>([]);
   const [balanceStocksRaw, setBalanceStocksRaw] = useState<unknown>(null);
   const [balanceStocksLoading, setBalanceStocksLoading] = useState(true);
@@ -949,7 +998,7 @@ function ProductsPageContent() {
     setWarehouseProduct(null);
   };
 
-  if (loading && !isBalanceStocksPage) {
+  if (loading && showProductTable) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -960,10 +1009,10 @@ function ProductsPageContent() {
     );
   }
 
-  if (error && !isBalanceStocksPage) {
+  if (error && showProductTable) {
     return (
       <div className="space-y-6">
-        <PageBreadCrumb pageTitle="პროდუქტების კატალოგი" />
+        <PageBreadCrumb pageTitle="კატალოგი" />
         <div className="rounded-lg border border-red-200 bg-red-50 p-6 dark:border-red-800 dark:bg-red-900/20">
           <h3 className="text-lg font-semibold text-red-800 dark:text-red-200">
             შეცდომა მონაცემების ჩატვირთვისას
@@ -986,16 +1035,20 @@ function ProductsPageContent() {
     <div className="space-y-6">
       <PageBreadCrumb
         pageTitle={
-          isBalanceStocksPage
+          isBalanceCatalogPage
+            ? "კატალოგი ბალანსიდან"
+            : isBalanceStocksPage
             ? "Balance - ნაშთები (Stocks)"
             : warehouse
               ? `${warehouse.name} - პროდუქტები`
-              : "პროდუქტების კატალოგი"
+              : isPharmacistCatalogPage
+                ? "კატალოგი ფარმაცევტისთვის"
+                : "კატალოგი"
         }
       />
 
       {/* Warehouse Filter Info */}
-      {!isBalanceStocksPage && warehouse && (
+      {showProductTable && warehouse && (
         <div className="rounded-lg border border-brand-200 bg-brand-50 p-4 dark:border-brand-800 dark:bg-brand-900/20">
           <div className="flex items-center justify-between">
             <div>
@@ -1017,7 +1070,7 @@ function ProductsPageContent() {
       )}
 
       {/* Header Actions */}
-      {!isBalanceStocksPage && (
+      {showProductTable && (
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex-1">
           <input
@@ -1049,15 +1102,17 @@ function ProductsPageContent() {
               ? "ItemsSeries…"
               : "ItemsSeries განახლება"}
           </button>
-          <Link
-            href="/products/import"
-            className="flex items-center justify-center gap-2 rounded-lg border border-brand-500 bg-white px-4 py-2 text-sm font-medium text-brand-500 hover:bg-brand-50 dark:bg-gray-800 dark:hover:bg-gray-700"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-            Excel Import
-          </Link>
+          {canEditCatalog && (
+            <Link
+              href="/products/import"
+              className="flex items-center justify-center gap-2 rounded-lg border border-brand-500 bg-white px-4 py-2 text-sm font-medium text-brand-500 hover:bg-brand-50 dark:bg-gray-800 dark:hover:bg-gray-700"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              Excel Import
+            </Link>
+          )}
           <button
             type="button"
             onClick={() => void syncBalanceToDb()}
@@ -1066,24 +1121,28 @@ function ProductsPageContent() {
           >
             {syncLoading ? "იტვირთება..." : "განახლება ბაზა"}
           </button>
-          <button
-            type="button"
-            onClick={() => setShowBalanceColumns((v) => !v)}
-            className="flex items-center justify-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-900/40"
-            aria-expanded={showBalanceColumns}
-          >
-            {showBalanceColumns ? "Balance სვეტების დაკეცვა" : "Balance სვეტების გაშლა"}
-          </button>
-          <button
-            onClick={() => {
-              setEditingProduct(null);
-              setIsModalOpen(true);
-            }}
-            className="flex items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600"
-          >
-            <PlusIcon className="h-4 w-4" />
-            ახალი პროდუქტი
-          </button>
+          {canEditCatalog && (
+            <button
+              type="button"
+              onClick={() => setShowBalanceColumns((v) => !v)}
+              className="flex items-center justify-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-900/40"
+              aria-expanded={showBalanceColumns}
+            >
+              {showBalanceColumns ? "Balance სვეტების დაკეცვა" : "Balance სვეტების გაშლა"}
+            </button>
+          )}
+          {canEditCatalog && (
+            <button
+              onClick={() => {
+                setEditingProduct(null);
+                setIsModalOpen(true);
+              }}
+              className="flex items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600"
+            >
+              <PlusIcon className="h-4 w-4" />
+              ახალი პროდუქტი
+            </button>
+          )}
         </div>
       </div>
       )}
@@ -1627,9 +1686,172 @@ function ProductsPageContent() {
       )}
 
       {/* Products Table — თანმიმდევრობა: Balance/ზედნადები (10) → ფარმაცევტის სვეტები (12) → სხვა... → ადმინი: რეზერვი, Balance, მოქმედებები */}
-      {!isBalanceStocksPage && (
+      {showProductTable && (
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
         <div className="overflow-x-auto">
+          {isPharmacistCatalogPage ? (
+          <table className="w-full">
+            <thead className="bg-gray-50 dark:bg-gray-900">
+              <tr>
+                {[
+                  "SKU",
+                  "Product Name",
+                  "Category",
+                  "Form",
+                  "Strength",
+                  "Manufacturer",
+                  "Unit",
+                  "Pack Size",
+                  "Prescription Required (Y/N)",
+                  "Unit Price",
+                  "Qty on Hand",
+                  "Reorder Level",
+                  "Stock Value",
+                  "Stock Status",
+                  "მოქმედებები",
+                ].map((label) => (
+                  <th
+                    key={label}
+                    className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300"
+                  >
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              {filteredProducts.length === 0 ? (
+                <tr>
+                  <td colSpan={15} className="px-6 py-8 text-center text-sm text-gray-500">
+                    პროდუქტები არ მოიძებნა
+                  </td>
+                </tr>
+              ) : (
+                filteredProducts.map((product) => {
+                  const sku =
+                    product.internalSku?.trim() ||
+                    product.sku?.trim() ||
+                    product.productCode?.trim() ||
+                    "—";
+                  const productName =
+                    product.productNameBrand?.trim() || product.name?.trim() || "—";
+                  const category =
+                    product.category?.trim() ||
+                    product.subcategory?.trim() ||
+                    product.mainCategory?.trim() ||
+                    "—";
+                  const reorderLevel = numericProductValue(product, [
+                    "reorderLevel",
+                    "reorder_level",
+                    "Reorder Level",
+                  ]);
+                  const qty =
+                    product.quantity != null && Number.isFinite(Number(product.quantity))
+                      ? Number(product.quantity)
+                      : undefined;
+                  const unitPrice =
+                    product.price != null && Number.isFinite(Number(product.price))
+                      ? Number(product.price)
+                      : undefined;
+                  const stockValue =
+                    product.totalPrice != null && Number.isFinite(Number(product.totalPrice))
+                      ? Number(product.totalPrice)
+                      : qty !== undefined && unitPrice !== undefined
+                        ? qty * unitPrice
+                        : undefined;
+                  return (
+                    <tr
+                      key={product.id || (product as any)._id || product.sku}
+                      className="hover:bg-gray-50 dark:hover:bg-gray-700"
+                    >
+                      <td className="max-w-[120px] truncate px-3 py-3 font-mono text-xs text-gray-700 dark:text-gray-300" title={sku}>
+                        {sku}
+                      </td>
+                      <td className="max-w-[220px] truncate px-3 py-3 text-sm font-medium text-gray-900 dark:text-white" title={productName}>
+                        {productName}
+                      </td>
+                      <td className="max-w-[180px] truncate px-3 py-3 text-sm text-gray-600 dark:text-gray-300" title={category}>
+                        {category}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-sm text-gray-600 dark:text-gray-300">
+                        {product.dosageForm?.trim() || "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-sm text-gray-600 dark:text-gray-300">
+                        {product.strength?.trim() || "—"}
+                      </td>
+                      <td className="max-w-[160px] truncate px-3 py-3 text-sm text-gray-600 dark:text-gray-300" title={product.manufacturer}>
+                        {product.manufacturer?.trim() || "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-sm text-gray-600 dark:text-gray-300">
+                        {product.unitOfMeasure?.trim() || "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-sm text-gray-600 dark:text-gray-300">
+                        {product.packSize?.trim() || "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-sm text-gray-600 dark:text-gray-300">
+                        {yesNoDisplay(
+                          productFilterValue(product, [
+                            "prescriptionRequired",
+                            "prescription_required",
+                            "Prescription Required",
+                          ]),
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-sm tabular-nums text-gray-900 dark:text-white">
+                        {unitPrice !== undefined ? `₾${unitPrice.toFixed(2)}` : "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-sm tabular-nums text-gray-700 dark:text-gray-300">
+                        {qty ?? "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-sm tabular-nums text-gray-700 dark:text-gray-300">
+                        {reorderLevel ?? "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-sm tabular-nums text-gray-900 dark:text-white">
+                        {stockValue !== undefined ? `₾${stockValue.toFixed(2)}` : "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-sm">
+                        <span
+                          className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
+                            stockStatusDisplay(product) === "LOW STOCK"
+                              ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                              : stockStatusDisplay(product) === "OK"
+                                ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                                : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                          }`}
+                        >
+                          {stockStatusDisplay(product)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleEdit(product)}
+                            className="rounded p-1 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                            title="რედაქტირება"
+                          >
+                            <PencilIcon className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(product.id)}
+                            disabled={deletingProductId === product.id}
+                            className="rounded p-1 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 disabled:cursor-not-allowed disabled:opacity-50"
+                            title="წაშლა"
+                          >
+                            {deletingProductId === product.id ? (
+                              <div className="h-4 w-4 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
+                            ) : (
+                              <TrashBinIcon className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+          ) : (
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>
@@ -1639,7 +1861,7 @@ function ProductsPageContent() {
                 <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   დასახელება (მყიდველისგან)
                 </th>
-                {showBalanceColumns && (
+                {showAllBalanceColumns && (
                 <>
                 <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   ზომის ერთეული
@@ -1658,7 +1880,7 @@ function ProductsPageContent() {
                 <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   ფასდაკლებული (ერთ. / ჯამი)
                 </th>
-                {showBalanceColumns && (
+                {showAllBalanceColumns && (
                 <>
                 <th className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50">
                   Balance ფასდაკლება
@@ -1677,6 +1899,8 @@ function ProductsPageContent() {
                 </th>
                 </>
                 )}
+                {!isBalanceCatalogPage && (
+                <>
                 <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
                   SKU
                 </th>
@@ -1722,15 +1946,28 @@ function ProductsPageContent() {
                 <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
                   Balance ნაშთი
                 </th>
+                </>
+                )}
+                {canEditCatalog && (
                 <th className="whitespace-nowrap px-3 py-3 text-right text-xs font-medium text-gray-600 dark:text-gray-300">
                   მოქმედებები
                 </th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={showBalanceColumns ? 28 : 20} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td
+                    colSpan={
+                      isBalanceCatalogPage
+                        ? 10
+                        : showAllBalanceColumns
+                          ? 28
+                          : 20
+                    }
+                    className="px-6 py-8 text-center text-sm text-gray-500"
+                  >
                     პროდუქტები არ მოიძებნა
                   </td>
                 </tr>
@@ -1829,7 +2066,7 @@ function ProductsPageContent() {
                     <td className={`max-w-[200px] truncate px-3 py-3 text-sm text-gray-900 dark:text-white ${cellBalance}`} title={product.name}>
                       {product.name || "—"}
                     </td>
-                    {showBalanceColumns && (
+                    {showAllBalanceColumns && (
                     <>
                     <td className={`whitespace-nowrap px-3 py-3 text-sm text-gray-800 dark:text-gray-200 ${cellBalance}`}>
                       {product.unitOfMeasure || "—"}
@@ -1884,7 +2121,7 @@ function ProductsPageContent() {
                         <span className="text-gray-500 dark:text-gray-400">—</span>
                       )}
                     </td>
-                    {showBalanceColumns && (
+                    {showAllBalanceColumns && (
                     <>
                     <td
                       className={`whitespace-nowrap px-3 py-3 text-sm tabular-nums ${cellBalance} ${
@@ -1924,6 +2161,8 @@ function ProductsPageContent() {
                     </td>
                     </>
                     )}
+                    {!isBalanceCatalogPage && (
+                    <>
                     <td
                       className="max-w-[120px] truncate px-3 py-3 font-mono text-xs text-gray-600 dark:text-gray-300"
                       title={product.internalSku || undefined}
@@ -1988,6 +2227,9 @@ function ProductsPageContent() {
                         );
                       })()}
                     </td>
+                    </>
+                    )}
+                    {canEditCatalog && (
                     <td className="px-3 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button
@@ -2020,18 +2262,20 @@ function ProductsPageContent() {
                         </button>
                       </div>
                     </td>
+                    )}
                   </tr>
                   );
                 })
               )}
             </tbody>
           </table>
+          )}
         </div>
       </div>
       )}
 
       {/* Balance ნაშთის დეტალები (საწყობები / რეზერვი) */}
-      {!isBalanceStocksPage && balanceStockDetailProduct && (
+      {showProductTable && balanceStockDetailProduct && (
         <div
           className="fixed inset-0 z-100 flex items-center justify-center p-4"
           role="dialog"
@@ -2197,7 +2441,7 @@ function ProductsPageContent() {
       )}
 
       {/* Product Form Modal */}
-      {!isBalanceStocksPage && (
+      {canEditCatalog && (
       <ProductFormModal
         isOpen={isModalOpen}
         onClose={handleModalClose}
@@ -2207,7 +2451,7 @@ function ProductsPageContent() {
       )}
 
       {/* Add to Warehouse Modal */}
-      {!isBalanceStocksPage && warehouseProduct && (
+      {canEditCatalog && warehouseProduct && (
         <AddToWarehouseModal
           isOpen={isWarehouseModalOpen}
           onClose={handleWarehouseModalClose}
