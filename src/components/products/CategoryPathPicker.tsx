@@ -68,6 +68,36 @@ export function resolveCategoryPathIds(
   return path;
 }
 
+function categoryPathById(categories: AdminCategory[], targetId: string): string[] {
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  const path: string[] = [];
+  let cur = byId.get(targetId);
+  const guard = new Set<string>();
+
+  while (cur) {
+    if (guard.has(cur.id)) break;
+    guard.add(cur.id);
+    path.unshift(cur.id);
+    if (!cur.parentId) break;
+    cur = byId.get(cur.parentId);
+  }
+
+  return path;
+}
+
+export function resolveCategoryPathIdsByBalanceUid(
+  categories: AdminCategory[],
+  balanceUid?: string,
+): string[] {
+  const key = balanceUid?.trim().toLowerCase();
+  if (!key) return [];
+
+  const category = categories.find(
+    (c) => c.balanceUid?.trim().toLowerCase() === key,
+  );
+  return category ? categoryPathById(categories, category.id) : [];
+}
+
 export function pathIdsToCategoryFields(
   categories: AdminCategory[],
   pathIds: string[],

@@ -65,10 +65,15 @@ import {
   rowsFromBalanceItemPricing,
   rowsFromBalanceExchangeStocks,
 } from "@/lib/api/balanceStocks";
+import {
+  getBalanceWarehouses,
+  rowsFromBalanceWarehouses,
+} from "@/lib/api/balanceWarehouses";
 import ProductFormModal from "@/components/products/ProductFormModal";
 import Pagination from "@/components/tables/Pagination";
 import CategoryPathPicker, {
   pathIdsToCategoryFields,
+  resolveCategoryPathIdsByBalanceUid,
   resolveCategoryPathIds,
 } from "@/components/products/CategoryPathPicker";
 import AddToWarehouseModal from "@/components/inventory/AddToWarehouseModal";
@@ -313,6 +318,10 @@ function ProductsPageContent() {
   const [balanceExchangeQtyRaw, setBalanceExchangeQtyRaw] = useState<unknown>(null);
   const [balanceExchangeQtyLoading, setBalanceExchangeQtyLoading] = useState(true);
   const [balanceExchangeQtyError, setBalanceExchangeQtyError] = useState<string | null>(null);
+  const [balanceWarehousesRows, setBalanceWarehousesRows] = useState<Record<string, unknown>[]>([]);
+  const [balanceWarehousesRaw, setBalanceWarehousesRaw] = useState<unknown>(null);
+  const [balanceWarehousesLoading, setBalanceWarehousesLoading] = useState(true);
+  const [balanceWarehousesError, setBalanceWarehousesError] = useState<string | null>(null);
   /** Exchange/Stocks ნომენკლატურის `Item` → ItemsSeries პასუხის ხაზები (თითო Item ერთხელ იტვირთება) */
   const [exchangeSeriesByUid, setExchangeSeriesByUid] = useState<
     Record<
@@ -404,6 +413,23 @@ function ProductsPageContent() {
         );
       } finally {
         setBalancePricesLoading(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setBalanceWarehousesError(null);
+        const data = await getBalanceWarehouses();
+        setBalanceWarehousesRaw(data);
+        setBalanceWarehousesRows(rowsFromBalanceWarehouses(data));
+      } catch (err) {
+        setBalanceWarehousesError(
+          err instanceof Error ? err.message : "Balance Warehouses-ის ჩატვირთვა ვერ მოხერხდა"
+        );
+      } finally {
+        setBalanceWarehousesLoading(false);
       }
     })();
   }, []);
@@ -732,6 +758,102 @@ function ProductsPageContent() {
     () => balanceStocksRows.filter((row) => !isBalanceGroupRow(row)),
     [balanceStocksRows],
   );
+  const balanceCatalogExcludedColumns = useMemo(
+    () =>
+      new Set([
+        "quantity",
+        "qty",
+        "amount",
+        "price",
+        "unitprice",
+        "unitcost",
+        "totalprice",
+        "sum",
+      ]),
+    [],
+  );
+  const balanceCatalogColumns = useMemo(() => {
+    const seen = new Set<string>();
+    for (const row of balanceStockProductRows) {
+      for (const key of Object.keys(row)) {
+        if (balanceCatalogExcludedColumns.has(key.trim().toLowerCase())) {
+          continue;
+        }
+        seen.add(key);
+      }
+    }
+    return Array.from(seen);
+  }, [balanceCatalogExcludedColumns, balanceStockProductRows]);
+  const balanceCatalogPriceColumns = useMemo(() => {
+    const seen = new Set<string>();
+    seen.add("ItemName");
+    for (const row of balancePricesRows) {
+      for (const key of Object.keys(row)) seen.add(key);
+    }
+    return Array.from(seen);
+  }, [balancePricesRows]);
+  const balanceCatalogItemNameByUid = useMemo(
+    () =>
+      new Map(
+        Array.from(buildBalanceItemNameByUid(balanceStockProductRows)).map(
+          ([uid, name]) => [uid.trim().toLowerCase(), name],
+        ),
+      ),
+    [balanceStockProductRows],
+  );
+  const balanceCatalogDiscountRows = useMemo(
+    () =>
+      balanceDiscountsRows.map((row) => {
+        const itemUid = getItemUuid(row)?.trim().toLowerCase();
+        return {
+          ItemName: itemUid ? balanceCatalogItemNameByUid.get(itemUid) ?? "—" : "—",
+          ...row,
+        };
+      }),
+    [balanceCatalogItemNameByUid, balanceDiscountsRows],
+  );
+  const balanceCatalogDiscountColumns = useMemo(() => {
+    const seen = new Set<string>();
+    for (const row of balanceCatalogDiscountRows) {
+      for (const key of Object.keys(row)) seen.add(key);
+    }
+    return Array.from(seen);
+  }, [balanceCatalogDiscountRows]);
+  const balanceCatalogSeriesRows = useMemo(
+    () =>
+      itemsSeriesBareRows.map((row) => {
+        const itemUid = String(row.Item ?? "").trim().toLowerCase();
+        return {
+          ItemName: itemUid ? balanceCatalogItemNameByUid.get(itemUid) ?? "—" : "—",
+          ...row,
+        };
+      }),
+    [balanceCatalogItemNameByUid, itemsSeriesBareRows],
+  );
+  const balanceCatalogSeriesColumns = useMemo(() => {
+    const seen = new Set<string>();
+    for (const row of balanceCatalogSeriesRows) {
+      for (const key of Object.keys(row)) seen.add(key);
+    }
+    return Array.from(seen);
+  }, [balanceCatalogSeriesRows]);
+  const balanceCatalogWarehouseColumns = useMemo(() => {
+    const preferred = [
+      "uid",
+      "Name",
+      "Group",
+      "Adress",
+      "Tel",
+      "Responsible",
+      "Van",
+      "ExtCode",
+    ];
+    const seen = new Set<string>(preferred);
+    for (const row of balanceWarehousesRows) {
+      for (const key of Object.keys(row)) seen.add(key);
+    }
+    return Array.from(seen);
+  }, [balanceWarehousesRows]);
 
   const balanceItemPricingRowsForProducts = useMemo(() => {
     if (balanceItemPricingRaw == null) return [];
@@ -847,6 +969,13 @@ function ProductsPageContent() {
     exchangeSeriesLoading,
     exchangeSeriesPlan,
   ]);
+  const balanceCatalogQuantityColumns = useMemo(() => {
+    const seen = new Set<string>();
+    for (const row of balanceExchangeQtyDisplayRows) {
+      for (const key of Object.keys(row)) seen.add(key);
+    }
+    return Array.from(seen);
+  }, [balanceExchangeQtyDisplayRows]);
 
   /**
    * დებაგი: Exchange/Stocks `Series` vs ItemsSeries ხაზები (იგივე pick ლოგიკა, მხოლოდ console).
@@ -1018,14 +1147,22 @@ function ProductsPageContent() {
 
   const handlePharmacistEdit = (product: Product) => {
     setPharmacistEditingProduct(product);
-    setPharmacistForm({
-      productCode: product.productCode?.trim() || product.sku?.trim() || "",
-      productName: product.productNameBrand?.trim() || product.name?.trim() || "",
-      categoryPathIds: resolveCategoryPathIds(
+    const balanceCategoryPathIds = resolveCategoryPathIdsByBalanceUid(
+      categories,
+      product.balanceCategoryUid,
+    );
+    const categoryPathIds =
+      balanceCategoryPathIds.length > 0
+        ? balanceCategoryPathIds
+        : resolveCategoryPathIds(
         categories,
         product.mainCategory?.trim() || "",
         product.subcategory?.trim() || "",
-      ),
+      );
+    setPharmacistForm({
+      productCode: product.productCode?.trim() || product.sku?.trim() || "",
+      productName: product.productNameBrand?.trim() || product.name?.trim() || "",
+      categoryPathIds,
       form: product.dosageForm?.trim() || "",
       strength: product.strength?.trim() || "",
       manufacturer: product.manufacturer?.trim() || "",
@@ -1832,8 +1969,452 @@ function ProductsPageContent() {
       {/* Products Table — თანმიმდევრობა: Balance/ზედნადები (10) → ფარმაცევტის სვეტები (12) → სხვა... → ადმინი: რეზერვი, Balance, მოქმედებები */}
       {showProductTable && (
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        {isBalanceCatalogPage && (
+          <div className="border-b border-gray-200 px-5 py-4 dark:border-gray-700">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+              ნომენკლატურა
+            </h2>
+          </div>
+        )}
         <div className="overflow-x-auto">
-          {isPharmacistCatalogPage ? (
+          {isBalanceCatalogPage ? (
+          <>
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-gray-50 dark:bg-gray-900">
+              <tr>
+                {balanceCatalogColumns.map((key) => (
+                  <th
+                    key={key}
+                    className="whitespace-nowrap border border-amber-200/70 bg-amber-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-amber-800/50 dark:bg-amber-950/45 dark:text-amber-50"
+                  >
+                    {key}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              {balanceStocksLoading ? (
+                <tr>
+                  <td
+                    colSpan={Math.max(balanceCatalogColumns.length, 1)}
+                    className="px-6 py-8 text-center text-sm text-gray-500"
+                  >
+                    იტვირთება...
+                  </td>
+                </tr>
+              ) : balanceStocksError ? (
+                <tr>
+                  <td
+                    colSpan={Math.max(balanceCatalogColumns.length, 1)}
+                    className="px-6 py-8 text-center text-sm text-red-600"
+                  >
+                    {balanceStocksError}
+                  </td>
+                </tr>
+              ) : balanceStockProductRows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={Math.max(balanceCatalogColumns.length, 1)}
+                    className="px-6 py-8 text-center text-sm text-gray-500"
+                  >
+                    ნომენკლატურა არ მოიძებნა
+                  </td>
+                </tr>
+              ) : (
+                balanceStockProductRows.map((row, i) => (
+                  <tr
+                    key={String(row.uid ?? row.Code ?? row.InternalArticle ?? i)}
+                    className="hover:bg-gray-50 dark:hover:bg-gray-700"
+                  >
+                    {balanceCatalogColumns.map((key) => {
+                      const value = row[key];
+                      const display =
+                        value === null || value === undefined
+                          ? "—"
+                          : typeof value === "object"
+                            ? JSON.stringify(value)
+                            : String(value);
+                      return (
+                        <td
+                          key={key}
+                          className="max-w-xs truncate border border-amber-100/90 bg-amber-50/35 px-3 py-2 text-gray-800 dark:border-amber-900/35 dark:bg-amber-950/20 dark:text-gray-200"
+                          title={display}
+                        >
+                          {display}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+          <div className="border-t border-gray-200 dark:border-gray-700">
+            <div className="px-5 py-4">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+                ფასები
+              </h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-gray-50 dark:bg-gray-900">
+                  <tr>
+                    {balanceCatalogPriceColumns.map((key) => (
+                      <th
+                        key={key}
+                        className="whitespace-nowrap border border-emerald-200/70 bg-emerald-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-emerald-800/50 dark:bg-emerald-950/45 dark:text-emerald-50"
+                      >
+                        {key}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {balancePricesLoading ? (
+                    <tr>
+                      <td
+                        colSpan={Math.max(balanceCatalogPriceColumns.length, 1)}
+                        className="px-6 py-8 text-center text-sm text-gray-500"
+                      >
+                        იტვირთება...
+                      </td>
+                    </tr>
+                  ) : balancePricesError ? (
+                    <tr>
+                      <td
+                        colSpan={Math.max(balanceCatalogPriceColumns.length, 1)}
+                        className="px-6 py-8 text-center text-sm text-red-600"
+                      >
+                        {balancePricesError}
+                      </td>
+                    </tr>
+                  ) : balancePricesRows.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={Math.max(balanceCatalogPriceColumns.length, 1)}
+                        className="px-6 py-8 text-center text-sm text-gray-500"
+                      >
+                        ფასები არ მოიძებნა
+                      </td>
+                    </tr>
+                  ) : (
+                    balancePricesRows.map((row, i) => (
+                      <tr
+                        key={String(row.uid ?? row.Item ?? row.PriceType ?? i)}
+                        className="hover:bg-gray-50 dark:hover:bg-gray-700"
+                      >
+                        {balanceCatalogPriceColumns.map((key) => {
+                          const itemUid = getItemUuid(row)?.trim().toLowerCase();
+                          const value =
+                            key === "ItemName" && itemUid
+                              ? balanceCatalogItemNameByUid.get(itemUid)
+                              : row[key];
+                          const display =
+                            value === null || value === undefined
+                              ? "—"
+                              : typeof value === "object"
+                                ? JSON.stringify(value)
+                                : String(value);
+                          return (
+                            <td
+                              key={key}
+                              className="max-w-xs truncate border border-emerald-100/90 bg-emerald-50/35 px-3 py-2 text-gray-800 dark:border-emerald-900/35 dark:bg-emerald-950/20 dark:text-gray-200"
+                              title={display}
+                            >
+                              {display}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="border-t border-gray-200 dark:border-gray-700">
+            <div className="px-5 py-4">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+                ფასდაკლებები
+              </h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-gray-50 dark:bg-gray-900">
+                  <tr>
+                    {balanceCatalogDiscountColumns.map((key) => (
+                      <th
+                        key={key}
+                        className="whitespace-nowrap border border-rose-200/70 bg-rose-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-rose-800/50 dark:bg-rose-950/45 dark:text-rose-50"
+                      >
+                        {key}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {balanceDiscountsLoading ? (
+                    <tr>
+                      <td colSpan={Math.max(balanceCatalogDiscountColumns.length, 1)} className="px-6 py-8 text-center text-sm text-gray-500">
+                        იტვირთება...
+                      </td>
+                    </tr>
+                  ) : balanceDiscountsError ? (
+                    <tr>
+                      <td colSpan={Math.max(balanceCatalogDiscountColumns.length, 1)} className="px-6 py-8 text-center text-sm text-red-600">
+                        {balanceDiscountsError}
+                      </td>
+                    </tr>
+                  ) : balanceCatalogDiscountRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={Math.max(balanceCatalogDiscountColumns.length, 1)} className="px-6 py-8 text-center text-sm text-gray-500">
+                        ფასდაკლებები არ მოიძებნა
+                      </td>
+                    </tr>
+                  ) : (
+                    balanceCatalogDiscountRows.map((row, i) => (
+                      <tr key={String((row as Record<string, unknown>).uid ?? (row as Record<string, unknown>).Item ?? i)} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                        {balanceCatalogDiscountColumns.map((key) => {
+                          const value = (row as Record<string, unknown>)[key];
+                          const display =
+                            value === null || value === undefined
+                              ? "—"
+                              : typeof value === "object"
+                                ? JSON.stringify(value)
+                                : String(value);
+                          return (
+                            <td
+                              key={key}
+                              className="max-w-xs truncate border border-rose-100/90 bg-rose-50/35 px-3 py-2 text-gray-800 dark:border-rose-900/35 dark:bg-rose-950/20 dark:text-gray-200"
+                              title={display}
+                            >
+                              {display}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="border-t border-gray-200 dark:border-gray-700">
+            <div className="px-5 py-4">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+                რაოდენობები
+              </h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-gray-50 dark:bg-gray-900">
+                  <tr>
+                    {balanceCatalogQuantityColumns.map((key) => (
+                      <th
+                        key={key}
+                        className="whitespace-nowrap border border-sky-200/70 bg-sky-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-sky-800/50 dark:bg-sky-950/45 dark:text-sky-50"
+                      >
+                        {key}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {balanceExchangeQtyLoading ? (
+                    <tr>
+                      <td colSpan={Math.max(balanceCatalogQuantityColumns.length, 1)} className="px-6 py-8 text-center text-sm text-gray-500">
+                        იტვირთება...
+                      </td>
+                    </tr>
+                  ) : balanceExchangeQtyError ? (
+                    <tr>
+                      <td colSpan={Math.max(balanceCatalogQuantityColumns.length, 1)} className="px-6 py-8 text-center text-sm text-red-600">
+                        {balanceExchangeQtyError}
+                      </td>
+                    </tr>
+                  ) : balanceExchangeQtyDisplayRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={Math.max(balanceCatalogQuantityColumns.length, 1)} className="px-6 py-8 text-center text-sm text-gray-500">
+                        რაოდენობები არ მოიძებნა
+                      </td>
+                    </tr>
+                  ) : (
+                    balanceExchangeQtyDisplayRows.map((row, i) => (
+                      <tr
+                        key={[
+                          row.uid,
+                          row.Item,
+                          row.Warehouse,
+                          row.Series,
+                          row.Quantity,
+                          row.Reserve,
+                          i,
+                        ]
+                          .map((part) => String(part ?? ""))
+                          .join("|")}
+                        className="hover:bg-gray-50 dark:hover:bg-gray-700"
+                      >
+                        {balanceCatalogQuantityColumns.map((key) => {
+                          const value = row[key];
+                          const display =
+                            value === null || value === undefined
+                              ? "—"
+                              : typeof value === "object"
+                                ? JSON.stringify(value)
+                                : String(value);
+                          return (
+                            <td
+                              key={key}
+                              className="max-w-xs truncate border border-sky-100/90 bg-sky-50/35 px-3 py-2 text-gray-800 dark:border-sky-900/35 dark:bg-sky-950/20 dark:text-gray-200"
+                              title={display}
+                            >
+                              {display}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="border-t border-gray-200 dark:border-gray-700">
+            <div className="px-5 py-4">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+                სერიები
+              </h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-gray-50 dark:bg-gray-900">
+                  <tr>
+                    {balanceCatalogSeriesColumns.map((key) => (
+                      <th
+                        key={key}
+                        className="whitespace-nowrap border border-violet-200/70 bg-violet-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-violet-800/50 dark:bg-violet-950/45 dark:text-violet-50"
+                      >
+                        {key}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {itemsSeriesBareLoading ? (
+                    <tr>
+                      <td colSpan={Math.max(balanceCatalogSeriesColumns.length, 1)} className="px-6 py-8 text-center text-sm text-gray-500">
+                        იტვირთება...
+                      </td>
+                    </tr>
+                  ) : itemsSeriesBareError ? (
+                    <tr>
+                      <td colSpan={Math.max(balanceCatalogSeriesColumns.length, 1)} className="px-6 py-8 text-center text-sm text-red-600">
+                        {itemsSeriesBareError}
+                      </td>
+                    </tr>
+                  ) : balanceCatalogSeriesRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={Math.max(balanceCatalogSeriesColumns.length, 1)} className="px-6 py-8 text-center text-sm text-gray-500">
+                        სერიები არ მოიძებნა
+                      </td>
+                    </tr>
+                  ) : (
+                    balanceCatalogSeriesRows.map((row, i) => (
+                      <tr key={String(row.uid ?? row.Item ?? i)} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                        {balanceCatalogSeriesColumns.map((key) => {
+                          const value = (row as Record<string, unknown>)[key];
+                          const display =
+                            value === null || value === undefined
+                              ? "—"
+                              : typeof value === "object"
+                                ? JSON.stringify(value)
+                                : String(value);
+                          return (
+                            <td
+                              key={key}
+                              className="max-w-xs truncate border border-violet-100/90 bg-violet-50/35 px-3 py-2 text-gray-800 dark:border-violet-900/35 dark:bg-violet-950/20 dark:text-gray-200"
+                              title={display}
+                            >
+                              {display}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="border-t border-gray-200 dark:border-gray-700">
+            <div className="px-5 py-4">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+                საწყობები
+              </h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-gray-50 dark:bg-gray-900">
+                  <tr>
+                    {balanceCatalogWarehouseColumns.map((key) => (
+                      <th
+                        key={key}
+                        className="whitespace-nowrap border border-slate-200/70 bg-slate-100 px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:border-slate-700/70 dark:bg-slate-800 dark:text-slate-50"
+                      >
+                        {key}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {balanceWarehousesLoading ? (
+                    <tr>
+                      <td colSpan={Math.max(balanceCatalogWarehouseColumns.length, 1)} className="px-6 py-8 text-center text-sm text-gray-500">
+                        იტვირთება...
+                      </td>
+                    </tr>
+                  ) : balanceWarehousesError ? (
+                    <tr>
+                      <td colSpan={Math.max(balanceCatalogWarehouseColumns.length, 1)} className="px-6 py-8 text-center text-sm text-red-600">
+                        {balanceWarehousesError}
+                      </td>
+                    </tr>
+                  ) : balanceWarehousesRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={Math.max(balanceCatalogWarehouseColumns.length, 1)} className="px-6 py-8 text-center text-sm text-gray-500">
+                        საწყობები არ მოიძებნა
+                      </td>
+                    </tr>
+                  ) : (
+                    balanceWarehousesRows.map((row, i) => (
+                      <tr key={String(row.uid ?? row.Code ?? row.Name ?? i)} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                        {balanceCatalogWarehouseColumns.map((key) => {
+                          const value = row[key];
+                          const display =
+                            value === null || value === undefined
+                              ? "—"
+                              : typeof value === "object"
+                                ? JSON.stringify(value)
+                                : String(value);
+                          return (
+                            <td
+                              key={key}
+                              className="max-w-xs truncate border border-slate-100 bg-slate-50/50 px-3 py-2 text-gray-800 dark:border-slate-800 dark:bg-slate-900/35 dark:text-gray-200"
+                              title={display}
+                            >
+                              {display}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          </>
+          ) : isPharmacistCatalogPage ? (
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>

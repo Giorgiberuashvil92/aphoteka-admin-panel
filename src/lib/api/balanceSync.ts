@@ -556,6 +556,12 @@ export function mapBalanceItemToProduct(
     (priceFromItem || 0);
   const quantity = getNum(item, 'Quantity', 'quantity', 'Qty', 'Amount');
   const totalPrice = getNum(item, 'TotalPrice', 'totalPrice', 'Sum') || price * (quantity || 0);
+  const balanceCategoryUid = getStr(item, 'Group', 'group', 'GroupRef');
+  const categoryPath = resolveBalanceCategoryForItem(item, allItems);
+  const categoryParts = (categoryPath ?? '')
+    .split('/')
+    .map((part) => part.trim())
+    .filter(Boolean);
 
   return {
     name,
@@ -574,7 +580,10 @@ export function mapBalanceItemToProduct(
     packSize: getStr(item, 'PackSize', 'packSize') || undefined,
     manufacturer: getStr(item, 'Manufacturer', 'manufacturer') || undefined,
     countryOfOrigin: getStr(item, 'CountryOfOrigin', 'countryOfOrigin') || undefined,
-    category: resolveBalanceCategoryForItem(item, allItems) || undefined,
+    mainCategory: categoryParts[0] || undefined,
+    category: categoryPath || undefined,
+    subcategory:
+      categoryParts.length > 1 ? categoryParts[categoryParts.length - 1] : undefined,
     packagingType: getStr(item, 'PackagingType', 'packagingType') || undefined,
     taxation:
       vatRateRawFromBalanceItemRow(item) ??
@@ -596,6 +605,10 @@ export function mapBalanceItemToProduct(
      * მობილური GET /products პასუხში ავტომატურად ხვდება.
      */
     balanceNomenclatureItemUid: uuid || undefined,
+    balanceCategoryUid:
+      balanceCategoryUid && balanceCategoryUid !== NULL_GROUP_UID
+        ? balanceCategoryUid
+        : undefined,
     balanceInventoriesAccount:
       getStr(item, 'InventoriesAccount', 'inventoriesAccount') || undefined,
     balanceExpensesAccount:

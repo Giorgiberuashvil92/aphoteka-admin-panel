@@ -7,6 +7,7 @@ import type { AdminCategory } from "@/lib/api/categories";
 import { filterFieldsApi, type FilterField } from "@/lib/api/filter-fields";
 import CategoryPathPicker, {
   pathIdsToCategoryFields,
+  resolveCategoryPathIdsByBalanceUid,
   resolveCategoryPathIds,
 } from "@/components/products/CategoryPathPicker";
 
@@ -93,6 +94,18 @@ export default function ProductFormModal({
     }
 
     const cat = p.category?.trim() || "";
+    const categoryParts = cat
+      .split("/")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (categoryParts.length > 1) {
+      return {
+        mainCategory: categoryParts[0],
+        subcategory: categoryParts[categoryParts.length - 1],
+        therapeuticClass: cat,
+      };
+    }
+
     if (cat && mainCategoryNames.has(cat)) {
       return {
         mainCategory: cat,
@@ -172,8 +185,14 @@ export default function ProductFormModal({
         subcategory,
         therapeuticClass,
       });
+      const balanceCategoryPathIds = resolveCategoryPathIdsByBalanceUid(
+        categories,
+        product.balanceCategoryUid,
+      );
       setCategoryPathIds(
-        resolveCategoryPathIds(categories, mainCategory, subcategory),
+        balanceCategoryPathIds.length > 0
+          ? balanceCategoryPathIds
+          : resolveCategoryPathIds(categories, mainCategory, subcategory),
       );
       setFilterValues(product.filterValues ?? {});
     } else {

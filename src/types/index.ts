@@ -136,6 +136,8 @@ export interface Product {
   reservedQuantity?: number;
   /** Balance Items ნომენკლატურის `uid` (რეალიზაციის `Item`) */
   balanceNomenclatureItemUid?: string;
+  /** Balance Items პროდუქტის parent `Group` uid — კატეგორიის/ქვეკატეგორიის დასამთხვევად */
+  balanceCategoryUid?: string;
   /** Balance Exchange/Discounts */
   balanceDiscountPercent?: number;
   balanceDiscountAmount?: number;
