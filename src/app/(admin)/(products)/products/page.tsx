@@ -50,7 +50,8 @@ import PageBreadCrumb from "@/components/common/PageBreadCrumb";
 import { PlusIcon, PencilIcon, TrashBinIcon, EyeIcon } from "@/icons";
 import Link from "next/link";
 import { useProducts } from "@/hooks/useProducts";
-import { productsApi, warehousesApi, inventoryApi } from "@/lib/api";
+import { productsApi, warehousesApi, inventoryApi, categoriesApi } from "@/lib/api";
+import type { AdminCategory } from "@/lib/api/categories";
 import {
   getBalanceStocks,
   getBalancePrices,
@@ -65,6 +66,11 @@ import {
   rowsFromBalanceExchangeStocks,
 } from "@/lib/api/balanceStocks";
 import ProductFormModal from "@/components/products/ProductFormModal";
+import Pagination from "@/components/tables/Pagination";
+import CategoryPathPicker, {
+  pathIdsToCategoryFields,
+  resolveCategoryPathIds,
+} from "@/components/products/CategoryPathPicker";
 import AddToWarehouseModal from "@/components/inventory/AddToWarehouseModal";
 import { getAuthToken } from "@/lib/authToken";
 import { api } from "@/lib/api/client";
@@ -237,10 +243,11 @@ function ProductsPageContent() {
   const isPharmacistCatalogPage = pathname === "/products/pharmacist-catalog";
   const isRegularCatalogPage = pathname === "/products" || pathname === "/products/catalog";
   const showProductTable = !isBalanceStocksPage;
-  const canEditCatalog = isRegularCatalogPage || isPharmacistCatalogPage;
+  const canEditCatalog = isRegularCatalogPage;
   
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
   const [warehouse, setWarehouse] = useState<any>(null);
   const [warehouseInventory, setWarehouseInventory] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -248,6 +255,24 @@ function ProductsPageContent() {
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const [isWarehouseModalOpen, setIsWarehouseModalOpen] = useState(false);
   const [warehouseProduct, setWarehouseProduct] = useState<Product | null>(null);
+  const [pharmacistEditingProduct, setPharmacistEditingProduct] =
+    useState<Product | null>(null);
+  const [pharmacistForm, setPharmacistForm] = useState({
+    productCode: "",
+    productName: "",
+    categoryPathIds: [] as string[],
+    form: "",
+    strength: "",
+    manufacturer: "",
+    unit: "",
+    packSize: "",
+    prescriptionRequired: false,
+    unitPrice: "",
+    qtyOnHand: "",
+    reorderLevel: "",
+  });
+  const [pharmacistSaving, setPharmacistSaving] = useState(false);
+  const [categories, setCategories] = useState<AdminCategory[]>([]);
   const [showBalanceColumns, setShowBalanceColumns] = useState(false);
   const showAllBalanceColumns = isBalanceCatalogPage || showBalanceColumns;
   const [balanceStocksRows, setBalanceStocksRows] = useState<Record<string, unknown>[]>([]);
@@ -263,6 +288,12 @@ function ProductsPageContent() {
     errors?: string[];
     itemsSeriesBulkUsed?: boolean;
     itemsSeriesBulkLineCount?: number;
+    categories?: {
+      created: number;
+      updated: number;
+      total: number;
+      errors?: string[];
+    };
   } | null>(null);
   const [balanceStocksCollapsed, setBalanceStocksCollapsed] = useState(false);
   const [balancePricesRows, setBalancePricesRows] = useState<Record<string, unknown>[]>([]);
@@ -315,6 +346,7 @@ function ProductsPageContent() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearchTerm(searchTerm);
+      setCurrentPage(1);
     }, 300);
 
     return () => clearTimeout(timer);
@@ -331,6 +363,16 @@ function ProductsPageContent() {
       });
     }
   }, [warehouseId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    categoriesApi.getAll().then((list) => {
+      if (!cancelled) setCategories(Array.isArray(list) ? list : []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -520,9 +562,17 @@ function ProductsPageContent() {
   }, [balanceStockDetailProduct]);
 
   const { data, loading, error, execute } = useProducts({
+    page: currentPage,
     search: debouncedSearchTerm || undefined,
-    limit: 100,
+    limit: 50,
+    source:
+      isRegularCatalogPage || isPharmacistCatalogPage
+        ? "balance-live"
+        : undefined,
   });
+  const totalProducts = data?.total ?? 0;
+  const productsPerPage = data?.limit ?? 50;
+  const totalPages = Math.max(1, Math.ceil(totalProducts / productsPerPage));
 
   const runFixedProbeItemsSeries = async () => {
     setFixedProbeItemsSeriesLoading(true);
@@ -618,6 +668,7 @@ function ProductsPageContent() {
         errors: json.errors,
         itemsSeriesBulkUsed: json.itemsSeriesBulkUsed,
         itemsSeriesBulkLineCount: json.itemsSeriesBulkLineCount,
+        categories: json.categories,
       });
       await execute();
       void fetchItemsSeriesBareFromProxy();
@@ -675,6 +726,12 @@ function ProductsPageContent() {
       (p) => !balanceGroupSkuSet.has(String(p.sku ?? "").trim())
     );
   }, [data?.data, balanceGroupSkuSet]);
+
+  /** Balance Exchange/Items ცხრილში მხოლოდ საქონელი — IsGroup=true კატეგორიები/ქვეკატეგორიები დამალულია */
+  const balanceStockProductRows = useMemo(
+    () => balanceStocksRows.filter((row) => !isBalanceGroupRow(row)),
+    [balanceStocksRows],
+  );
 
   const balanceItemPricingRowsForProducts = useMemo(() => {
     if (balanceItemPricingRaw == null) return [];
@@ -957,6 +1014,86 @@ function ProductsPageContent() {
   const handleEdit = (product: Product) => {
     setEditingProduct(product);
     setIsModalOpen(true);
+  };
+
+  const handlePharmacistEdit = (product: Product) => {
+    setPharmacistEditingProduct(product);
+    setPharmacistForm({
+      productCode: product.productCode?.trim() || product.sku?.trim() || "",
+      productName: product.productNameBrand?.trim() || product.name?.trim() || "",
+      categoryPathIds: resolveCategoryPathIds(
+        categories,
+        product.mainCategory?.trim() || "",
+        product.subcategory?.trim() || "",
+      ),
+      form: product.dosageForm?.trim() || "",
+      strength: product.strength?.trim() || "",
+      manufacturer: product.manufacturer?.trim() || "",
+      unit: product.unitOfMeasure?.trim() || "",
+      packSize: product.packSize?.trim() || "",
+      prescriptionRequired: product.prescriptionRequired ?? false,
+      unitPrice:
+        product.price != null && Number.isFinite(Number(product.price))
+          ? String(product.price)
+          : "",
+      qtyOnHand:
+        product.quantity != null && Number.isFinite(Number(product.quantity))
+          ? String(product.quantity)
+          : "",
+      reorderLevel: product.reorderLevel?.toString() || "",
+    });
+  };
+
+  const handlePharmacistSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pharmacistEditingProduct) return;
+    const productId =
+      pharmacistEditingProduct.id ??
+      (pharmacistEditingProduct as Product & { _id?: string })._id;
+    if (!productId) {
+      alert("პროდუქტის ID ვერ მოიძებნა — განაახლეთ გვერდი და სცადეთ ხელახლა");
+      return;
+    }
+    setPharmacistSaving(true);
+    try {
+      const categoryFields = pathIdsToCategoryFields(
+        categories,
+        pharmacistForm.categoryPathIds,
+      );
+      await productsApi.update(productId, {
+        productCode: pharmacistForm.productCode.trim() || undefined,
+        productNameBrand: pharmacistForm.productName.trim() || undefined,
+        name: pharmacistForm.productName.trim() || pharmacistEditingProduct.name,
+        mainCategory: categoryFields.mainCategory || undefined,
+        subcategory: categoryFields.subcategory || undefined,
+        dosageForm: pharmacistForm.form.trim() || undefined,
+        strength: pharmacistForm.strength.trim() || undefined,
+        manufacturer: pharmacistForm.manufacturer.trim() || undefined,
+        unitOfMeasure: pharmacistForm.unit.trim() || undefined,
+        packSize: pharmacistForm.packSize.trim() || undefined,
+        prescriptionRequired: pharmacistForm.prescriptionRequired,
+        price: pharmacistForm.unitPrice
+          ? parseFloat(pharmacistForm.unitPrice)
+          : pharmacistEditingProduct.price,
+        quantity: pharmacistForm.qtyOnHand
+          ? parseFloat(pharmacistForm.qtyOnHand)
+          : undefined,
+        reorderLevel: pharmacistForm.reorderLevel
+          ? parseFloat(pharmacistForm.reorderLevel)
+          : undefined,
+        totalPrice:
+          pharmacistForm.unitPrice && pharmacistForm.qtyOnHand
+            ? parseFloat(pharmacistForm.unitPrice) * parseFloat(pharmacistForm.qtyOnHand)
+            : undefined,
+      });
+      await execute();
+      setPharmacistEditingProduct(null);
+    } catch (error) {
+      console.error("Failed to update pharmacist catalog fields:", error);
+      alert("ფარმაცევტის ველების შენახვა ვერ მოხერხდა");
+    } finally {
+      setPharmacistSaving(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -1311,6 +1448,13 @@ function ProductsPageContent() {
               <p className="text-green-800 dark:text-green-200">
                 დასრულდა: {syncResult.created} ახალი, {syncResult.updated} განახლებული, სულ{" "}
                 {syncResult.total} ჩანაწერი.
+                {syncResult.categories ? (
+                  <span className="ml-1">
+                    კატეგორიები: {syncResult.categories.created} ახალი,{" "}
+                    {syncResult.categories.updated} განახლებული, სულ{" "}
+                    {syncResult.categories.total}.
+                  </span>
+                ) : null}
                 {syncResult.itemsSeriesBulkUsed ? (
                   <>
                     {" "}
@@ -1345,7 +1489,7 @@ function ProductsPageContent() {
           <code className="text-[11px]">BALANCE_DEBUG_ITEMS_SERIES=1</code>.
         </p>
         <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-          ზედა ცხრილი — <strong>Exchange/Items</strong> (ნომენკლატურა, კატეგორიები+საქონელი). ქვემოთ — ცალკე{" "}
+          ზედა ცხრილი — <strong>Exchange/Items</strong> მხოლოდ საქონელი (<code className="text-[11px]">IsGroup=false</code>); კატეგორიები/ქვეკატეგორიები ამოღებულია. ქვემოთ — ცალკე{" "}
           <strong>Exchange/Stocks</strong> რაოდენობები (Item, Warehouse, Quantity, Reserve).
         </p>
         {balanceStocksLoading && (
@@ -1354,12 +1498,12 @@ function ProductsPageContent() {
         {balanceStocksError && (
           <p className="text-sm text-red-600 dark:text-red-400">{balanceStocksError}</p>
         )}
-        {!balanceStocksLoading && !balanceStocksError && balanceStocksRows.length > 0 && (
+        {!balanceStocksLoading && !balanceStocksError && balanceStockProductRows.length > 0 && (
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-600">
-                  {Object.keys(balanceStocksRows[0]).map((key) => (
+                  {Object.keys(balanceStockProductRows[0]).map((key) => (
                     <th
                       key={key}
                       className="whitespace-nowrap px-3 py-2 font-medium text-gray-700 dark:text-gray-300"
@@ -1370,12 +1514,12 @@ function ProductsPageContent() {
                 </tr>
               </thead>
               <tbody>
-                {balanceStocksRows.map((row, i) => (
+                {balanceStockProductRows.map((row, i) => (
                   <tr
                     key={i}
                     className="border-b border-gray-100 dark:border-gray-700"
                   >
-                    {Object.keys(balanceStocksRows[0]).map((key) => (
+                    {Object.keys(balanceStockProductRows[0]).map((key) => (
                       <td
                         key={key}
                         className="max-w-xs truncate px-3 py-2 text-gray-800 dark:text-gray-200"
@@ -1694,7 +1838,7 @@ function ProductsPageContent() {
             <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>
                 {[
-                  "SKU",
+                  "საქონლის კოდი",
                   "Product Name",
                   "Category",
                   "Form",
@@ -1729,17 +1873,15 @@ function ProductsPageContent() {
               ) : (
                 filteredProducts.map((product) => {
                   const sku =
-                    product.internalSku?.trim() ||
-                    product.sku?.trim() ||
                     product.productCode?.trim() ||
+                    product.sku?.trim() ||
                     "—";
                   const productName =
                     product.productNameBrand?.trim() || product.name?.trim() || "—";
                   const category =
-                    product.category?.trim() ||
-                    product.subcategory?.trim() ||
-                    product.mainCategory?.trim() ||
-                    "—";
+                    [product.mainCategory?.trim(), product.subcategory?.trim()]
+                      .filter(Boolean)
+                      .join(" / ") || "—";
                   const reorderLevel = numericProductValue(product, [
                     "reorderLevel",
                     "reorder_level",
@@ -1825,7 +1967,7 @@ function ProductsPageContent() {
                       <td className="px-3 py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button
-                            onClick={() => handleEdit(product)}
+                            onClick={() => handlePharmacistEdit(product)}
                             className="rounded p-1 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
                             title="რედაქტირება"
                           >
@@ -2271,6 +2413,23 @@ function ProductsPageContent() {
           </table>
           )}
         </div>
+        {(isRegularCatalogPage || isPharmacistCatalogPage) && totalProducts > 0 && (
+          <div className="flex flex-col gap-3 border-t border-gray-200 px-5 py-4 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              გვერდი {currentPage}/{totalPages} · სულ {totalProducts} პროდუქტი ·{" "}
+              {productsPerPage} თითო გვერდზე
+            </p>
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={(page) => {
+                const next = Math.min(Math.max(page, 1), totalPages);
+                setCurrentPage(next);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            />
+          </div>
+        )}
       </div>
       )}
 
@@ -2437,6 +2596,281 @@ function ProductsPageContent() {
               ) : null}
             </div>
           </div>
+        </div>
+      )}
+
+      {pharmacistEditingProduct && (
+        <div
+          className="fixed inset-0 z-100000 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="pharmacist-edit-title"
+        >
+          <form
+            onSubmit={handlePharmacistSave}
+            className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800"
+          >
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h2
+                  id="pharmacist-edit-title"
+                  className="text-lg font-semibold text-gray-900 dark:text-white"
+                >
+                  ფარმაცევტის ველები
+                </h2>
+                <p
+                  className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400"
+                  title={pharmacistEditingProduct.name}
+                >
+                  {pharmacistEditingProduct.name}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPharmacistEditingProduct(null)}
+                disabled={pharmacistSaving}
+                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 disabled:opacity-50 dark:hover:bg-gray-700"
+                aria-label="დახურვა"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    საქონლის კოდი
+                  </label>
+                  <input
+                    type="text"
+                    value={pharmacistForm.productCode}
+                    onChange={(e) =>
+                      setPharmacistForm((prev) => ({
+                        ...prev,
+                        productCode: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Product Name
+                  </label>
+                  <input
+                    type="text"
+                    value={pharmacistForm.productName}
+                    onChange={(e) =>
+                      setPharmacistForm((prev) => ({
+                        ...prev,
+                        productName: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <CategoryPathPicker
+                categories={categories}
+                pathIds={pharmacistForm.categoryPathIds}
+                onPathChange={(pathIds) =>
+                  setPharmacistForm((prev) => ({
+                    ...prev,
+                    categoryPathIds: pathIds,
+                  }))
+                }
+              />
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Form
+                  </label>
+                  <input
+                    type="text"
+                    value={pharmacistForm.form}
+                    onChange={(e) =>
+                      setPharmacistForm((prev) => ({
+                        ...prev,
+                        form: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Strength
+                  </label>
+                  <input
+                    type="text"
+                    value={pharmacistForm.strength}
+                    onChange={(e) =>
+                      setPharmacistForm((prev) => ({
+                        ...prev,
+                        strength: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Manufacturer
+                  </label>
+                  <input
+                    type="text"
+                    value={pharmacistForm.manufacturer}
+                    onChange={(e) =>
+                      setPharmacistForm((prev) => ({
+                        ...prev,
+                        manufacturer: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Unit
+                  </label>
+                  <input
+                    type="text"
+                    value={pharmacistForm.unit}
+                    onChange={(e) =>
+                      setPharmacistForm((prev) => ({
+                        ...prev,
+                        unit: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Pack Size
+                  </label>
+                  <input
+                    type="text"
+                    value={pharmacistForm.packSize}
+                    onChange={(e) =>
+                      setPharmacistForm((prev) => ({
+                        ...prev,
+                        packSize: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+
+                <label className="flex items-center rounded-lg border border-gray-200 px-4 py-3 dark:border-gray-600">
+                <input
+                  type="checkbox"
+                  checked={pharmacistForm.prescriptionRequired}
+                  onChange={(e) =>
+                    setPharmacistForm((prev) => ({
+                      ...prev,
+                      prescriptionRequired: e.target.checked,
+                    }))
+                  }
+                  className="h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+                />
+                <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
+                  Prescription Required
+                </span>
+              </label>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Unit Price
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={pharmacistForm.unitPrice}
+                  onChange={(e) =>
+                    setPharmacistForm((prev) => ({
+                      ...prev,
+                      unitPrice: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Qty on Hand
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={pharmacistForm.qtyOnHand}
+                  onChange={(e) =>
+                    setPharmacistForm((prev) => ({
+                      ...prev,
+                      qtyOnHand: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Reorder Level
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={pharmacistForm.reorderLevel}
+                  onChange={(e) =>
+                    setPharmacistForm((prev) => ({
+                      ...prev,
+                      reorderLevel: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  placeholder="მაგ: 100"
+                />
+              </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPharmacistEditingProduct(null)}
+                disabled={pharmacistSaving}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
+              >
+                გაუქმება
+              </button>
+              <button
+                type="submit"
+                disabled={pharmacistSaving}
+                className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+              >
+                {pharmacistSaving ? "ინახება..." : "შენახვა"}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

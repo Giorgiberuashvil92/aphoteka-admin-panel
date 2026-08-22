@@ -20,6 +20,7 @@ export const productsApi = {
     search?: string;
     category?: string;
     active?: boolean;
+    source?: 'balance-live';
   }): Promise<ProductsResponse> => {
     const queryParams = new URLSearchParams();
     if (params?.page) queryParams.append('page', params.page.toString());
@@ -27,8 +28,13 @@ export const productsApi = {
     if (params?.search) queryParams.append('search', params.search);
     if (params?.category) queryParams.append('category', params.category);
     if (params?.active !== undefined) queryParams.append('active', params.active.toString());
-    
+
     const query = queryParams.toString();
+    if (params?.source === 'balance-live') {
+      return api.fetchJson<ProductsResponse>(
+        `/api/balance/live-products${query ? `?${query}` : ''}`
+      );
+    }
     return api.get<ProductsResponse>(`/products${query ? `?${query}` : ''}`);
   },
 

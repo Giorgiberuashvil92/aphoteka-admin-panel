@@ -9,17 +9,34 @@ export function useProducts(params?: {
   search?: string;
   category?: string;
   active?: boolean;
+  source?: 'balance-live';
 }) {
+  const page = params?.page;
+  const limit = params?.limit;
+  const search = params?.search;
+  const category = params?.category;
+  const active = params?.active;
+  const source = params?.source;
+
   // Memoize the API call function to prevent unnecessary re-renders
   const apiCall = useMemo(
-    () => () => productsApi.getAll(params),
-    [params?.page, params?.limit, params?.search, params?.category, params?.active]
+    () => () =>
+      productsApi.getAll({
+        page,
+        limit,
+        search,
+        category,
+        active,
+        source,
+      }),
+    [page, limit, search, category, active, source]
   );
 
   return useApi<ProductsResponse>(
     apiCall,
     { 
       immediate: true,
+      deps: [page, limit, search, category, active, source],
       onError: (error) => {
         console.error('Failed to fetch products:', error);
       }

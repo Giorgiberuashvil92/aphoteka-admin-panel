@@ -5,6 +5,8 @@ export interface AdminCategory {
   name: string;
   description?: string;
   parentId?: string;
+  balanceUid?: string;
+  balanceParentUid?: string;
   color?: string;
   icon?: string;
   imageUrl?: string;
@@ -17,6 +19,8 @@ export interface CreateCategoryPayload {
   name: string;
   description?: string;
   parentId?: string;
+  balanceUid?: string;
+  balanceParentUid?: string;
   color?: string;
   icon?: string;
   imageUrl?: string;

@@ -259,11 +259,12 @@ export default function ProductFormModal({
 
     try {
       const productId =
-        product?.id ?? (product as { _id?: string } | undefined)?._id;
-      if (product && !productId) {
-        alert("პროდუქტის ID ვერ მოიძებნა — განაახლეთ გვერდი და სცადეთ ხელახლა");
-        return;
-      }
+        (product as (Product & { localProductId?: string }) | undefined)
+          ?.localProductId ??
+        product?.id ??
+        (product as { _id?: string } | undefined)?._id;
+      const hasMongoProductId =
+        typeof productId === "string" && /^[0-9a-f]{24}$/i.test(productId);
 
       const productData: Partial<Product> = {
         description: formData.description || undefined,
@@ -332,10 +333,25 @@ export default function ProductFormModal({
         });
       }
 
-      if (product && productId) {
+      if (product && hasMongoProductId && productId) {
         // Update existing product
         await productsApi.update(productId, productData);
         alert("პროდუქტი წარმატებით განახლდა");
+      } else if (product) {
+        const priceNum = Number(product.price ?? formData.price ?? 0);
+        await productsApi.create({
+          ...productData,
+          name: product.name || formData.name || formData.productNameBrand || "Balance product",
+          sku: product.sku || formData.productCode || formData.sku || `BAL-${Date.now()}`,
+          productCode: product.productCode || formData.productCode || product.sku,
+          price: Number.isFinite(priceNum) ? priceNum : 0,
+          unitOfMeasure: product.unitOfMeasure || formData.unitOfMeasure || undefined,
+          quantity: product.quantity,
+          totalPrice: product.totalPrice,
+          taxation: product.taxation,
+          balanceNomenclatureItemUid: product.balanceNomenclatureItemUid,
+        });
+        alert("პროდუქტის ჩვენი ველები შენახულია");
       } else {
         // Create new product
         await productsApi.create(productData);

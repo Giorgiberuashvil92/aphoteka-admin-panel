@@ -35,6 +35,172 @@ import {
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE = getServerNestApiBaseUrl();
+const NULL_BALANCE_UID = '00000000-0000-0000-0000-000000000000';
+
+type AdminCategoryForSync = {
+  id: string;
+  name: string;
+  parentId?: string | null;
+  balanceUid?: string;
+  balanceParentUid?: string;
+};
+
+type BalanceCategoriesSyncResult = {
+  created: number;
+  updated: number;
+  total: number;
+  errors?: string[];
+};
+
+function balanceRowString(row: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== null && value !== undefined && value !== '') {
+      return String(value).trim();
+    }
+  }
+  return '';
+}
+
+function balanceGroupParentUid(row: Record<string, unknown>): string {
+  return balanceRowString(row, 'Group', 'group', 'GroupRef');
+}
+
+function balanceGroupName(row: Record<string, unknown>): string {
+  return (
+    balanceRowString(row, 'Name', 'FullName', 'Description') ||
+    balanceRowString(row, 'Code', 'InternalArticle') ||
+    getItemUuid(row) ||
+    'Balance group'
+  );
+}
+
+function balanceGroupDepth(
+  row: Record<string, unknown>,
+  groupByUid: Map<string, Record<string, unknown>>
+): number {
+  let parentUid = balanceGroupParentUid(row);
+  const seen = new Set<string>();
+  let depth = 0;
+  while (parentUid && parentUid !== NULL_BALANCE_UID && depth < 50) {
+    const key = parentUid.toLowerCase();
+    if (seen.has(key)) break;
+    seen.add(key);
+    const parent = groupByUid.get(key);
+    if (!parent) break;
+    depth++;
+    parentUid = balanceGroupParentUid(parent);
+  }
+  return depth;
+}
+
+async function syncBalanceCategories(
+  items: Record<string, unknown>[],
+  headers: HeadersInit
+): Promise<BalanceCategoriesSyncResult> {
+  const groups = items.filter(isBalanceGroupRow);
+  if (groups.length === 0) return { created: 0, updated: 0, total: 0 };
+
+  const groupByUid = new Map<string, Record<string, unknown>>();
+  for (const row of groups) {
+    const uid = getItemUuid(row);
+    if (uid) groupByUid.set(uid.toLowerCase(), row);
+  }
+
+  const sortedGroups = [...groups].sort(
+    (a, b) => balanceGroupDepth(a, groupByUid) - balanceGroupDepth(b, groupByUid)
+  );
+
+  const existingRes = await fetch(`${API_BASE}/categories`, {
+    method: 'GET',
+    headers,
+  });
+  if (!existingRes.ok) {
+    throw new Error(
+      `Balance კატეგორიებისთვის არსებული categories ვერ ჩაიტვირთა: ${await existingRes.text()}`
+    );
+  }
+  const existing = (await existingRes.json()) as AdminCategoryForSync[];
+  const byBalanceUid = new Map<string, AdminCategoryForSync>();
+  const byParentAndName = new Map<string, AdminCategoryForSync>();
+
+  const nameKey = (parentId: string | null | undefined, name: string) =>
+    `${parentId ?? 'root'}::${name.trim().toLowerCase()}`;
+
+  for (const category of Array.isArray(existing) ? existing : []) {
+    if (category.balanceUid) {
+      byBalanceUid.set(category.balanceUid.trim().toLowerCase(), category);
+    }
+    byParentAndName.set(nameKey(category.parentId, category.name), category);
+  }
+
+  let created = 0;
+  let updated = 0;
+  const errors: string[] = [];
+
+  for (const row of sortedGroups) {
+    const balanceUid = getItemUuid(row);
+    if (!balanceUid) continue;
+
+    const parentBalanceUid = balanceGroupParentUid(row);
+    const parentCategory =
+      parentBalanceUid && parentBalanceUid !== NULL_BALANCE_UID
+        ? byBalanceUid.get(parentBalanceUid.toLowerCase())
+        : undefined;
+    const parentId = parentCategory?.id;
+    const name = balanceGroupName(row);
+    const payload = {
+      name,
+      parentId,
+      balanceUid,
+      balanceParentUid:
+        parentBalanceUid && parentBalanceUid !== NULL_BALANCE_UID
+          ? parentBalanceUid
+          : undefined,
+      active: true,
+      sortOrder: Number(row.Code ?? row.SortOrder ?? 0) || 0,
+    };
+
+    const existingCategory =
+      byBalanceUid.get(balanceUid.toLowerCase()) ??
+      byParentAndName.get(nameKey(parentId, name));
+
+    try {
+      if (existingCategory) {
+        const res = await fetch(`${API_BASE}/categories/${existingCategory.id}`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const updatedCategory = (await res.json()) as AdminCategoryForSync;
+        byBalanceUid.set(balanceUid.toLowerCase(), updatedCategory);
+        byParentAndName.set(nameKey(updatedCategory.parentId, updatedCategory.name), updatedCategory);
+        updated++;
+      } else {
+        const res = await fetch(`${API_BASE}/categories`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const createdCategory = (await res.json()) as AdminCategoryForSync;
+        byBalanceUid.set(balanceUid.toLowerCase(), createdCategory);
+        byParentAndName.set(nameKey(createdCategory.parentId, createdCategory.name), createdCategory);
+        created++;
+      }
+    } catch (e) {
+      errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  return {
+    created,
+    updated,
+    total: groups.length,
+    errors: errors.length ? errors : undefined,
+  };
+}
 
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -179,20 +345,26 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      ...(authHeader ? { Authorization: authHeader } : {}),
+    };
+
+    const categoriesSync = await syncBalanceCategories(items, headers);
+    console.log(
+      `[sync-stocks] Balance categories: created=${categoriesSync.created} updated=${categoriesSync.updated} total=${categoriesSync.total}`
+    );
+
     if (withSku.length === 0) {
       return NextResponse.json({
         ok: true,
         created: 0,
         updated: 0,
         total: 0,
-        message: 'Balance-დან ჩანაწერი არ მოიძებნა ან Items ცარიელია.',
+        categories: categoriesSync,
+        message: 'Balance-დან პროდუქტი არ მოიძებნა ან Items-ში მხოლოდ group rows არის.',
       });
     }
-
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-      ...(authHeader ? { Authorization: authHeader } : {}),
-    };
 
     const existingRes = await fetch(`${API_BASE}/products?limit=10000`, {
       method: 'GET',
@@ -341,6 +513,7 @@ export async function POST(request: NextRequest) {
       created,
       updated,
       total: withSku.length,
+      categories: categoriesSync,
       errors: errors.length ? errors : undefined,
       itemsSeriesBulkUsed: bulkGrouped.size > 0,
       itemsSeriesBulkLineCount:

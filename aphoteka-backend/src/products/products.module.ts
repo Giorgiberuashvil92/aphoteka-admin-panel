@@ -15,6 +15,7 @@ import {
   ProductStrengthSchema,
 } from './schemas/product.schema';
 import { BalanceModule } from '../balance/balance.module';
+import { Category, CategorySchema } from '../categories/schemas/category.schema';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { BalanceModule } from '../balance/balance.module';
       { name: ProductGroup.name, schema: ProductGroupSchema },
       { name: ProductVariant.name, schema: ProductVariantSchema },
       { name: ProductStrength.name, schema: ProductStrengthSchema },
+      { name: Category.name, schema: CategorySchema },
     ]),
   ],
   controllers: [ProductsController],

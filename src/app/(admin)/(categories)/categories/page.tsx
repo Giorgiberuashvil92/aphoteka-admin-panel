@@ -6,6 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { categoriesApi, type AdminCategory } from "@/lib/api";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
 import { PlusIcon, PencilIcon, TrashBinIcon } from "@/icons";
+import { getAuthToken } from "@/lib/authToken";
+import { api } from "@/lib/api/client";
 
 type Crumb = { id: string; name: string };
 
@@ -21,6 +23,15 @@ function CategoriesPageContent() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [syncingBalance, setSyncingBalance] = useState(false);
+  const [syncResult, setSyncResult] = useState<{
+    deleted: number;
+    created: number;
+    total: number;
+    error?: string;
+    errors?: string[];
+  } | null>(null);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   const currentTitle = parentId
     ? crumbs[crumbs.length - 1]?.name ?? "ქვეკატეგორიები"
@@ -99,6 +110,93 @@ function CategoriesPageContent() {
       alert(e instanceof Error ? e.message : "წაშლა ვერ მოხერხდა");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const syncCategoriesFromBalance = async () => {
+    if (
+      !confirm(
+        "არსებული კატეგორიები წაიშლება და თავიდან შეიქმნება Balance-ის group hierarchy-დან. გავაგრძელო?",
+      )
+    ) {
+      return;
+    }
+
+    setSyncingBalance(true);
+    setSyncResult(null);
+    try {
+      const token = getAuthToken();
+      const res = await api.fetch("/api/balance/sync-categories", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || "Balance-იდან კატეგორიების სინქი ვერ მოხერხდა");
+      }
+      setSyncResult({
+        deleted: json.deleted ?? 0,
+        created: json.created ?? 0,
+        total: json.total ?? 0,
+        errors: json.errors,
+      });
+      openParent(null);
+      await loadCategories();
+    } catch (e) {
+      setSyncResult({
+        deleted: 0,
+        created: 0,
+        total: 0,
+        error: e instanceof Error ? e.message : "შეცდომა",
+      });
+    } finally {
+      setSyncingBalance(false);
+    }
+  };
+
+  const deleteAllCategories = async () => {
+    if (
+      !confirm(
+        "ყველა კატეგორია და ქვეკატეგორია წაიშლება ბაზიდან. პროდუქტების category ტექსტური ველები ავტომატურად არ შეიცვლება. ნამდვილად წავშალო?",
+      )
+    ) {
+      return;
+    }
+
+    setDeletingAll(true);
+    setSyncResult(null);
+    try {
+      const token = getAuthToken();
+      const res = await api.fetch("/api/categories/delete-all", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || json.errors?.join("; ") || "კატეგორიების წაშლა ვერ მოხერხდა");
+      }
+      setSyncResult({
+        deleted: json.deleted ?? 0,
+        created: 0,
+        total: 0,
+      });
+      openParent(null);
+      await loadCategories();
+    } catch (e) {
+      setSyncResult({
+        deleted: 0,
+        created: 0,
+        total: 0,
+        error: e instanceof Error ? e.message : "შეცდომა",
+      });
+    } finally {
+      setDeletingAll(false);
     }
   };
 
@@ -189,14 +287,58 @@ function CategoriesPageContent() {
             <option value="inactive">არააქტიური</option>
           </select>
         </div>
-        <Link
-          href={newHref}
-          className="flex items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600"
-        >
-          <PlusIcon className="h-4 w-4" />
-          {parentId ? "ახალი ქვეკატეგორია" : "ახალი კატეგორია"}
-        </Link>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          {!parentId ? (
+            <>
+              <button
+                type="button"
+                onClick={() => void deleteAllCategories()}
+                disabled={deletingAll || syncingBalance}
+                className="flex items-center justify-center gap-2 rounded-lg border border-red-500 bg-white px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:bg-gray-800 dark:hover:bg-red-900/20"
+              >
+                {deletingAll ? "იშლება..." : "ყველას წაშლა"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void syncCategoriesFromBalance()}
+                disabled={syncingBalance || deletingAll}
+                className="flex items-center justify-center gap-2 rounded-lg border border-brand-500 bg-white px-4 py-2 text-sm font-medium text-brand-500 hover:bg-brand-50 disabled:opacity-50 dark:bg-gray-800 dark:hover:bg-gray-700"
+              >
+                {syncingBalance ? "სინქდება..." : "Balance-იდან შექმნა"}
+              </button>
+            </>
+          ) : null}
+          <Link
+            href={newHref}
+            className="flex items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600"
+          >
+            <PlusIcon className="h-4 w-4" />
+            {parentId ? "ახალი ქვეკატეგორია" : "ახალი კატეგორია"}
+          </Link>
+        </div>
       </div>
+
+      {syncResult && (
+        <div
+          className={`rounded-lg border p-3 text-sm ${
+            syncResult.error
+              ? "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200"
+              : "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-200"
+          }`}
+        >
+          {syncResult.error ? (
+            syncResult.error
+          ) : (
+            <>
+              წაიშალა {syncResult.deleted}, შეიქმნა {syncResult.created}, Balance group სულ{" "}
+              {syncResult.total}.
+              {syncResult.errors?.length ? (
+                <span className="ml-1">შეცდომები: {syncResult.errors.slice(0, 3).join("; ")}</span>
+              ) : null}
+            </>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200">

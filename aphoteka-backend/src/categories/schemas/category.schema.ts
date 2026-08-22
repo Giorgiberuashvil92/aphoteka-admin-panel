@@ -14,6 +14,12 @@ export class Category {
   @Prop({ type: Types.ObjectId, ref: 'Category', default: null })
   parentId?: Types.ObjectId | null;
 
+  @Prop({ index: true, sparse: true })
+  balanceUid?: string;
+
+  @Prop()
+  balanceParentUid?: string;
+
   @Prop({ default: '#E8F5E9' })
   color?: string;
 

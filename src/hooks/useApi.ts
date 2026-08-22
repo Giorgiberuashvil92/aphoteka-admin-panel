@@ -3,6 +3,7 @@ import { ApiError } from '@/lib/api/client';
 
 export interface UseApiOptions {
   immediate?: boolean; // Auto-fetch on mount
+  deps?: readonly unknown[]; // Re-fetch when these values change
   onSuccess?: (data: any) => void;
   onError?: (error: Error) => void;
 }
@@ -49,7 +50,7 @@ export function useApi<T>(
       execute();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [options.immediate]); // Only depend on immediate flag
+  }, [options.immediate, ...(options.deps ?? [])]);
 
   return {
     data,

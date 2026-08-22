@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { BalanceExchangeService } from '../balance/balance-exchange.service';
+import { Category, CategoryDocument } from '../categories/schemas/category.schema';
 import {
   aggregateExchangeStocksByItemUid,
   buildBalanceWarehouseNameByUuid,
@@ -39,9 +40,17 @@ export type BalanceProductsSyncResult = {
   errors?: string[];
   itemsSeriesBulkUsed?: boolean;
   itemsSeriesBulkLineCount?: number;
+  categories?: {
+    created: number;
+    updated: number;
+    total: number;
+    errors?: string[];
+  };
   skipped?: boolean;
   reason?: string;
 };
+
+const NULL_BALANCE_UID = '00000000-0000-0000-0000-000000000000';
 
 /** Balance → MongoDB — იგივე ლოგიკა რაც admin `POST /api/balance/sync-stocks` */
 @Injectable()
@@ -52,9 +61,148 @@ export class BalanceProductsSyncService {
   constructor(
     @InjectModel(Product.name)
     private productModel: Model<ProductDocument>,
+    @InjectModel(Category.name)
+    private categoryModel: Model<CategoryDocument>,
     private readonly balanceExchange: BalanceExchangeService,
     private readonly config: ConfigService,
   ) {}
+
+  private balanceRowString(
+    row: Record<string, unknown>,
+    ...keys: string[]
+  ): string {
+    for (const key of keys) {
+      const value = row[key];
+      if (value !== null && value !== undefined && value !== '') {
+        return String(value).trim();
+      }
+    }
+    return '';
+  }
+
+  private balanceGroupParentUid(row: Record<string, unknown>): string {
+    return this.balanceRowString(row, 'Group', 'group', 'GroupRef');
+  }
+
+  private balanceGroupName(row: Record<string, unknown>): string {
+    return (
+      this.balanceRowString(row, 'Name', 'FullName', 'Description') ||
+      this.balanceRowString(row, 'Code', 'InternalArticle') ||
+      getItemUuid(row) ||
+      'Balance group'
+    );
+  }
+
+  private balanceGroupDepth(
+    row: Record<string, unknown>,
+    groupByUid: Map<string, Record<string, unknown>>,
+  ): number {
+    let parentUid = this.balanceGroupParentUid(row);
+    const seen = new Set<string>();
+    let depth = 0;
+    while (parentUid && parentUid !== NULL_BALANCE_UID && depth < 50) {
+      const key = parentUid.toLowerCase();
+      if (seen.has(key)) break;
+      seen.add(key);
+      const parent = groupByUid.get(key);
+      if (!parent) break;
+      depth++;
+      parentUid = this.balanceGroupParentUid(parent);
+    }
+    return depth;
+  }
+
+  private async syncBalanceCategories(items: Record<string, unknown>[]) {
+    const groups = items.filter(isBalanceGroupRow);
+    if (groups.length === 0) return { created: 0, updated: 0, total: 0 };
+
+    const groupByUid = new Map<string, Record<string, unknown>>();
+    for (const row of groups) {
+      const uid = getItemUuid(row);
+      if (uid) groupByUid.set(uid.toLowerCase(), row);
+    }
+
+    const sortedGroups = [...groups].sort(
+      (a, b) =>
+        this.balanceGroupDepth(a, groupByUid) -
+        this.balanceGroupDepth(b, groupByUid),
+    );
+
+    const existing = await this.categoryModel.find().lean().exec();
+    const byBalanceUid = new Map<string, any>();
+    const byParentAndName = new Map<string, any>();
+    const nameKey = (parentId: unknown, name: string) =>
+      `${parentId ? String(parentId) : 'root'}::${name.trim().toLowerCase()}`;
+
+    for (const category of existing as any[]) {
+      if (category.balanceUid) {
+        byBalanceUid.set(String(category.balanceUid).toLowerCase(), category);
+      }
+      byParentAndName.set(nameKey(category.parentId, category.name), category);
+    }
+
+    let created = 0;
+    let updated = 0;
+    const errors: string[] = [];
+
+    for (const row of sortedGroups) {
+      const balanceUid = getItemUuid(row);
+      if (!balanceUid) continue;
+      const parentBalanceUid = this.balanceGroupParentUid(row);
+      const parentCategory =
+        parentBalanceUid && parentBalanceUid !== NULL_BALANCE_UID
+          ? byBalanceUid.get(parentBalanceUid.toLowerCase())
+          : undefined;
+      const parentId = parentCategory?._id ?? null;
+      const name = this.balanceGroupName(row);
+      const payload = {
+        name,
+        parentId,
+        balanceUid,
+        balanceParentUid:
+          parentBalanceUid && parentBalanceUid !== NULL_BALANCE_UID
+            ? parentBalanceUid
+            : undefined,
+        active: true,
+        sortOrder: Number(row.Code ?? row.SortOrder ?? 0) || 0,
+      };
+      const existingCategory =
+        byBalanceUid.get(balanceUid.toLowerCase()) ??
+        byParentAndName.get(nameKey(parentId, name));
+
+      try {
+        if (existingCategory?._id) {
+          const doc = await this.categoryModel
+            .findByIdAndUpdate(existingCategory._id, payload, { new: true })
+            .lean()
+            .exec();
+          if (doc) {
+            byBalanceUid.set(balanceUid.toLowerCase(), doc);
+            byParentAndName.set(
+              nameKey((doc as any).parentId, (doc as any).name),
+              doc,
+            );
+          }
+          updated++;
+        } else {
+          const doc = await this.categoryModel.create(payload);
+          const plain = doc.toObject();
+          byBalanceUid.set(balanceUid.toLowerCase(), plain);
+          byParentAndName.set(nameKey(plain.parentId, plain.name), plain);
+          created++;
+        }
+      } catch (e) {
+        errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    return {
+      created,
+      updated,
+      total: groups.length,
+      errors: errors.length ? errors : undefined,
+    };
+  }
 
   isSyncEnabled(): boolean {
     const flag = this.config.get<string>('BALANCE_SYNC_ENABLED')?.trim();
@@ -91,6 +239,10 @@ export class BalanceProductsSyncService {
       }
 
       const items = getBalanceItems(balanceData);
+      const categoriesSync = await this.syncBalanceCategories(items);
+      this.logger.log(
+        `[sync] Balance categories: created=${categoriesSync.created} updated=${categoriesSync.updated} total=${categoriesSync.total}`,
+      );
       const leafUuids = [
         ...new Set(
           items
@@ -223,7 +375,13 @@ export class BalanceProductsSyncService {
       }
 
       if (withSku.length === 0) {
-        return { ok: true, created: 0, updated: 0, total: 0 };
+        return {
+          ok: true,
+          created: 0,
+          updated: 0,
+          total: 0,
+          categories: categoriesSync,
+        };
       }
 
       const existingList = await this.productModel
@@ -305,6 +463,7 @@ export class BalanceProductsSyncService {
         created,
         updated,
         total: withSku.length,
+        categories: categoriesSync,
         errors: errors.length ? errors : undefined,
         itemsSeriesBulkUsed: bulkGrouped.size > 0,
         itemsSeriesBulkLineCount:

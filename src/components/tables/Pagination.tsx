@@ -9,9 +9,14 @@ const Pagination: React.FC<PaginationProps> = ({
   totalPages,
   onPageChange,
 }) => {
+  const visiblePageCount = Math.min(3, totalPages);
+  const startPage = Math.min(
+    Math.max(currentPage - 1, 1),
+    Math.max(totalPages - visiblePageCount + 1, 1)
+  );
   const pagesAroundCurrent = Array.from(
-    { length: Math.min(3, totalPages) },
-    (_, i) => i + Math.max(currentPage - 1, 1)
+    { length: visiblePageCount },
+    (_, i) => i + startPage
   );
 
   return (

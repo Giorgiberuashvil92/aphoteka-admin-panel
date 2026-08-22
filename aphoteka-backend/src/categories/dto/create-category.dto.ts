@@ -14,6 +14,14 @@ export class CreateCategoryDto {
 
   @IsOptional()
   @IsString()
+  balanceUid?: string;
+
+  @IsOptional()
+  @IsString()
+  balanceParentUid?: string;
+
+  @IsOptional()
+  @IsString()
   color?: string;
 
   @IsOptional()
