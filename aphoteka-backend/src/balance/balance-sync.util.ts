@@ -571,6 +571,21 @@ export function resolveBalanceCategoryForItem(
   return parts.join(' / ');
 }
 
+function splitBalanceCategoryPath(category?: string): {
+  mainCategory?: string;
+  subcategory?: string;
+} {
+  const parts = (category ?? '')
+    .split('/')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return {};
+  return {
+    mainCategory: parts[0],
+    subcategory: parts.length > 1 ? parts[parts.length - 1] : undefined,
+  };
+}
+
 export function mapBalanceItemToProduct(
   item: Record<string, unknown>,
   index: number,
@@ -591,6 +606,9 @@ export function mapBalanceItemToProduct(
   const quantity = getNum(item, 'Quantity', 'quantity', 'Qty', 'Amount');
   const totalPrice =
     getNum(item, 'TotalPrice', 'totalPrice', 'Sum') || price * (quantity || 0);
+  const balanceCategory = resolveBalanceCategoryForItem(item, allItems);
+  const { mainCategory, subcategory } =
+    splitBalanceCategoryPath(balanceCategory);
 
   return {
     name,
@@ -615,7 +633,9 @@ export function mapBalanceItemToProduct(
     manufacturer: getStr(item, 'Manufacturer', 'manufacturer') || undefined,
     countryOfOrigin:
       getStr(item, 'CountryOfOrigin', 'countryOfOrigin') || undefined,
-    category: resolveBalanceCategoryForItem(item, allItems) || undefined,
+    mainCategory,
+    category: balanceCategory || undefined,
+    subcategory,
     packagingType: getStr(item, 'PackagingType', 'packagingType') || undefined,
     taxation:
       vatRateRawFromBalanceItemRow(item) ??
