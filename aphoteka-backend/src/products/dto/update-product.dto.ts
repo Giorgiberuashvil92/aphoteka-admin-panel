@@ -124,6 +124,10 @@ export class UpdateProductDto {
 
   @IsString()
   @IsOptional()
+  balanceCategoryUid?: string;
+
+  @IsString()
+  @IsOptional()
   balanceInventoriesAccount?: string;
 
   @IsString()

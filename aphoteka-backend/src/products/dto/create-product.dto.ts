@@ -120,6 +120,10 @@ export class CreateProductDto {
 
   @IsString()
   @IsOptional()
+  balanceCategoryUid?: string;
+
+  @IsString()
+  @IsOptional()
   balanceInventoriesAccount?: string;
 
   @IsString()

@@ -198,6 +198,10 @@ export class Product {
   @Prop()
   balanceNomenclatureItemUid?: string;
 
+  /** Balance Exchange Items ჯგუფის `uid` — კატეგორიის/group discount-ებისთვის */
+  @Prop()
+  balanceCategoryUid?: string;
+
   @Prop()
   balanceInventoriesAccount?: string;
 

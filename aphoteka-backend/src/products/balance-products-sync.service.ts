@@ -329,7 +329,7 @@ export class BalanceProductsSyncService {
         const discountsRaw =
           await this.balanceExchange.fetchBalanceDiscountsForSync();
         if (discountsRaw != null) {
-          const maps = buildDiscountMapsFromBalanceApi(discountsRaw);
+          const maps = buildDiscountMapsFromBalanceApi(discountsRaw, items);
           discountByItemUid = maps.byItemUid;
           discountUnconditional = maps.unconditional;
         }

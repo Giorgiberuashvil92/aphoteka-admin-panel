@@ -369,15 +369,20 @@ function mergeDiscountPreferHigherPercent(
  */
 export function buildDiscountMapsFromBalanceApi(
   data: unknown,
+  catalogRows?: Record<string, unknown>[],
 ): BalanceDiscountMaps {
-  return buildDiscountMapsFromBalanceDiscountRows(getBalanceItems(data));
+  return buildDiscountMapsFromBalanceDiscountRows(getBalanceItems(data), catalogRows);
 }
 
 export function buildDiscountMapsFromBalanceDiscountRows(
   discountRows: Record<string, unknown>[],
+  catalogRows?: Record<string, unknown>[],
 ): BalanceDiscountMaps {
   const byItemUid = new Map<string, BalanceDiscountForItem>();
   let unconditional: BalanceDiscountForItem | undefined;
+  const groupItemUids = catalogRows
+    ? buildLeafItemUidsByGroupUid(catalogRows)
+    : new Map<string, string[]>();
 
   const setItemDisc = (itemUid: string, entry: BalanceDiscountForItem) => {
     const key = itemUid.trim().toLowerCase();
@@ -402,7 +407,12 @@ export function buildDiscountMapsFromBalanceDiscountRows(
         const rec = el as Record<string, unknown>;
         const itemUid = getStr(rec, 'Item', 'item');
         if (!itemUid || !/^[0-9a-f-]{36}$/i.test(itemUid)) continue;
-        setItemDisc(itemUid, { ...entry });
+        const leafUids = groupItemUids.get(itemUid.trim().toLowerCase());
+        if (leafUids?.length) {
+          for (const leafUid of leafUids) setItemDisc(leafUid, { ...entry });
+        } else {
+          setItemDisc(itemUid, { ...entry });
+        }
       }
       continue;
     }
@@ -429,6 +439,37 @@ export function buildDiscountMapsFromBalanceDiscountRows(
   }
 
   return { byItemUid, unconditional };
+}
+
+function buildLeafItemUidsByGroupUid(
+  rows: Record<string, unknown>[],
+): Map<string, string[]> {
+  const byUid = new Map<string, Record<string, unknown>>();
+  const out = new Map<string, string[]>();
+  for (const row of rows) {
+    const uid = getItemUuid(row);
+    if (uid) byUid.set(uid.toLowerCase(), row);
+  }
+
+  for (const row of rows) {
+    if (isBalanceGroupRow(row)) continue;
+    const leafUid = getItemUuid(row);
+    if (!leafUid) continue;
+    let groupUid = getStr(row, 'Group', 'group', 'GroupRef');
+    const seen = new Set<string>();
+    for (let depth = 0; depth < 50; depth++) {
+      if (!groupUid || groupUid === NULL_GROUP_UID) break;
+      const key = groupUid.toLowerCase();
+      if (seen.has(key)) break;
+      seen.add(key);
+      const list = out.get(key) ?? [];
+      list.push(leafUid);
+      out.set(key, list);
+      const groupRow = byUid.get(key);
+      groupUid = groupRow ? getStr(groupRow, 'Group', 'group', 'GroupRef') : '';
+    }
+  }
+  return out;
 }
 
 /**
@@ -623,6 +664,7 @@ export function mapBalanceItemToProduct(
   const quantity = getNum(item, 'Quantity', 'quantity', 'Qty', 'Amount');
   const totalPrice =
     getNum(item, 'TotalPrice', 'totalPrice', 'Sum') || price * (quantity || 0);
+  const balanceCategoryUid = getStr(item, 'Group', 'group', 'GroupRef');
   const balanceCategory = resolveBalanceCategoryForItem(item, allItems);
   const { mainCategory, subcategory } =
     splitBalanceCategoryPath(balanceCategory);
@@ -653,6 +695,10 @@ export function mapBalanceItemToProduct(
     mainCategory,
     category: balanceCategory || undefined,
     subcategory,
+    balanceCategoryUid:
+      balanceCategoryUid && balanceCategoryUid !== NULL_GROUP_UID
+        ? balanceCategoryUid
+        : undefined,
     packagingType: getStr(item, 'PackagingType', 'packagingType') || undefined,
     taxation:
       vatRateRawFromBalanceItemRow(item) ??

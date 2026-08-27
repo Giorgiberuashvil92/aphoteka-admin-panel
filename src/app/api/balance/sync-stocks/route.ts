@@ -269,7 +269,7 @@ export async function POST(request: NextRequest) {
     let discountUnconditional: BalanceDiscountForItem | undefined;
     try {
       const discountsRaw = await fetchBalanceDiscounts();
-      const maps = buildDiscountMapsFromBalanceApi(discountsRaw);
+      const maps = buildDiscountMapsFromBalanceApi(discountsRaw, items);
       discountByItemUid = maps.byItemUid;
       discountUnconditional = maps.unconditional;
     } catch {
