@@ -431,8 +431,19 @@ export class BalanceProductsSyncService {
 
         try {
           if (id) {
+            const unset: Record<string, 1> = {};
+            if (payload.balanceDiscountPercent !== undefined) {
+              unset.balanceDiscountAmount = 1;
+            }
+            if (payload.balanceDiscountAmount !== undefined) {
+              unset.balanceDiscountPercent = 1;
+            }
+            const update =
+              Object.keys(unset).length > 0
+                ? { $set: payload as UpdateProductDto, $unset: unset }
+                : (payload as UpdateProductDto);
             await this.productModel
-              .findByIdAndUpdate(id, payload as UpdateProductDto)
+              .findByIdAndUpdate(id, update)
               .exec();
             updated++;
           } else {
@@ -497,10 +508,16 @@ export class BalanceProductsSyncService {
       ...(disc
         ? {
             ...(disc.balanceDiscountPercent != null
-              ? { balanceDiscountPercent: disc.balanceDiscountPercent }
+              ? {
+                  balanceDiscountPercent: disc.balanceDiscountPercent,
+                  balanceDiscountAmount: undefined,
+                }
               : {}),
             ...(disc.balanceDiscountAmount != null
-              ? { balanceDiscountAmount: disc.balanceDiscountAmount }
+              ? {
+                  balanceDiscountAmount: disc.balanceDiscountAmount,
+                  balanceDiscountPercent: undefined,
+                }
               : {}),
             ...(disc.balanceDiscountName
               ? { balanceDiscountName: disc.balanceDiscountName }

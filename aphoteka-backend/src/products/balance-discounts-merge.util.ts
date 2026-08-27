@@ -285,18 +285,12 @@ function buildDiscountMapsFromBalanceDiscountRows(
   return { byItemUid, unconditional };
 }
 
-/**
- * Mongo ობიექტებს (toObject) უმატებს balanceDiscount* ველებს, თუ ცარიელია და Balance წესი ემთხვევა.
- */
+/** Mongo ობიექტებს (toObject) უმატებს/უახლებს აქტიურ Balance Discounts ველებს. */
 export function enrichProductsWithBalanceDiscounts(
   products: Record<string, unknown>[],
   maps: BalanceDiscountMaps,
 ): void {
   for (const p of products) {
-    const hasPct = Number(p.balanceDiscountPercent) > 0;
-    const hasAmt = Number(p.balanceDiscountAmount) > 0;
-    if (hasPct || hasAmt) continue;
-
     const uidRaw = String(p.balanceNomenclatureItemUid ?? '').trim();
     const uid = uidRaw.toLowerCase();
     let disc: BalanceDiscountForItem | undefined =
@@ -308,9 +302,11 @@ export function enrichProductsWithBalanceDiscounts(
 
     if (disc.balanceDiscountPercent != null) {
       p.balanceDiscountPercent = disc.balanceDiscountPercent;
+      delete p.balanceDiscountAmount;
     }
     if (disc.balanceDiscountAmount != null) {
       p.balanceDiscountAmount = disc.balanceDiscountAmount;
+      delete p.balanceDiscountPercent;
     }
     if (disc.balanceDiscountName) {
       p.balanceDiscountName = disc.balanceDiscountName;
