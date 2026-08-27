@@ -411,7 +411,9 @@ function CategoriesPageContent() {
                   ) : null}
                   <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
                     <span>{cat.productCount} პროდუქტი</span>
-                    <span>სორტი: {cat.sortOrder}</span>
+                    <span>
+                      {cat.subcategoryCount ? `${cat.subcategoryCount} ქვეკატ.` : `სორტი: ${cat.sortOrder}`}
+                    </span>
                   </div>
                   <div
                     className="flex items-center justify-end gap-1 border-t border-gray-100 pt-2 dark:border-gray-700"

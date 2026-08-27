@@ -13,6 +13,7 @@ export interface AdminCategory {
   active: boolean;
   sortOrder: number;
   productCount: number;
+  subcategoryCount?: number;
 }
 
 export interface CreateCategoryPayload {

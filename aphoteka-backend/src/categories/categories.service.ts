@@ -121,6 +121,7 @@ export class CategoriesService {
       active: boolean;
       sortOrder: number;
       productCount: number;
+      subcategoryCount: number;
     }[]
   > {
     const filter: Record<string, unknown> = {};
@@ -149,9 +150,21 @@ export class CategoriesService {
               c.name,
             )
           : await this.productsService.countByMainCategoryName(c.name);
+        const categoryId = c._id?.toString() ?? c.id;
+        const categoryOid = Types.ObjectId.isValid(categoryId)
+          ? new Types.ObjectId(categoryId)
+          : null;
+        const subcategoryCount = categoryOid
+          ? await this.categoryModel
+              .countDocuments({
+                active: true,
+                $or: [{ parentId: categoryOid }, { parentId: categoryId }],
+              })
+              .exec()
+          : 0;
 
         return {
-          id: c._id?.toString() ?? c.id,
+          id: categoryId,
           name: c.name,
           description: c.description,
           parentId: c.parentId?.toString?.() ?? c.parentId,
@@ -163,6 +176,7 @@ export class CategoriesService {
           active: c.active ?? true,
           sortOrder: c.sortOrder ?? 0,
           productCount,
+          subcategoryCount,
         };
       }),
     );
