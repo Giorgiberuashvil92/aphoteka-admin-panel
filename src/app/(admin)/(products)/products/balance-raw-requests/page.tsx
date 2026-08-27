@@ -54,7 +54,7 @@ const BALANCE_REQUESTS: BalanceRequestDefinition[] = [
     key: "exchange-stocks",
     title: "Exchange/Stocks",
     description: "რაოდენობები საწყობების/სერიების მიხედვით, დაჯამებამდე.",
-    proxyEndpoint: "/api/balance/exchange-stocks?docTemplate=1",
+    proxyEndpoint: "/api/balance/exchange-stocks",
   },
   {
     key: "discounts",
