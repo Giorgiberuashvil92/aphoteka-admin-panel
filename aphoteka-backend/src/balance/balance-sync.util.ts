@@ -264,6 +264,19 @@ function balanceDiscountRuleIsActiveFlag(
   return v === 'true' || v === '1' || v === 'yes';
 }
 
+function balanceDiscountCondition(row: Record<string, unknown>): string {
+  return getStr(row, 'DiscountCondition', 'discountCondition')
+    .trim()
+    .toLowerCase();
+}
+
+function balanceDiscountAppliesUnconditionally(
+  row: Record<string, unknown>,
+): boolean {
+  const condition = balanceDiscountCondition(row);
+  return !condition || condition === 'უპირობოდ';
+}
+
 function percentFromDiscountRuleRow(
   row: Record<string, unknown>,
 ): number | undefined {
@@ -394,7 +407,11 @@ export function buildDiscountMapsFromBalanceDiscountRows(
       continue;
     }
 
-    if (Array.isArray(itemsRaw) && itemsRaw.length === 0) {
+    if (
+      Array.isArray(itemsRaw) &&
+      itemsRaw.length === 0 &&
+      balanceDiscountAppliesUnconditionally(row)
+    ) {
       if (entry) {
         const pu = entry.balanceDiscountPercent ?? 0;
         const uu = unconditional?.balanceDiscountPercent ?? 0;

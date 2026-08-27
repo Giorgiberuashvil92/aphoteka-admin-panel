@@ -419,10 +419,16 @@ export async function POST(request: NextRequest) {
         ...(disc
           ? {
               ...(disc.balanceDiscountPercent != null
-                ? { balanceDiscountPercent: disc.balanceDiscountPercent }
+                ? {
+                    balanceDiscountPercent: disc.balanceDiscountPercent,
+                    balanceDiscountAmount: 0,
+                  }
                 : {}),
               ...(disc.balanceDiscountAmount != null
-                ? { balanceDiscountAmount: disc.balanceDiscountAmount }
+                ? {
+                    balanceDiscountAmount: disc.balanceDiscountAmount,
+                    balanceDiscountPercent: 0,
+                  }
                 : {}),
               ...(disc.balanceDiscountName
                 ? { balanceDiscountName: disc.balanceDiscountName }
