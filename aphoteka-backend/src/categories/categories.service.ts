@@ -129,7 +129,12 @@ export class CategoriesService {
     if (rootOnly) {
       Object.assign(filter, this.rootFilter());
     } else if (parentId) {
-      filter.parentId = new Types.ObjectId(parentId);
+      const parentOid = Types.ObjectId.isValid(parentId)
+        ? new Types.ObjectId(parentId)
+        : null;
+      filter.$or = parentOid
+        ? [{ parentId: parentOid }, { parentId }]
+        : [{ parentId }];
     }
 
     const list = await this.categoryModel
