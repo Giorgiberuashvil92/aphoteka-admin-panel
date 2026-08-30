@@ -36,7 +36,7 @@ export interface CreateHomeSectionDto {
 
 export interface UpdateHomeSectionDto {
   title?: string;
-  type?: string; // Can be built-in or custom type
+  type?: string;
   categoryFilter?: string;
   searchQuery?: string;
   order?: number;
