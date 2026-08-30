@@ -52,6 +52,7 @@ export interface User {
   phoneNumber: string;
   email?: string;
   fullName?: string;
+  personalNumber?: string;
   warehouseId?: string; // თუ თანამშრომელია საწყობში
   warehouse?: Warehouse; // Populated warehouse data
   status: "active" | "inactive" | "suspended";

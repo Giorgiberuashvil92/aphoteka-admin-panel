@@ -25,6 +25,10 @@ export class CreateUserDto {
   @IsOptional()
   fullName?: string;
 
+  @IsString()
+  @IsOptional()
+  personalNumber?: string;
+
   @IsMongoId()
   @IsOptional()
   warehouseId?: string;

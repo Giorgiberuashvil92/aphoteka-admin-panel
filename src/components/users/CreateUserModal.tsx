@@ -71,6 +71,7 @@ export default function CreateUserModal({
     phoneNumber: "",
     email: "",
     fullName: "",
+    personalNumber: "",
     warehouseId: "",
     status: "active" as "active" | "inactive" | "suspended",
     permissions: [] as UserPermission[],
@@ -96,6 +97,7 @@ export default function CreateUserModal({
           phoneNumber: user.phoneNumber || "",
           email: user.email || "",
           fullName: user.fullName || "",
+          personalNumber: user.personalNumber || "",
           warehouseId:
             warehouseIdAsString(user.warehouseId) ||
             warehouseIdAsString(user.warehouse),
@@ -111,6 +113,7 @@ export default function CreateUserModal({
           phoneNumber: "",
           email: "",
           fullName: "",
+          personalNumber: "",
           warehouseId: "",
           status: "active",
           permissions: [],
@@ -160,8 +163,15 @@ export default function CreateUserModal({
         userData.email = formData.email;
       }
 
-      if (formData.fullName) {
-        userData.fullName = formData.fullName;
+      const fullName = formData.fullName.trim();
+      const personalNumber = formData.personalNumber.trim();
+
+      if (fullName) {
+        userData.fullName = fullName;
+      }
+
+      if (personalNumber || isEditMode) {
+        userData.personalNumber = personalNumber;
       }
 
       if (warehouseIdNormalized) {
@@ -272,6 +282,21 @@ export default function CreateUserModal({
             value={formData.fullName}
             onChange={(e) =>
               setFormData({ ...formData, fullName: e.target.value })
+            }
+            className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+          />
+        </div>
+
+        {/* Personal Number */}
+        <div>
+          <Label>პირადობის ნომერი</Label>
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="01012345678"
+            value={formData.personalNumber}
+            onChange={(e) =>
+              setFormData({ ...formData, personalNumber: e.target.value })
             }
             className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white"
           />

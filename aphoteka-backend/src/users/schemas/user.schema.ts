@@ -69,6 +69,9 @@ export class User {
   @Prop()
   fullName?: string;
 
+  @Prop()
+  personalNumber?: string;
+
   @Prop({ type: Types.ObjectId, ref: 'Warehouse' })
   warehouseId?: Types.ObjectId;
 

@@ -69,6 +69,7 @@ export default function UsersPage() {
     const matchesSearch =
       user.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.phoneNumber.includes(searchTerm) ||
+      user.personalNumber?.includes(searchTerm) ||
       user.email?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesRole = filterRole === "all" || user.role === filterRole;
     const matchesStatus = filterStatus === "all" || user.status === filterStatus;
@@ -120,7 +121,7 @@ export default function UsersPage() {
         <div className="flex flex-1 flex-col gap-4 sm:flex-row">
           <input
             type="text"
-            placeholder="ძიება სახელით, ტელეფონით ან ელფოსტით..."
+            placeholder="ძიება სახელით, ტელეფონით, პირადობის ნომრით ან ელფოსტით..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white"
@@ -172,6 +173,9 @@ export default function UsersPage() {
                   ტელეფონი
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                  პირადობის ნომერი
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
                   ელფოსტა
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
@@ -191,13 +195,13 @@ export default function UsersPage() {
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={8} className="px-6 py-8 text-center text-sm text-gray-500">
                     იტვირთება...
                   </td>
                 </tr>
               ) : filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={8} className="px-6 py-8 text-center text-sm text-gray-500">
                     მომხმარებლები არ მოიძებნა
                   </td>
                 </tr>
@@ -214,6 +218,9 @@ export default function UsersPage() {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
                       {user.phoneNumber}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                      {user.personalNumber || "-"}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
                       {user.email || "-"}
