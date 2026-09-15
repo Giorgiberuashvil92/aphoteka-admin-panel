@@ -7,7 +7,7 @@ import type { Product } from "@/types";
 
 type CatalogMode = "common" | "pharmacist-source" | "pharmacist-stock" | "accountant" | "discounts";
 
-type Cell = string | number | boolean | null | undefined;
+type Cell = string | number | boolean | Date | null | undefined;
 
 function recordValue(product: Product, ...keys: string[]): Cell {
   const row = product as Product & Record<string, unknown>;
