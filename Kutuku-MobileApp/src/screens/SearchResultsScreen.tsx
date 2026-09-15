@@ -358,6 +358,12 @@ export function SearchResultsScreen({
                 currentPrice={item.price}
                 originalPrice={item.oldPrice}
                 discount={item.discountPercentage}
+                conditionalDiscountPercentage={item.conditionalDiscountPercentage}
+                conditionalDiscountAmount={item.conditionalDiscountAmount}
+                conditionalDiscountMinOrderAmount={item.conditionalDiscountMinOrderAmount}
+                conditionalDiscountCondition={item.conditionalDiscountCondition}
+                conditionalDiscountSchedule={item.conditionalDiscountSchedule}
+                conditionalDiscountComments={item.conditionalDiscountComments}
                 image={item.thumbnail}
                 rating={item.rating}
                 reviewCount={item.reviewCount}

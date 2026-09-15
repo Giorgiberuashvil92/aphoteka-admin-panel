@@ -91,7 +91,7 @@ export class InventoryService {
 
   async receive(receiveDto: ReceiveInventoryDto) {
     console.log('Receive DTO:', JSON.stringify(receiveDto, null, 2));
-    
+
     // Validate that warehouseId is provided (required in schema)
     if (!receiveDto.warehouseId) {
       throw new NotFoundException('warehouseId is required');

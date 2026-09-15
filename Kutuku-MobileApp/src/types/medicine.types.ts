@@ -40,6 +40,12 @@ export interface Medicine {
   oldPrice?: number; // Original price before discount
   discountPrice?: number;
   discountPercentage?: number;
+  conditionalDiscountPercentage?: number;
+  conditionalDiscountAmount?: number;
+  conditionalDiscountMinOrderAmount?: number;
+  conditionalDiscountCondition?: string;
+  conditionalDiscountSchedule?: string;
+  conditionalDiscountComments?: string;
   thumbnail: string;
   images: string[];
   description: string;

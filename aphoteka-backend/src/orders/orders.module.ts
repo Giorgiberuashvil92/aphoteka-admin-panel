@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module';
 import { BogModule } from '../bog/bog.module';
 import { WarehousesModule } from '../warehouses/warehouses.module';
 import { QuickshipperModule } from '../quickshipper/quickshipper.module';
+import { BuyersModule } from '../buyers/buyers.module';
 import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
 import { Order, OrderSchema } from './schemas/order.schema';
@@ -19,6 +20,7 @@ import { Product, ProductSchema } from '../products/schemas/product.schema';
     BogModule,
     WarehousesModule,
     QuickshipperModule,
+    BuyersModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService],

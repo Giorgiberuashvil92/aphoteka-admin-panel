@@ -8,6 +8,12 @@ export interface CartItem {
   price: number;
   originalPrice?: number;
   discount?: number;
+  conditionalDiscountPercentage?: number;
+  conditionalDiscountAmount?: number;
+  conditionalDiscountMinOrderAmount?: number;
+  conditionalDiscountCondition?: string;
+  conditionalDiscountSchedule?: string;
+  conditionalDiscountComments?: string;
   quantity: number;
   image: string;
   // Medicine specific fields

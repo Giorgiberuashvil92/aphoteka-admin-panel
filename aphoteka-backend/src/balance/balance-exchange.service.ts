@@ -807,10 +807,7 @@ export class BalanceExchangeService {
       return null;
     }
     const controller = new AbortController();
-    const t = setTimeout(
-      () => controller.abort(),
-      this.balanceHttpTimeoutMs(),
-    );
+    const t = setTimeout(() => controller.abort(), this.balanceHttpTimeoutMs());
     try {
       const res = await fetch(url, {
         method: 'GET',
@@ -866,9 +863,7 @@ export class BalanceExchangeService {
     return this.fetchExchangeJson(u.toString());
   }
 
-  async fetchBalancePricesByUuidForSync(
-    uuid: string,
-  ): Promise<unknown | null> {
+  async fetchBalancePricesByUuidForSync(uuid: string): Promise<unknown | null> {
     const base =
       this.env('BALANCE_PRICES_URL') || this.buildExchangeUrl('Prices', 'a');
     const u = new URL(base);

@@ -284,6 +284,39 @@ export async function GET(request: NextRequest) {
               ...(discount.balanceDiscountUid
                 ? { balanceDiscountUid: discount.balanceDiscountUid }
                 : {}),
+              ...(discount.balanceDiscountRulePercent != null
+                ? { balanceDiscountRulePercent: discount.balanceDiscountRulePercent }
+                : {}),
+              ...(discount.balanceDiscountRuleAmount != null
+                ? { balanceDiscountRuleAmount: discount.balanceDiscountRuleAmount }
+                : {}),
+              ...(discount.balanceDiscountCondition
+                ? { balanceDiscountCondition: discount.balanceDiscountCondition }
+                : {}),
+              ...(discount.balanceDiscountStartDate
+                ? { balanceDiscountStartDate: discount.balanceDiscountStartDate }
+                : {}),
+              ...(discount.balanceDiscountEndDate
+                ? { balanceDiscountEndDate: discount.balanceDiscountEndDate }
+                : {}),
+              ...(discount.balanceDiscountSchedule
+                ? { balanceDiscountSchedule: discount.balanceDiscountSchedule }
+                : {}),
+              ...(discount.balanceDiscountComments
+                ? { balanceDiscountComments: discount.balanceDiscountComments }
+                : {}),
+              ...(discount.balanceDiscountMinOrderAmount != null
+                ? { balanceDiscountMinOrderAmount: discount.balanceDiscountMinOrderAmount }
+                : {}),
+              ...(discount.balanceLoyaltyCardType
+                ? { balanceLoyaltyCardType: discount.balanceLoyaltyCardType }
+                : {}),
+              ...(discount.balancePointsAccrualMethod
+                ? { balancePointsAccrualMethod: discount.balancePointsAccrualMethod }
+                : {}),
+              ...(discount.balancePointsValue != null
+                ? { balancePointsValue: discount.balancePointsValue }
+                : {}),
             }
           : {}),
       };

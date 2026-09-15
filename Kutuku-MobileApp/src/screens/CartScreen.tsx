@@ -76,7 +76,19 @@ export function CartScreen({
   const subtotal = totalPrice;
   const shipping = 5.0;
   const discount = appliedPromo ? (subtotal * appliedPromo.discount / 100) : 0;
-  const total = subtotal
+  const conditionalDiscountTotal = cartItems.reduce((sum, item) => {
+    const min = item.conditionalDiscountMinOrderAmount ?? 0;
+    const qualifies = min <= 0 || subtotal > min;
+    if (!qualifies) return sum;
+    if ((item.conditionalDiscountPercentage ?? 0) > 0) {
+      return sum + item.price * item.quantity * (item.conditionalDiscountPercentage! / 100);
+    }
+    if ((item.conditionalDiscountAmount ?? 0) > 0) {
+      return sum + item.conditionalDiscountAmount! * item.quantity;
+    }
+    return sum;
+  }, 0);
+  const total = subtotal + shipping - discount - conditionalDiscountTotal;
 
   const isEmpty = cartItems.length === 0;
 
@@ -137,7 +149,19 @@ export function CartScreen({
 
             {/* Cart Items - Cards */}
             <View style={styles.cartItemsContainer}>
-              {cartItems.map((item) => (
+              {cartItems.map((item) => {
+                const conditionalPct = item.conditionalDiscountPercentage ?? 0;
+                const conditionalAmt = item.conditionalDiscountAmount ?? 0;
+                const minAmount = item.conditionalDiscountMinOrderAmount ?? 0;
+                const hasConditionalDiscount = conditionalPct > 0 || conditionalAmt > 0;
+                const qualifies = minAmount <= 0 || subtotal > minAmount;
+                const missingAmount = Math.max(minAmount - subtotal + 0.01, 0);
+                const conditionalLabel =
+                  conditionalPct > 0
+                    ? `პირადი -${conditionalPct}%`
+                    : `პირადი -${conditionalAmt.toFixed(2)}₾`;
+
+                return (
                 <View key={item.id} style={styles.cartItemCard}>
                   <Image
                     source={{ uri: item.image || 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=200' }}
@@ -149,6 +173,35 @@ export function CartScreen({
                     </Text>
                     {item.packageSize ? (
                       <Text style={styles.packageLabel}>შეფუთვა: {item.packageSize}</Text>
+                    ) : null}
+                    {hasConditionalDiscount ? (
+                      <View
+                        style={[
+                          styles.conditionalDiscountNotice,
+                          qualifies
+                            ? styles.conditionalDiscountActive
+                            : styles.conditionalDiscountPending,
+                        ]}
+                      >
+                        <Ionicons
+                          name={qualifies ? 'checkmark-circle-outline' : 'information-circle-outline'}
+                          size={15}
+                          color={qualifies ? theme.colors.success : '#92400e'}
+                        />
+                        <Text
+                          style={[
+                            styles.conditionalDiscountNoticeText,
+                            qualifies
+                              ? styles.conditionalDiscountNoticeTextActive
+                              : styles.conditionalDiscountNoticeTextPending,
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {qualifies
+                            ? `${conditionalLabel} გამოყენდება checkout-ზე`
+                            : `${conditionalLabel} ${minAmount.toFixed(2)}₾+ შეკვეთაზე · აკლია ${missingAmount.toFixed(2)}₾`}
+                        </Text>
+                      </View>
                     ) : null}
                     <View style={styles.priceQuantityRow}>
                       <Text style={styles.productPrice}>
@@ -184,7 +237,8 @@ export function CartScreen({
                     <Ionicons name="close-circle" size={24} color={theme.colors.gray[500]} />
                   </TouchableOpacity>
                 </View>
-              ))}
+                );
+              })}
             </View>
 
             {/* Promo card */}
@@ -237,6 +291,14 @@ export function CartScreen({
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>ფასდაკლება</Text>
                   <Text style={styles.summaryDiscountValue}>-{discount.toFixed(2)}₾</Text>
+                </View>
+              ) : null}
+              {conditionalDiscountTotal > 0 ? (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>პირადი ფასდაკლება</Text>
+                  <Text style={styles.summaryDiscountValue}>
+                    -{conditionalDiscountTotal.toFixed(2)}₾
+                  </Text>
                 </View>
               ) : null}
               <View style={styles.summaryDivider} />
@@ -418,6 +480,38 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: theme.colors.text.secondary,
     marginBottom: 8,
+  },
+  conditionalDiscountNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: theme.borderRadius.sm,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  conditionalDiscountActive: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#a7f3d0',
+  },
+  conditionalDiscountPending: {
+    backgroundColor: '#fffbeb',
+    borderColor: '#fde68a',
+  },
+  conditionalDiscountNoticeText: {
+    flexShrink: 1,
+    fontSize: 11,
+    fontWeight: '600',
+    lineHeight: 15,
+  },
+  conditionalDiscountNoticeTextActive: {
+    color: theme.colors.success,
+  },
+  conditionalDiscountNoticeTextPending: {
+    color: '#92400e',
   },
   priceQuantityRow: {
     flexDirection: 'row',

@@ -168,6 +168,17 @@ export type BalanceDiscountForItem = {
   balanceDiscountName?: string;
   balanceDiscountPercent?: number;
   balanceDiscountAmount?: number;
+  balanceDiscountRulePercent?: number;
+  balanceDiscountRuleAmount?: number;
+  balanceDiscountCondition?: string;
+  balanceDiscountStartDate?: string;
+  balanceDiscountEndDate?: string;
+  balanceDiscountSchedule?: string;
+  balanceDiscountComments?: string;
+  balanceDiscountMinOrderAmount?: number;
+  balanceLoyaltyCardType?: string;
+  balancePointsAccrualMethod?: string;
+  balancePointsValue?: number;
 };
 
 /** Balance Discounts API — ხშირად მასივი წესებისა `Items: [{ Item: guid }]`, `Percentage`, `Code` */
@@ -184,7 +195,7 @@ function getOptionalNum(
   for (const k of keys) {
     const v = item[k];
     if (v === null || v === undefined || v === '') continue;
-    const n = Number(v);
+    const n = Number(String(v).replace(/\s|\u00a0/g, '').replace(',', '.'));
     if (!Number.isNaN(n)) return n;
   }
   return undefined;
@@ -277,6 +288,30 @@ function balanceDiscountAppliesUnconditionally(
   return !condition || condition === 'უპირობოდ';
 }
 
+function scheduleTextFromDiscountRow(row: Record<string, unknown>): string {
+  const raw = row.Schedule ?? row.schedule ?? row.ScheduleDescription;
+  const rows = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  return rows
+    .map((value) => {
+      if (!value || typeof value !== 'object') return String(value);
+      const rec = value as Record<string, unknown>;
+      const weekDay = getStr(rec, 'WeekDay', 'weekDay');
+      const start = getStr(rec, 'StartPeriod', 'startPeriod');
+      const end = getStr(rec, 'EndPeriod', 'endPeriod');
+      const chosen = getStr(rec, 'IsChosen', 'isChosen').toLowerCase();
+      return [
+        weekDay || 'დღე',
+        start || end ? `${start || '00:00:00'}-${end || '23:59:59'}` : '',
+        chosen === 'yes' || chosen === 'true' || chosen === '1'
+          ? ''
+          : 'არ არის არჩეული',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+    })
+    .join('; ');
+}
+
 function percentFromDiscountRuleRow(
   row: Record<string, unknown>,
 ): number | undefined {
@@ -337,14 +372,62 @@ function discountEntryFromRuleRow(
   const entry: BalanceDiscountForItem = {};
   if (idForUid) entry.balanceDiscountUid = idForUid;
   if (name) entry.balanceDiscountName = name;
-  if (balanceDiscountPercent !== undefined)
+  if (balanceDiscountPercent !== undefined) {
+    entry.balanceDiscountRulePercent = balanceDiscountPercent;
     entry.balanceDiscountPercent = balanceDiscountPercent;
-  if (balanceDiscountAmount !== undefined)
+  }
+  if (balanceDiscountAmount !== undefined) {
+    entry.balanceDiscountRuleAmount = balanceDiscountAmount;
     entry.balanceDiscountAmount = balanceDiscountAmount;
+  }
+  const condition = getStr(row, 'DiscountCondition', 'discountCondition');
+  const startDate = getStr(row, 'StartDate', 'startDate');
+  const endDate = getStr(row, 'EndDate', 'endDate');
+  const schedule = scheduleTextFromDiscountRow(row);
+  const comments = getStr(row, 'Comments', 'comments', 'Comment', 'comment');
+  const minOrderAmount = getOptionalNum(
+    row,
+    'MinOrderAmount',
+    'MinimumOrderAmount',
+    'Amount',
+    'OrderAmount',
+    'OrderSum',
+    'SumFrom',
+    'MinAmount',
+    'MinimumAmount',
+    'Threshold',
+    'OrderVolume',
+    'OrderValue',
+    'შეკვეთის მოცულობა',
+    'შეკვეთის ჯამი',
+  );
+  const loyaltyCardType = getStr(row, 'LoyaltyCardType', 'loyaltyCardType');
+  const pointsAccrualMethod = getStr(
+    row,
+    'PointsAccrualMethod',
+    'pointsAccrualMethod',
+  );
+  const pointsValue = getOptionalNum(row, 'PointsValue', 'pointsValue');
+  if (condition) entry.balanceDiscountCondition = condition;
+  if (startDate) entry.balanceDiscountStartDate = startDate;
+  if (endDate) entry.balanceDiscountEndDate = endDate;
+  if (schedule) entry.balanceDiscountSchedule = schedule;
+  if (comments) entry.balanceDiscountComments = comments;
+  if (minOrderAmount !== undefined)
+    entry.balanceDiscountMinOrderAmount = minOrderAmount;
+  if (loyaltyCardType) entry.balanceLoyaltyCardType = loyaltyCardType;
+  if (pointsAccrualMethod)
+    entry.balancePointsAccrualMethod = pointsAccrualMethod;
+  if (pointsValue !== undefined) entry.balancePointsValue = pointsValue;
+
+  if (!balanceDiscountAppliesUnconditionally(row)) {
+    delete entry.balanceDiscountPercent;
+    delete entry.balanceDiscountAmount;
+  }
 
   if (
-    entry.balanceDiscountPercent === undefined &&
-    entry.balanceDiscountAmount === undefined &&
+    entry.balanceDiscountRulePercent === undefined &&
+    entry.balanceDiscountRuleAmount === undefined &&
     !entry.balanceDiscountName &&
     !entry.balanceDiscountUid
   ) {
@@ -357,8 +440,8 @@ function mergeDiscountPreferHigherPercent(
   a: BalanceDiscountForItem,
   b: BalanceDiscountForItem,
 ): BalanceDiscountForItem {
-  const pa = a.balanceDiscountPercent ?? 0;
-  const pb = b.balanceDiscountPercent ?? 0;
+  const pa = a.balanceDiscountRulePercent ?? a.balanceDiscountPercent ?? 0;
+  const pb = b.balanceDiscountRulePercent ?? b.balanceDiscountPercent ?? 0;
   if (pb > pa) return b;
   if (pa > pb) return a;
   return b;
@@ -371,7 +454,10 @@ export function buildDiscountMapsFromBalanceApi(
   data: unknown,
   catalogRows?: Record<string, unknown>[],
 ): BalanceDiscountMaps {
-  return buildDiscountMapsFromBalanceDiscountRows(getBalanceItems(data), catalogRows);
+  return buildDiscountMapsFromBalanceDiscountRows(
+    getBalanceItems(data),
+    catalogRows,
+  );
 }
 
 export function buildDiscountMapsFromBalanceDiscountRows(

@@ -46,21 +46,21 @@ export class Warehouse {
 export const WarehouseSchema = SchemaFactory.createForClass(Warehouse);
 
 // Transform _id to id for both JSON and Object responses
-WarehouseSchema.set('toJSON', { 
-  transform: (doc: any, ret: any) => { 
-    ret.id = ret._id?.toString(); 
-    delete ret._id; 
-    delete ret.__v; 
-    return ret; 
-  } 
+WarehouseSchema.set('toJSON', {
+  transform: (doc: any, ret: any) => {
+    ret.id = ret._id?.toString();
+    delete ret._id;
+    delete ret.__v;
+    return ret;
+  },
 });
-WarehouseSchema.set('toObject', { 
-  transform: (doc: any, ret: any) => { 
-    ret.id = ret._id?.toString(); 
-    delete ret._id; 
-    delete ret.__v; 
-    return ret; 
-  } 
+WarehouseSchema.set('toObject', {
+  transform: (doc: any, ret: any) => {
+    ret.id = ret._id?.toString();
+    delete ret._id;
+    delete ret.__v;
+    return ret;
+  },
 });
 
 @Schema({ timestamps: true })
@@ -88,22 +88,23 @@ export class WarehouseEmployee {
   endedAt?: Date;
 }
 
-export const WarehouseEmployeeSchema = SchemaFactory.createForClass(WarehouseEmployee);
+export const WarehouseEmployeeSchema =
+  SchemaFactory.createForClass(WarehouseEmployee);
 
 // Transform _id to id for both JSON and Object responses
-WarehouseEmployeeSchema.set('toJSON', { 
-  transform: (doc: any, ret: any) => { 
-    ret.id = ret._id?.toString(); 
-    delete ret._id; 
-    delete ret.__v; 
-    return ret; 
-  } 
+WarehouseEmployeeSchema.set('toJSON', {
+  transform: (doc: any, ret: any) => {
+    ret.id = ret._id?.toString();
+    delete ret._id;
+    delete ret.__v;
+    return ret;
+  },
 });
-WarehouseEmployeeSchema.set('toObject', { 
-  transform: (doc: any, ret: any) => { 
-    ret.id = ret._id?.toString(); 
-    delete ret._id; 
-    delete ret.__v; 
-    return ret; 
-  } 
+WarehouseEmployeeSchema.set('toObject', {
+  transform: (doc: any, ret: any) => {
+    ret.id = ret._id?.toString();
+    delete ret._id;
+    delete ret.__v;
+    return ret;
+  },
 });

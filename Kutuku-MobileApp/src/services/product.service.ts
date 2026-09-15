@@ -136,6 +136,24 @@ function mapApiProductToMedicine(p: any): Product {
     Number(p.balanceDiscountAmount) > 0
       ? Number(p.balanceDiscountAmount)
       : undefined;
+  const conditionalDiscountPercentage =
+    pct === undefined &&
+    Number.isFinite(Number(p?.balanceDiscountRulePercent)) &&
+    Number(p.balanceDiscountRulePercent) > 0
+      ? Math.round(Number(p.balanceDiscountRulePercent))
+      : undefined;
+  const conditionalDiscountAmount =
+    pct === undefined &&
+    amt === undefined &&
+    Number.isFinite(Number(p?.balanceDiscountRuleAmount)) &&
+    Number(p.balanceDiscountRuleAmount) > 0
+      ? Number(p.balanceDiscountRuleAmount)
+      : undefined;
+  const conditionalDiscountMinOrderAmount = Number.isFinite(
+    Number(p?.balanceDiscountMinOrderAmount),
+  )
+    ? Number(p.balanceDiscountMinOrderAmount)
+    : undefined;
 
   let displayPrice = listPrice;
   let oldPrice: number | undefined;
@@ -187,6 +205,21 @@ function mapApiProductToMedicine(p: any): Product {
     oldPrice,
     discountPrice,
     discountPercentage,
+    conditionalDiscountPercentage,
+    conditionalDiscountAmount,
+    conditionalDiscountMinOrderAmount,
+    conditionalDiscountCondition:
+      typeof p.balanceDiscountCondition === 'string'
+        ? p.balanceDiscountCondition
+        : undefined,
+    conditionalDiscountSchedule:
+      typeof p.balanceDiscountSchedule === 'string'
+        ? p.balanceDiscountSchedule
+        : undefined,
+    conditionalDiscountComments:
+      typeof p.balanceDiscountComments === 'string'
+        ? p.balanceDiscountComments
+        : undefined,
     thumbnail: p.imageUrl || 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=400',
     images: p.imageUrl ? [p.imageUrl] : [],
     description: p.description || '',

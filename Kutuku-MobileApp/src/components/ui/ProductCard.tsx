@@ -32,6 +32,12 @@ export interface ProductCardProps {
   currentPrice?: number | string;
   originalPrice?: number | string;
   discount?: number;
+  conditionalDiscountPercentage?: number;
+  conditionalDiscountAmount?: number;
+  conditionalDiscountMinOrderAmount?: number;
+  conditionalDiscountCondition?: string;
+  conditionalDiscountSchedule?: string;
+  conditionalDiscountComments?: string;
   image: ImageSourcePropType | string;
   onPress?: () => void;
   onAddToCart?: () => void;
@@ -55,6 +61,12 @@ export function ProductCard({
   currentPrice,
   originalPrice,
   discount,
+  conditionalDiscountPercentage,
+  conditionalDiscountAmount,
+  conditionalDiscountMinOrderAmount,
+  conditionalDiscountCondition,
+  conditionalDiscountSchedule,
+  conditionalDiscountComments,
   image,
   onPress,
   onAddToCart,
@@ -73,6 +85,16 @@ export function ProductCard({
   const { addToFavorites, removeFromFavorites, isFavorite } = useFavorites();
   const [showBottomSheet, setShowBottomSheet] = useState(false);
   const hasDiscount = Boolean(discount && discount > 0);
+  const conditionalDiscountLabel =
+    conditionalDiscountPercentage && conditionalDiscountPercentage > 0
+      ? `პირადი -${conditionalDiscountPercentage}%`
+      : conditionalDiscountAmount && conditionalDiscountAmount > 0
+        ? `პირადი -${formatLari(conditionalDiscountAmount)}₾`
+        : '';
+  const conditionalMinLabel =
+    conditionalDiscountMinOrderAmount && conditionalDiscountMinOrderAmount > 0
+      ? `${formatLari(conditionalDiscountMinOrderAmount)}₾+`
+      : '';
   const priceNum = coercePrice(currentPrice);
   const originalNum = coercePrice(originalPrice);
   const safePrice = Number.isFinite(priceNum) ? priceNum : 0;
@@ -109,6 +131,12 @@ export function ProductCard({
         price: safePrice,
         originalPrice: safeOriginalPrice,
         discount,
+        conditionalDiscountPercentage,
+        conditionalDiscountAmount,
+        conditionalDiscountMinOrderAmount,
+        conditionalDiscountCondition,
+        conditionalDiscountSchedule,
+        conditionalDiscountComments,
         image: typeof image === 'string' ? image : '',
       });
     }
@@ -147,6 +175,14 @@ export function ProductCard({
         {hasDiscount ? (
           <View style={[styles.discountBadge, isCatalog && styles.discountBadgeCatalog]}>
             <Text style={styles.discountText}>-{discount}%</Text>
+          </View>
+        ) : null}
+        {!hasDiscount && conditionalDiscountLabel ? (
+          <View style={[styles.conditionalDiscountBadge, isCatalog && styles.discountBadgeCatalog]}>
+            <Text style={styles.conditionalDiscountText}>
+              {conditionalDiscountLabel}
+              {conditionalMinLabel ? ` · ${conditionalMinLabel}` : ''}
+            </Text>
           </View>
         ) : null}
 
@@ -268,6 +304,12 @@ export function ProductCard({
                 price: safePrice,
                 originalPrice: safeOriginalPrice,
                 discount,
+                conditionalDiscountPercentage,
+                conditionalDiscountAmount,
+                conditionalDiscountMinOrderAmount,
+                conditionalDiscountCondition,
+                conditionalDiscountSchedule,
+                conditionalDiscountComments,
                 image: typeof image === 'string' ? image : '',
                 rating,
                 reviewCount,
@@ -318,6 +360,22 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.error,
   },
   discountText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: theme.colors.white,
+  },
+  conditionalDiscountBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    zIndex: 1,
+    maxWidth: '86%',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: theme.colors.success,
+  },
+  conditionalDiscountText: {
     fontSize: 9,
     fontWeight: '600',
     color: theme.colors.white,

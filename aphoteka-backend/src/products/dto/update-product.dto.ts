@@ -164,6 +164,54 @@ export class UpdateProductDto {
   @IsOptional()
   balanceDiscountUid?: string;
 
+  @Type(() => Number)
+  @IsNumber()
+  @IsOptional()
+  balanceDiscountRulePercent?: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @IsOptional()
+  balanceDiscountRuleAmount?: number;
+
+  @IsString()
+  @IsOptional()
+  balanceDiscountCondition?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceDiscountStartDate?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceDiscountEndDate?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceDiscountSchedule?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceDiscountComments?: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @IsOptional()
+  balanceDiscountMinOrderAmount?: number;
+
+  @IsString()
+  @IsOptional()
+  balanceLoyaltyCardType?: string;
+
+  @IsString()
+  @IsOptional()
+  balancePointsAccrualMethod?: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @IsOptional()
+  balancePointsValue?: number;
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

@@ -65,7 +65,8 @@ export class ProductsService {
     try {
       const discRaw = await this.balanceExchange.tryFetchExchangeDiscounts();
       if (discRaw != null) {
-        const maps = buildDiscountMapsFromBalanceApi(discRaw);
+        const catalogRows = await this.balanceExchange.fetchItemsCatalog();
+        const maps = buildDiscountMapsFromBalanceApi(discRaw, catalogRows);
         enrichProductsWithBalanceDiscounts(rows, maps);
       }
     } catch (e: unknown) {

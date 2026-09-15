@@ -162,6 +162,12 @@ export function ProductDetailScreen({
       price: product.price,
       originalPrice: product.oldPrice,
       discount: product.discountPercentage,
+      conditionalDiscountPercentage: product.conditionalDiscountPercentage,
+      conditionalDiscountAmount: product.conditionalDiscountAmount,
+      conditionalDiscountMinOrderAmount: product.conditionalDiscountMinOrderAmount,
+      conditionalDiscountCondition: product.conditionalDiscountCondition,
+      conditionalDiscountSchedule: product.conditionalDiscountSchedule,
+      conditionalDiscountComments: product.conditionalDiscountComments,
       image: product.imageUrl,
     }, quantity);
   };
@@ -234,6 +240,14 @@ export function ProductDetailScreen({
 
   const isInFavorites = isFavorite(product.id);
   const hasDiscount = product.discountPercentage && product.discountPercentage > 0;
+  const hasConditionalDiscount =
+    !hasDiscount &&
+    ((product.conditionalDiscountPercentage ?? 0) > 0 ||
+      (product.conditionalDiscountAmount ?? 0) > 0);
+  const conditionalDiscountText =
+    (product.conditionalDiscountPercentage ?? 0) > 0
+      ? `პირადი -${product.conditionalDiscountPercentage}%`
+      : `პირადი -${product.conditionalDiscountAmount?.toFixed(2)}₾`;
 
   const genericTitle = product.genericName?.trim() || '';
   const detailHeadline = genericTitle || product.name;
@@ -265,6 +279,16 @@ export function ProductDetailScreen({
           {hasDiscount && (
             <View style={styles.discountBadge}>
               <Text style={styles.discountText}>-{product.discountPercentage}%</Text>
+            </View>
+          )}
+          {hasConditionalDiscount && (
+            <View style={styles.conditionalDiscountBadge}>
+              <Text style={styles.discountText}>
+                {conditionalDiscountText}
+                {product.conditionalDiscountMinOrderAmount
+                  ? ` · ${product.conditionalDiscountMinOrderAmount.toFixed(2)}₾+`
+                  : ''}
+              </Text>
             </View>
           )}
           <Image
@@ -613,6 +637,17 @@ const styles = StyleSheet.create({
     left: 16,
     zIndex: 1,
     backgroundColor: theme.colors.error,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  conditionalDiscountBadge: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    zIndex: 1,
+    maxWidth: SCREEN_WIDTH - 32,
+    backgroundColor: theme.colors.success,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,

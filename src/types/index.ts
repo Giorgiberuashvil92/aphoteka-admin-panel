@@ -144,6 +144,17 @@ export interface Product {
   balanceDiscountAmount?: number;
   balanceDiscountName?: string;
   balanceDiscountUid?: string;
+  balanceDiscountRulePercent?: number;
+  balanceDiscountRuleAmount?: number;
+  balanceDiscountCondition?: string;
+  balanceDiscountStartDate?: string;
+  balanceDiscountEndDate?: string;
+  balanceDiscountSchedule?: string;
+  balanceDiscountComments?: string;
+  balanceDiscountMinOrderAmount?: number;
+  balanceLoyaltyCardType?: string;
+  balancePointsAccrualMethod?: string;
+  balancePointsValue?: number;
   /** Balance Items — Sale ხაზის AccountNumber / IncomeAccount / ExpensesAccount / VATPayableAccount */
   balanceInventoriesAccount?: string;
   balanceExpensesAccount?: string;

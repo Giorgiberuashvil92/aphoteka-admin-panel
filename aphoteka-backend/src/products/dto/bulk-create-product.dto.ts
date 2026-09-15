@@ -127,6 +127,50 @@ export class BulkCreateProductDto {
   @IsOptional()
   balanceDiscountUid?: string;
 
+  @IsNumber()
+  @IsOptional()
+  balanceDiscountRulePercent?: number;
+
+  @IsNumber()
+  @IsOptional()
+  balanceDiscountRuleAmount?: number;
+
+  @IsString()
+  @IsOptional()
+  balanceDiscountCondition?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceDiscountStartDate?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceDiscountEndDate?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceDiscountSchedule?: string;
+
+  @IsString()
+  @IsOptional()
+  balanceDiscountComments?: string;
+
+  @IsNumber()
+  @IsOptional()
+  balanceDiscountMinOrderAmount?: number;
+
+  @IsString()
+  @IsOptional()
+  balanceLoyaltyCardType?: string;
+
+  @IsString()
+  @IsOptional()
+  balancePointsAccrualMethod?: string;
+
+  @IsNumber()
+  @IsOptional()
+  balancePointsValue?: number;
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

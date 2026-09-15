@@ -44,6 +44,30 @@ function coerceUnitPrice(value: number | string | undefined | null): number {
   return Number.isFinite(n) ? n : NaN;
 }
 
+function conditionalDiscountUnitPrice(
+  item: {
+    price: number;
+    conditionalDiscountPercentage?: number;
+    conditionalDiscountAmount?: number;
+    conditionalDiscountMinOrderAmount?: number;
+  },
+  subtotal: number,
+): number {
+  const price = coerceUnitPrice(item.price);
+  if (!Number.isFinite(price) || price < 0) return price;
+  const min = item.conditionalDiscountMinOrderAmount ?? 0;
+  if (min > 0 && subtotal <= min) return price;
+  const pct = item.conditionalDiscountPercentage ?? 0;
+  if (pct > 0) {
+    return Math.max(0, Math.round(price * (1 - pct / 100) * 100) / 100);
+  }
+  const amount = item.conditionalDiscountAmount ?? 0;
+  if (amount > 0) {
+    return Math.max(0, Math.round((price - amount) * 100) / 100);
+  }
+  return price;
+}
+
 const BOG_ONLINE_PAYMENT_ID =
   BUILTIN_PAYMENT_METHODS.find((m) => m.id === 'bog_online')?.id ?? 'bog_online';
 
@@ -203,10 +227,16 @@ export function PaymentScreen({
   );
 
   const subtotal = totalPrice;
+  const conditionalDiscountTotal = cartItems.reduce((sum, item) => {
+    const effectiveUnit = conditionalDiscountUnitPrice(item, subtotal);
+    const baseUnit = coerceUnitPrice(item.price);
+    if (!Number.isFinite(effectiveUnit) || !Number.isFinite(baseUnit)) return sum;
+    return sum + Math.max(0, baseUnit - effectiveUnit) * item.quantity;
+  }, 0);
   const shipping = selectedDelivery
     ? selectedDelivery.selectedPrice.amount + selectedDelivery.provider.serviceFee
     : 5.0;
-  const total = subtotal + shipping;
+  const total = subtotal + shipping - conditionalDiscountTotal;
 
   useFocusEffect(
     useCallback(() => {
@@ -305,7 +335,7 @@ export function PaymentScreen({
           productId: String(item.id).trim(),
           productName: item.name,
           quantity: item.quantity,
-          unitPrice: coerceUnitPrice(item.price),
+          unitPrice: conditionalDiscountUnitPrice(item, subtotal),
           imageUrl: item.image?.trim() || undefined,
           packSize: item.packageSize,
         })),
@@ -435,7 +465,22 @@ export function PaymentScreen({
               <Text style={styles.countBadgeText}>{itemCount}</Text>
             </View>
           </View>
-          {cartItems.map((item, index) => (
+          {cartItems.map((item, index) => {
+            const baseUnit = coerceUnitPrice(item.price);
+            const discountedUnit = conditionalDiscountUnitPrice(item, subtotal);
+            const baseLine = Number.isFinite(baseUnit) ? baseUnit * item.quantity : 0;
+            const discountedLine = Number.isFinite(discountedUnit)
+              ? discountedUnit * item.quantity
+              : baseLine;
+            const hasConditionalDiscount = discountedLine < baseLine;
+            const conditionalLabel =
+              (item.conditionalDiscountPercentage ?? 0) > 0
+                ? `პირადი -${item.conditionalDiscountPercentage}%`
+                : (item.conditionalDiscountAmount ?? 0) > 0
+                  ? `პირადი -${item.conditionalDiscountAmount?.toFixed(2)}₾`
+                  : '';
+
+            return (
             <View key={item.id} style={[styles.productItem, index === 0 && styles.productItemFirst]}>
               <Image
                 source={{ uri: item.image || 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=200' }}
@@ -448,16 +493,29 @@ export function PaymentScreen({
                   <Text style={styles.packageLabel}>შეფუთვა: {item.packageSize}</Text>
                 ) : null}
                 <Text style={styles.productQuantity}>× {item.quantity}</Text>
+                {hasConditionalDiscount && conditionalLabel ? (
+                  <View style={styles.productDiscountBadge}>
+                    <Ionicons name="checkmark-circle-outline" size={13} color={theme.colors.success} />
+                    <Text style={styles.productDiscountBadgeText}>{conditionalLabel}</Text>
+                  </View>
+                ) : null}
               </View>
-              <Text style={styles.productPrice}>
-                {(() => {
-                  const u = coerceUnitPrice(item.price);
-                  const line = Number.isFinite(u) ? u * item.quantity : 0;
-                  return `${line.toFixed(2)}₾`;
-                })()}
-              </Text>
+              <View style={styles.productPriceBlock}>
+                {hasConditionalDiscount ? (
+                  <Text style={styles.productOldPrice}>{baseLine.toFixed(2)}₾</Text>
+                ) : null}
+                <Text
+                  style={[
+                    styles.productPrice,
+                    hasConditionalDiscount && styles.productDiscountedPrice,
+                  ]}
+                >
+                  {discountedLine.toFixed(2)}₾
+                </Text>
+              </View>
             </View>
-          ))}
+            );
+          })}
         </View>
 
         {/* Payment methods Card — ჩასმული მეთოდები (კონფიგი) + შენახული ბარათები */}
@@ -639,6 +697,14 @@ export function PaymentScreen({
             <Text style={styles.summaryLabel}>მიწოდება</Text>
             <Text style={styles.summaryValue}>{shipping.toFixed(2)}₾</Text>
           </View>
+          {conditionalDiscountTotal > 0 ? (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>პირადი ფასდაკლება</Text>
+              <Text style={styles.summaryDiscountValue}>
+                -{conditionalDiscountTotal.toFixed(2)}₾
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.divider} />
           <View style={styles.summaryRowTotal}>
             <Text style={styles.totalLabel}>სულ</Text>
@@ -879,10 +945,42 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: theme.colors.text.tertiary,
   },
+  productDiscountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    marginTop: 5,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: theme.borderRadius.sm,
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+  },
+  productDiscountBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.colors.success,
+  },
+  productPriceBlock: {
+    alignItems: 'flex-end',
+    minWidth: 82,
+  },
+  productOldPrice: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.text.tertiary,
+    textDecorationLine: 'line-through',
+    marginBottom: 2,
+  },
   productPrice: {
     fontSize: 16,
     fontWeight: '700',
     color: theme.colors.primary,
+  },
+  productDiscountedPrice: {
+    color: theme.colors.success,
   },
   paymentSectionHeader: {
     flexDirection: 'row',
@@ -1027,6 +1125,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: theme.colors.text.primary,
+  },
+  summaryDiscountValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.colors.success,
   },
   divider: {
     height: 1,

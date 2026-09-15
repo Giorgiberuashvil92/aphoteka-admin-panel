@@ -72,7 +72,6 @@ import {
 import ProductFormModal from "@/components/products/ProductFormModal";
 import Pagination from "@/components/tables/Pagination";
 import CategoryPathPicker, {
-  pathIdsToCategoryFields,
   resolveCategoryPathIdsByBalanceUid,
   resolveCategoryPathIds,
 } from "@/components/products/CategoryPathPicker";
@@ -149,6 +148,44 @@ function yesNoDisplay(value: unknown): string {
   if (/^(y|yes|true|კი|1)$/i.test(s)) return "Y";
   if (/^(n|no|false|არა|0)$/i.test(s)) return "N";
   return s;
+}
+
+function dateOnlyDisplay(value: unknown): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const isoDate = /^(\d{4}-\d{2}-\d{2})/.exec(raw);
+  if (isoDate) return isoDate[1];
+  const date = new Date(raw);
+  if (!Number.isNaN(date.getTime())) {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  }
+  return raw;
+}
+
+function formatBalanceScheduleCell(value: unknown): string {
+  const rows = Array.isArray(value) ? value : value ? [value] : [];
+  if (rows.length === 0) return "—";
+
+  return rows
+    .map((row) => {
+      if (!row || typeof row !== "object") return String(row);
+      const rec = row as Record<string, unknown>;
+      const weekDay = String(rec.WeekDay ?? rec.weekDay ?? "").trim();
+      const start = String(rec.StartPeriod ?? rec.startPeriod ?? "").trim();
+      const end = String(rec.EndPeriod ?? rec.endPeriod ?? "").trim();
+      const chosen = String(rec.IsChosen ?? rec.isChosen ?? "")
+        .trim()
+        .toLowerCase();
+      const isChosen = chosen === "yes" || chosen === "true" || chosen === "1";
+      const parts = [
+        weekDay || "დღე",
+        start || end ? `${start || "00:00:00"}-${end || "23:59:59"}` : "",
+        isChosen ? "მუშაობს" : "გამორთულია",
+      ].filter(Boolean);
+      return parts.join(" · ");
+    })
+    .join("; ");
 }
 
 function numericProductValue(product: Product, keys: string[]): number | undefined {
@@ -264,6 +301,7 @@ function ProductsPageContent() {
     useState<Product | null>(null);
   const [pharmacistForm, setPharmacistForm] = useState({
     productCode: "",
+    internalSku: "",
     productName: "",
     categoryPathIds: [] as string[],
     form: "",
@@ -802,15 +840,8 @@ function ProductsPageContent() {
     [balanceStockProductRows],
   );
   const balanceCatalogDiscountRows = useMemo(
-    () =>
-      balanceDiscountsRows.map((row) => {
-        const itemUid = getItemUuid(row)?.trim().toLowerCase();
-        return {
-          ItemName: itemUid ? balanceCatalogItemNameByUid.get(itemUid) ?? "—" : "—",
-          ...row,
-        };
-      }),
-    [balanceCatalogItemNameByUid, balanceDiscountsRows],
+    () => balanceDiscountsRows,
+    [balanceDiscountsRows],
   );
   const balanceCatalogDiscountColumns = useMemo(() => {
     const seen = new Set<string>();
@@ -830,6 +861,27 @@ function ProductsPageContent() {
       }),
     [balanceCatalogItemNameByUid, itemsSeriesBareRows],
   );
+  const balanceSeriesByItemUid = useMemo(() => {
+    const m = new Map<
+      string,
+      { seriesNumbers: string[]; validUntilDates: string[] }
+    >();
+    for (const row of itemsSeriesBareRows) {
+      const itemUid = String(row.Item ?? "").trim().toLowerCase();
+      if (!itemUid) continue;
+      const bucket = m.get(itemUid) ?? { seriesNumbers: [], validUntilDates: [] };
+      const seriesNumber = String(row.SeriesNumber ?? "").trim();
+      const validUntil = dateOnlyDisplay(row.ValidUntil);
+      if (seriesNumber && !bucket.seriesNumbers.includes(seriesNumber)) {
+        bucket.seriesNumbers.push(seriesNumber);
+      }
+      if (validUntil && !bucket.validUntilDates.includes(validUntil)) {
+        bucket.validUntilDates.push(validUntil);
+      }
+      m.set(itemUid, bucket);
+    }
+    return m;
+  }, [itemsSeriesBareRows]);
   const balanceCatalogSeriesColumns = useMemo(() => {
     const seen = new Set<string>();
     for (const row of balanceCatalogSeriesRows) {
@@ -904,8 +956,8 @@ function ProductsPageContent() {
 
   /** GET /api/balance/discounts → ნომენკლატურის Item-ზე + უპირობო (ცხრილში ცოცხლად, სინქამდეც) */
   const balanceDiscountMaps = useMemo(
-    () => buildDiscountMapsFromBalanceApi(balanceDiscountsRaw),
-    [balanceDiscountsRaw]
+    () => buildDiscountMapsFromBalanceApi(balanceDiscountsRaw, balanceStocksRows),
+    [balanceDiscountsRaw, balanceStocksRows]
   );
 
   /** Exchange/Stocks — ItemName + ItemsSeries (ფილტრი Stocks `Series` ↔ ItemsSeries ჩანაწერის `uid`) */
@@ -1160,7 +1212,8 @@ function ProductsPageContent() {
         product.subcategory?.trim() || "",
       );
     setPharmacistForm({
-      productCode: product.productCode?.trim() || product.sku?.trim() || "",
+      productCode: product.productCode?.trim() || "",
+      internalSku: product.internalSku?.trim() || "",
       productName: product.productNameBrand?.trim() || product.name?.trim() || "",
       categoryPathIds,
       form: product.dosageForm?.trim() || "",
@@ -1193,16 +1246,13 @@ function ProductsPageContent() {
     }
     setPharmacistSaving(true);
     try {
-      const categoryFields = pathIdsToCategoryFields(
-        categories,
-        pharmacistForm.categoryPathIds,
-      );
       await productsApi.update(productId, {
         productCode: pharmacistForm.productCode.trim() || undefined,
+        internalSku: pharmacistForm.internalSku.trim() || undefined,
         productNameBrand: pharmacistForm.productName.trim() || undefined,
         name: pharmacistForm.productName.trim() || pharmacistEditingProduct.name,
-        mainCategory: categoryFields.mainCategory || undefined,
-        subcategory: categoryFields.subcategory || undefined,
+        mainCategory: pharmacistEditingProduct.mainCategory || undefined,
+        subcategory: pharmacistEditingProduct.subcategory || undefined,
         dosageForm: pharmacistForm.form.trim() || undefined,
         strength: pharmacistForm.strength.trim() || undefined,
         manufacturer: pharmacistForm.manufacturer.trim() || undefined,
@@ -2177,7 +2227,9 @@ function ProductsPageContent() {
                         {balanceCatalogDiscountColumns.map((key) => {
                           const value = (row as Record<string, unknown>)[key];
                           const display =
-                            value === null || value === undefined
+                            key === "Schedule"
+                              ? formatBalanceScheduleCell(value)
+                              : value === null || value === undefined
                               ? "—"
                               : typeof value === "object"
                                 ? JSON.stringify(value)
@@ -2422,6 +2474,7 @@ function ProductsPageContent() {
                   "საქონლის კოდი",
                   "Product Name",
                   "Category",
+                  "SKU",
                   "Form",
                   "Strength",
                   "Manufacturer",
@@ -2447,16 +2500,14 @@ function ProductsPageContent() {
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={16} className="px-6 py-8 text-center text-sm text-gray-500">
                     პროდუქტები არ მოიძებნა
                   </td>
                 </tr>
               ) : (
                 filteredProducts.map((product) => {
-                  const sku =
-                    product.productCode?.trim() ||
-                    product.sku?.trim() ||
-                    "—";
+                  const productCode = product.productCode?.trim() || "—";
+                  const sku = product.internalSku?.trim() || "—";
                   const productName =
                     product.productNameBrand?.trim() || product.name?.trim() || "—";
                   const category =
@@ -2487,14 +2538,17 @@ function ProductsPageContent() {
                       key={product.id || (product as any)._id || product.sku}
                       className="hover:bg-gray-50 dark:hover:bg-gray-700"
                     >
-                      <td className="max-w-[120px] truncate px-3 py-3 font-mono text-xs text-gray-700 dark:text-gray-300" title={sku}>
-                        {sku}
+                      <td className="max-w-[120px] truncate px-3 py-3 font-mono text-xs text-gray-700 dark:text-gray-300" title={productCode}>
+                        {productCode}
                       </td>
                       <td className="max-w-[220px] truncate px-3 py-3 text-sm font-medium text-gray-900 dark:text-white" title={productName}>
                         {productName}
                       </td>
                       <td className="max-w-[180px] truncate px-3 py-3 text-sm text-gray-600 dark:text-gray-300" title={category}>
                         {category}
+                      </td>
+                      <td className="max-w-[120px] truncate px-3 py-3 font-mono text-xs text-gray-700 dark:text-gray-300" title={sku}>
+                        {sku}
                       </td>
                       <td className="whitespace-nowrap px-3 py-3 text-sm text-gray-600 dark:text-gray-300">
                         {product.dosageForm?.trim() || "—"}
@@ -2700,6 +2754,26 @@ function ProductsPageContent() {
                     String(product.productCode ?? "").trim() ||
                     String(product.sku ?? "").trim() ||
                     "—";
+                  const productBalanceUid =
+                    product.balanceNomenclatureItemUid?.trim().toLowerCase() ||
+                    (product.sku
+                      ? balanceUidForSku(balanceStocksRows, product.sku)?.trim().toLowerCase()
+                      : undefined);
+                  const liveSeries = productBalanceUid
+                    ? balanceSeriesByItemUid.get(productBalanceUid)
+                    : undefined;
+                  const liveSeriesNumberDisplay =
+                    liveSeries?.seriesNumbers.length
+                      ? liveSeries.seriesNumbers.join("; ")
+                      : "";
+                  const liveSeriesValidUntilDisplay =
+                    liveSeries?.validUntilDates.length
+                      ? liveSeries.validUntilDates.join("; ")
+                      : "";
+                  const serialDisplay =
+                    liveSeriesNumberDisplay || productBalanceSerialDisplay(product);
+                  const expiryDisplay =
+                    liveSeriesValidUntilDisplay || productBalanceExpiryDisplay(product);
                   const taxationDisplay =
                     balanceVatRateBySku.get(String(product.sku ?? "").trim()) ??
                     product.taxation ??
@@ -2762,6 +2836,37 @@ function ProductsPageContent() {
                     (liveDisc?.balanceDiscountName ?? product.balanceDiscountName)?.trim(),
                     (liveDisc?.balanceDiscountUid ?? product.balanceDiscountUid) &&
                       `წესის კოდი: ${liveDisc?.balanceDiscountUid ?? product.balanceDiscountUid}`,
+                    (liveDisc?.balanceDiscountRulePercent ??
+                      product.balanceDiscountRulePercent) != null &&
+                      `წესის %: ${liveDisc?.balanceDiscountRulePercent ?? product.balanceDiscountRulePercent}`,
+                    (liveDisc?.balanceDiscountRuleAmount ??
+                      product.balanceDiscountRuleAmount) != null &&
+                      `წესის თანხა: ₾${Number(liveDisc?.balanceDiscountRuleAmount ?? product.balanceDiscountRuleAmount).toFixed(2)}`,
+                    (liveDisc?.balanceDiscountCondition ??
+                      product.balanceDiscountCondition) &&
+                      `პირობა: ${liveDisc?.balanceDiscountCondition ?? product.balanceDiscountCondition}`,
+                    (liveDisc?.balanceDiscountMinOrderAmount ??
+                      product.balanceDiscountMinOrderAmount) != null &&
+                      `მინ. შეკვეთა: ₾${Number(liveDisc?.balanceDiscountMinOrderAmount ?? product.balanceDiscountMinOrderAmount).toFixed(2)}`,
+                    (liveDisc?.balanceDiscountStartDate ??
+                      product.balanceDiscountStartDate) &&
+                      `დასაწყისი: ${liveDisc?.balanceDiscountStartDate ?? product.balanceDiscountStartDate}`,
+                    (liveDisc?.balanceDiscountEndDate ?? product.balanceDiscountEndDate) &&
+                      `დასასრული: ${liveDisc?.balanceDiscountEndDate ?? product.balanceDiscountEndDate}`,
+                    (liveDisc?.balanceDiscountSchedule ??
+                      product.balanceDiscountSchedule) &&
+                      `განრიგი: ${liveDisc?.balanceDiscountSchedule ?? product.balanceDiscountSchedule}`,
+                    (liveDisc?.balanceDiscountComments ??
+                      product.balanceDiscountComments) &&
+                      `კომენტარი: ${liveDisc?.balanceDiscountComments ?? product.balanceDiscountComments}`,
+                    (liveDisc?.balanceLoyaltyCardType ??
+                      product.balanceLoyaltyCardType) &&
+                      `LoyaltyCardType: ${liveDisc?.balanceLoyaltyCardType ?? product.balanceLoyaltyCardType}`,
+                    (liveDisc?.balancePointsAccrualMethod ??
+                      product.balancePointsAccrualMethod) &&
+                      `PointsAccrualMethod: ${liveDisc?.balancePointsAccrualMethod ?? product.balancePointsAccrualMethod}`,
+                    (liveDisc?.balancePointsValue ?? product.balancePointsValue) != null &&
+                      `PointsValue: ${liveDisc?.balancePointsValue ?? product.balancePointsValue}`,
                     liveDisc &&
                       !balanceDiscountsLoading &&
                       !balanceDiscountsError &&
@@ -2813,6 +2918,9 @@ function ProductsPageContent() {
                     >
                       {priced.apply ? (
                         <div className="flex flex-col items-end gap-1.5 tabular-nums">
+                          <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                            {discountCellText}
+                          </span>
                           <div className="flex flex-col items-end gap-0.5">
                             <span className="text-[10px] font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                               ერთეული
@@ -2872,15 +2980,15 @@ function ProductsPageContent() {
                     </td>
                     <td
                       className={`max-w-[110px] truncate px-3 py-3 text-sm text-gray-800 dark:text-gray-200 ${cellBalance}`}
-                      title={productBalanceSerialDisplay(product) || undefined}
+                      title={serialDisplay || undefined}
                     >
-                      {productBalanceSerialDisplay(product) || "—"}
+                      {serialDisplay || "—"}
                     </td>
                     <td
                       className={`max-w-[110px] truncate px-3 py-3 text-sm text-gray-800 dark:text-gray-200 ${cellBalance}`}
-                      title={productBalanceExpiryDisplay(product) || undefined}
+                      title={expiryDisplay || undefined}
                     >
-                      {productBalanceExpiryDisplay(product) || "—"}
+                      {expiryDisplay || "—"}
                     </td>
                     </>
                     )}
@@ -3265,9 +3373,27 @@ function ProductsPageContent() {
                     categoryPathIds: pathIds,
                   }))
                 }
+                disabled
               />
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    SKU
+                  </label>
+                  <input
+                    type="text"
+                    value={pharmacistForm.internalSku}
+                    onChange={(e) =>
+                      setPharmacistForm((prev) => ({
+                        ...prev,
+                        internalSku: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-brand-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+
                 <div>
                   <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Form

@@ -16,6 +16,7 @@ import { BogPaymentsService } from '../bog/bog-payments.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import { QuickshipperService } from '../quickshipper/quickshipper.service';
 import { Product, ProductDocument } from '../products/schemas/product.schema';
+import { BuyersService } from '../buyers/buyers.service';
 
 type ProductStockRow = {
   balanceWarehouseName?: string;
@@ -54,6 +55,142 @@ const DEFAULT_PICKUP: PickupAddress = {
   warehouseName: 'Aphoteka (default)',
 };
 
+const GEORGIAN_WEEK_DAYS = [
+  'კვირა',
+  'ორშაბათი',
+  'სამშაბათი',
+  'ოთხშაბათი',
+  'ხუთშაბათი',
+  'პარასკევი',
+  'შაბათი',
+] as const;
+
+function secondsFromScheduleTime(value: string): number | undefined {
+  const match = /^0*(\d{1,2}):(\d{2}):(\d{2})$/.exec(value.trim());
+  if (!match) return undefined;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3]);
+  if (hours > 23 || minutes > 59 || seconds > 59) return undefined;
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function conditionalScheduleApplies(schedule: string | undefined): boolean {
+  const raw = schedule?.trim();
+  if (!raw) return true;
+  const chosenSlots = raw
+    .split(';')
+    .map((slot) => slot.trim())
+    .filter((slot) => slot && !slot.includes('არ არის არჩეული'));
+  if (chosenSlots.length === 0) return true;
+
+  const now = new Date();
+  const today = GEORGIAN_WEEK_DAYS[now.getDay()];
+  const nowSeconds =
+    now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+
+  return chosenSlots.some((slot) => {
+    if (!slot.includes(today)) return false;
+    const period = /(\d{1,3}:\d{2}:\d{2})-(\d{1,3}:\d{2}:\d{2})/.exec(slot);
+    if (!period) return true;
+    const start = secondsFromScheduleTime(period[1]);
+    const end = secondsFromScheduleTime(period[2]);
+    if (start === undefined || end === undefined) return true;
+    return nowSeconds >= start && nowSeconds <= end;
+  });
+}
+
+function discountedUnitPrice(
+  product: ProductDocument,
+  fallbackUnitPrice: number,
+  context?: {
+    orderSubtotalBeforeDiscount: number;
+    buyerPersonalId?: string;
+  },
+) {
+  const listPrice = Number(product.price);
+  const basePrice = Number.isFinite(listPrice) ? listPrice : fallbackUnitPrice;
+  const percent = Number(product.balanceDiscountPercent);
+  const amount = Number(product.balanceDiscountAmount);
+  let bestUnitPrice = fallbackUnitPrice;
+
+  if (Number.isFinite(percent) && percent > 0 && basePrice > 0) {
+    bestUnitPrice = Math.max(
+      0,
+      Math.round(basePrice * (1 - percent / 100) * 100) / 100,
+    );
+  }
+
+  if (Number.isFinite(amount) && amount > 0 && basePrice > 0) {
+    bestUnitPrice = Math.min(
+      bestUnitPrice,
+      Math.max(0, Math.round((basePrice - amount) * 100) / 100),
+    );
+  }
+
+  const rulePercent = Number(product.balanceDiscountRulePercent);
+  const ruleAmount = Number(product.balanceDiscountRuleAmount);
+  if (
+    context &&
+    conditionalBuyerDiscountApplies(product, context) &&
+    Number.isFinite(rulePercent) &&
+    rulePercent > 0 &&
+    basePrice > 0
+  ) {
+    bestUnitPrice = Math.min(
+      bestUnitPrice,
+      Math.max(0, Math.round(basePrice * (1 - rulePercent / 100) * 100) / 100),
+    );
+  }
+
+  if (
+    context &&
+    conditionalBuyerDiscountApplies(product, context) &&
+    Number.isFinite(ruleAmount) &&
+    ruleAmount > 0 &&
+    basePrice > 0
+  ) {
+    bestUnitPrice = Math.min(
+      bestUnitPrice,
+      Math.max(0, Math.round((basePrice - ruleAmount) * 100) / 100),
+    );
+  }
+
+  return bestUnitPrice;
+}
+
+function conditionalBuyerDiscountApplies(
+  product: ProductDocument,
+  context: { orderSubtotalBeforeDiscount: number; buyerPersonalId?: string },
+): boolean {
+  const condition = String(product.balanceDiscountCondition ?? '')
+    .trim()
+    .toLowerCase();
+  if (!condition || condition === 'უპირობოდ') return false;
+
+  if (!conditionalScheduleApplies(product.balanceDiscountSchedule)) {
+    return false;
+  }
+
+  const minOrderAmount = Number(product.balanceDiscountMinOrderAmount);
+  if (
+    Number.isFinite(minOrderAmount) &&
+    minOrderAmount > 0 &&
+    context.orderSubtotalBeforeDiscount <= minOrderAmount
+  ) {
+    return false;
+  }
+
+  const buyerPersonalId = context.buyerPersonalId?.replace(/\D/g, '');
+  if (!buyerPersonalId) return false;
+
+  const commentsDigits = String(product.balanceDiscountComments ?? '').replace(
+    /\D/g,
+    '',
+  );
+  return commentsDigits.includes(buyerPersonalId);
+}
+
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
@@ -67,19 +204,55 @@ export class OrdersService {
     private readonly bogPayments: BogPaymentsService,
     private readonly warehousesService: WarehousesService,
     private readonly quickshipperService: QuickshipperService,
+    private readonly buyersService: BuyersService,
   ) {}
 
   async create(userId: string, dto: CreateOrderDto) {
-    const items = dto.items.map((item) => ({
-      productId: new Types.ObjectId(item.productId),
-      productName: item.productName,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      totalPrice: item.quantity * item.unitPrice,
-      imageUrl: item.imageUrl,
-      packSize: item.packSize,
-      balanceSeriesUuid: item.balanceSeriesUuid?.trim() || undefined,
-    }));
+    const productObjectIds = dto.items.map(
+      (item) => new Types.ObjectId(item.productId),
+    );
+    const products = await this.productModel
+      .find({ _id: { $in: productObjectIds } })
+      .select(
+        'price balanceDiscountPercent balanceDiscountAmount balanceDiscountRulePercent balanceDiscountRuleAmount balanceDiscountCondition balanceDiscountComments balanceDiscountMinOrderAmount balanceDiscountSchedule',
+      )
+      .exec();
+    const productsById = new Map(
+      products.map((product) => [product._id.toString(), product]),
+    );
+    const buyer = Types.ObjectId.isValid(userId)
+      ? await this.buyersService.findByUserId(new Types.ObjectId(userId))
+      : null;
+    const buyerPersonalId = buyer?.personalId?.replace(/\D/g, '') || undefined;
+    const orderSubtotalBeforeDiscount = dto.items.reduce((sum, item, index) => {
+      const productId = productObjectIds[index];
+      const product = productsById.get(productId.toString());
+      const listPrice = Number(product?.price);
+      const unitPrice = Number.isFinite(listPrice) ? listPrice : item.unitPrice;
+      return sum + unitPrice * item.quantity;
+    }, 0);
+
+    const items = dto.items.map((item, index) => {
+      const productId = productObjectIds[index];
+      const product = productsById.get(productId.toString());
+      const unitPrice = product
+        ? discountedUnitPrice(product, item.unitPrice, {
+            orderSubtotalBeforeDiscount,
+            buyerPersonalId,
+          })
+        : item.unitPrice;
+
+      return {
+        productId,
+        productName: item.productName,
+        quantity: item.quantity,
+        unitPrice,
+        totalPrice: item.quantity * unitPrice,
+        imageUrl: item.imageUrl,
+        packSize: item.packSize,
+        balanceSeriesUuid: item.balanceSeriesUuid?.trim() || undefined,
+      };
+    });
     const productsTotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
     const deliveryTotal =
       (Number(dto.deliveryPrice) || 0) + (Number(dto.deliveryServiceFee) || 0);

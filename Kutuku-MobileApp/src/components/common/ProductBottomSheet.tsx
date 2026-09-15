@@ -41,6 +41,12 @@ interface ProductBottomSheetProps {
     price: number;
     originalPrice?: number;
     discount?: number;
+    conditionalDiscountPercentage?: number;
+    conditionalDiscountAmount?: number;
+    conditionalDiscountMinOrderAmount?: number;
+    conditionalDiscountCondition?: string;
+    conditionalDiscountSchedule?: string;
+    conditionalDiscountComments?: string;
     image: string;
     rating?: number;
     reviewCount?: number;
@@ -149,6 +155,12 @@ export function ProductBottomSheet({
           price: product.price,
           originalPrice: product.originalPrice,
           discount: product.discount,
+          conditionalDiscountPercentage: product.conditionalDiscountPercentage,
+          conditionalDiscountAmount: product.conditionalDiscountAmount,
+          conditionalDiscountMinOrderAmount: product.conditionalDiscountMinOrderAmount,
+          conditionalDiscountCondition: product.conditionalDiscountCondition,
+          conditionalDiscountSchedule: product.conditionalDiscountSchedule,
+          conditionalDiscountComments: product.conditionalDiscountComments,
           image: product.image,
           packageSize: selectedPackage,
           form: selectedForm,

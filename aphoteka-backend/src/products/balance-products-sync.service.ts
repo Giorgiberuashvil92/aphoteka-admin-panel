@@ -3,7 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { BalanceExchangeService } from '../balance/balance-exchange.service';
-import { Category, CategoryDocument } from '../categories/schemas/category.schema';
+import {
+  Category,
+  CategoryDocument,
+} from '../categories/schemas/category.schema';
 import {
   aggregateExchangeStocksByItemUid,
   buildBalanceWarehouseNameByUuid,
@@ -30,6 +33,24 @@ import {
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { Product, ProductDocument } from './schemas/product.schema';
+
+const DISCOUNT_SYNC_FIELDS = [
+  'balanceDiscountPercent',
+  'balanceDiscountAmount',
+  'balanceDiscountName',
+  'balanceDiscountUid',
+  'balanceDiscountRulePercent',
+  'balanceDiscountRuleAmount',
+  'balanceDiscountCondition',
+  'balanceDiscountStartDate',
+  'balanceDiscountEndDate',
+  'balanceDiscountSchedule',
+  'balanceDiscountComments',
+  'balanceDiscountMinOrderAmount',
+  'balanceLoyaltyCardType',
+  'balancePointsAccrualMethod',
+  'balancePointsValue',
+] as const;
 
 export type BalanceProductsSyncResult = {
   ok: boolean;
@@ -358,7 +379,9 @@ export class BalanceProductsSyncService {
         }
       }
 
-      const missingSeriesUids = leafUuids.filter((uid) => !seriesFetchOk.has(uid));
+      const missingSeriesUids = leafUuids.filter(
+        (uid) => !seriesFetchOk.has(uid),
+      );
       if (missingSeriesUids.length > 0) {
         const seriesSettled = await Promise.allSettled(
           missingSeriesUids.map((uid) =>
@@ -432,6 +455,9 @@ export class BalanceProductsSyncService {
         try {
           if (id) {
             const unset: Record<string, 1> = {};
+            for (const field of DISCOUNT_SYNC_FIELDS) {
+              if (payload[field] === undefined) unset[field] = 1;
+            }
             if (payload.balanceDiscountPercent !== undefined) {
               unset.balanceDiscountAmount = 1;
             }
@@ -442,9 +468,7 @@ export class BalanceProductsSyncService {
               Object.keys(unset).length > 0
                 ? { $set: payload as UpdateProductDto, $unset: unset }
                 : (payload as UpdateProductDto);
-            await this.productModel
-              .findByIdAndUpdate(id, update)
-              .exec();
+            await this.productModel.findByIdAndUpdate(id, update).exec();
             updated++;
           } else {
             const doc = await this.productModel.create(
@@ -454,9 +478,7 @@ export class BalanceProductsSyncService {
             bySku.set(sku, String(doc._id));
           }
         } catch (e: unknown) {
-          errors.push(
-            `${sku}: ${e instanceof Error ? e.message : String(e)}`,
-          );
+          errors.push(`${sku}: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
 
@@ -524,6 +546,42 @@ export class BalanceProductsSyncService {
               : {}),
             ...(disc.balanceDiscountUid
               ? { balanceDiscountUid: disc.balanceDiscountUid }
+              : {}),
+            ...(disc.balanceDiscountRulePercent != null
+              ? { balanceDiscountRulePercent: disc.balanceDiscountRulePercent }
+              : {}),
+            ...(disc.balanceDiscountRuleAmount != null
+              ? { balanceDiscountRuleAmount: disc.balanceDiscountRuleAmount }
+              : {}),
+            ...(disc.balanceDiscountCondition
+              ? { balanceDiscountCondition: disc.balanceDiscountCondition }
+              : {}),
+            ...(disc.balanceDiscountStartDate
+              ? { balanceDiscountStartDate: disc.balanceDiscountStartDate }
+              : {}),
+            ...(disc.balanceDiscountEndDate
+              ? { balanceDiscountEndDate: disc.balanceDiscountEndDate }
+              : {}),
+            ...(disc.balanceDiscountSchedule
+              ? { balanceDiscountSchedule: disc.balanceDiscountSchedule }
+              : {}),
+            ...(disc.balanceDiscountComments
+              ? { balanceDiscountComments: disc.balanceDiscountComments }
+              : {}),
+            ...(disc.balanceDiscountMinOrderAmount != null
+              ? {
+                  balanceDiscountMinOrderAmount:
+                    disc.balanceDiscountMinOrderAmount,
+                }
+              : {}),
+            ...(disc.balanceLoyaltyCardType
+              ? { balanceLoyaltyCardType: disc.balanceLoyaltyCardType }
+              : {}),
+            ...(disc.balancePointsAccrualMethod
+              ? { balancePointsAccrualMethod: disc.balancePointsAccrualMethod }
+              : {}),
+            ...(disc.balancePointsValue != null
+              ? { balancePointsValue: disc.balancePointsValue }
               : {}),
           }
         : {}),

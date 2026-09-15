@@ -231,6 +231,39 @@ export class Product {
   @Prop()
   balanceDiscountUid?: string;
 
+  @Prop({ type: Number })
+  balanceDiscountRulePercent?: number;
+
+  @Prop({ type: Number })
+  balanceDiscountRuleAmount?: number;
+
+  @Prop()
+  balanceDiscountCondition?: string;
+
+  @Prop()
+  balanceDiscountStartDate?: string;
+
+  @Prop()
+  balanceDiscountEndDate?: string;
+
+  @Prop()
+  balanceDiscountSchedule?: string;
+
+  @Prop()
+  balanceDiscountComments?: string;
+
+  @Prop({ type: Number })
+  balanceDiscountMinOrderAmount?: number;
+
+  @Prop()
+  balanceLoyaltyCardType?: string;
+
+  @Prop()
+  balancePointsAccrualMethod?: string;
+
+  @Prop({ type: Number })
+  balancePointsValue?: number;
+
   @Prop({
     type: [
       {

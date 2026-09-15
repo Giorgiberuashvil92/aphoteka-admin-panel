@@ -287,9 +287,13 @@ export default function ProductFormModal({
 
       const productData: Partial<Product> = {
         description: formData.description || undefined,
-        mainCategory: formData.mainCategory || undefined,
+        mainCategory: product
+          ? product.mainCategory || undefined
+          : formData.mainCategory || undefined,
         category: formData.therapeuticClass || undefined,
-        subcategory: formData.subcategory || undefined,
+        subcategory: product
+          ? product.subcategory || undefined
+          : formData.subcategory || undefined,
         active: formData.active,
         genericName: formData.genericName || undefined,
         strength: formData.strength || undefined,
@@ -870,6 +874,7 @@ export default function ProductFormModal({
               categories={categories}
               pathIds={categoryPathIds}
               onPathChange={applyCategoryPath}
+              disabled={!!product}
             />
 
             {/* Therapeutic Class — მედიკამენტებისთვის (Balance) */}

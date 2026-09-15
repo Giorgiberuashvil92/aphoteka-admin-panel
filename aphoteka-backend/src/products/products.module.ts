@@ -15,7 +15,10 @@ import {
   ProductStrengthSchema,
 } from './schemas/product.schema';
 import { BalanceModule } from '../balance/balance.module';
-import { Category, CategorySchema } from '../categories/schemas/category.schema';
+import {
+  Category,
+  CategorySchema,
+} from '../categories/schemas/category.schema';
 
 @Module({
   imports: [

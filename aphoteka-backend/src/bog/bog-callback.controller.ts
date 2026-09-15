@@ -273,7 +273,9 @@ export class BogCallbackController {
         `BOG redispatch callback OK — order=${mongoOrderId} status=${statusKey}`,
       );
       if (statusKey === 'completed') {
-        await this.bogBalanceSale.tryPostDeliverySaleForRedispatch(mongoOrderId);
+        await this.bogBalanceSale.tryPostDeliverySaleForRedispatch(
+          mongoOrderId,
+        );
       }
     }
     return { ok: true, redispatch: true };

@@ -36,6 +36,23 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE = getServerNestApiBaseUrl();
 const NULL_BALANCE_UID = '00000000-0000-0000-0000-000000000000';
+const DISCOUNT_SYNC_FIELDS = [
+  'balanceDiscountPercent',
+  'balanceDiscountAmount',
+  'balanceDiscountName',
+  'balanceDiscountUid',
+  'balanceDiscountRulePercent',
+  'balanceDiscountRuleAmount',
+  'balanceDiscountCondition',
+  'balanceDiscountStartDate',
+  'balanceDiscountEndDate',
+  'balanceDiscountSchedule',
+  'balanceDiscountComments',
+  'balanceDiscountMinOrderAmount',
+  'balanceLoyaltyCardType',
+  'balancePointsAccrualMethod',
+  'balancePointsValue',
+] as const;
 
 type AdminCategoryForSync = {
   id: string;
@@ -436,6 +453,39 @@ export async function POST(request: NextRequest) {
               ...(disc.balanceDiscountUid
                 ? { balanceDiscountUid: disc.balanceDiscountUid }
                 : {}),
+              ...(disc.balanceDiscountRulePercent != null
+                ? { balanceDiscountRulePercent: disc.balanceDiscountRulePercent }
+                : {}),
+              ...(disc.balanceDiscountRuleAmount != null
+                ? { balanceDiscountRuleAmount: disc.balanceDiscountRuleAmount }
+                : {}),
+              ...(disc.balanceDiscountCondition
+                ? { balanceDiscountCondition: disc.balanceDiscountCondition }
+                : {}),
+              ...(disc.balanceDiscountStartDate
+                ? { balanceDiscountStartDate: disc.balanceDiscountStartDate }
+                : {}),
+              ...(disc.balanceDiscountEndDate
+                ? { balanceDiscountEndDate: disc.balanceDiscountEndDate }
+                : {}),
+              ...(disc.balanceDiscountSchedule
+                ? { balanceDiscountSchedule: disc.balanceDiscountSchedule }
+                : {}),
+              ...(disc.balanceDiscountComments
+                ? { balanceDiscountComments: disc.balanceDiscountComments }
+                : {}),
+              ...(disc.balanceDiscountMinOrderAmount != null
+                ? { balanceDiscountMinOrderAmount: disc.balanceDiscountMinOrderAmount }
+                : {}),
+              ...(disc.balanceLoyaltyCardType
+                ? { balanceLoyaltyCardType: disc.balanceLoyaltyCardType }
+                : {}),
+              ...(disc.balancePointsAccrualMethod
+                ? { balancePointsAccrualMethod: disc.balancePointsAccrualMethod }
+                : {}),
+              ...(disc.balancePointsValue != null
+                ? { balancePointsValue: disc.balancePointsValue }
+                : {}),
             }
           : {}),
         ...(mergedSeries !== undefined
@@ -465,6 +515,13 @@ export async function POST(request: NextRequest) {
             }
           : {}),
       };
+      if (id) {
+        for (const field of DISCOUNT_SYNC_FIELDS) {
+          if ((payload as Record<string, unknown>)[field] === undefined) {
+            (payload as Record<string, unknown>)[field] = null;
+          }
+        }
+      }
       const body = JSON.stringify(payload);
 
       /**

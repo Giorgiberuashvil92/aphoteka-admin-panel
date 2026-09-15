@@ -2,10 +2,7 @@ import { searchHistoryService } from '@/src/services/searchHistory.service';
 import { ProductService, type Product } from '@/src/services/product.service';
 import { theme } from '@/src/theme';
 import { Ionicons } from '@expo/vector-icons';
-import {
-  ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
-} from 'expo-speech-recognition';
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
