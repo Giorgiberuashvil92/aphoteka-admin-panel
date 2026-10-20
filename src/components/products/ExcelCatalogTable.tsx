@@ -2,12 +2,62 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PageBreadCrumb from "@/components/common/PageBreadCrumb";
+import { PharmacistCatalogEditModal } from "./PharmacistCatalogEditModal";
 import { productsApi } from "@/lib/api/products";
+import { filterFieldsApi, type FilterField } from "@/lib/api/filter-fields";
+import { loadBalanceCatalog, type CatalogProduct } from "@/lib/api/catalogBalance";
 import type { Product } from "@/types";
 
 type CatalogMode = "common" | "pharmacist-source" | "pharmacist-stock" | "accountant" | "discounts";
 
 type Cell = string | number | boolean | Date | null | undefined;
+
+
+// Column labels that differ from the Balance Exchange/Items field names.
+const BALANCE_COLUMN_FIELDS: Record<string, string[]> = {
+  "Qty on Hand": ["Quantity"],
+  "Stock value (gel)": ["TotalPrice"],
+  "საქონლის ფასი": ["TotalPrice"],
+  "Package Weight  kg.": ["Weight"],
+  "Cost (GEL)": ["UnitCost", "Cost"],
+  "ერთეულის ფასი": ["Price", "UnitPrice"],
+  "გასაყიდი ფასი": ["Price", "UnitPrice"],
+  "Discount Price (GEL)": ["DiscountPrice"],
+  "Reorder Level": ["ReorderLevel"],
+  "VAT Rate": ["VATRate", "Taxation"],
+  "Commission %": ["CommissionPercent"],
+  "Active Ingredient": ["ActiveIngredients", "GenericName"],
+  "Dosage Form": ["DosageForm"],
+  "Rx Required": ["PrescriptionRequired"],
+  "Manufacturer Brand": ["Brand", "ProductNameBrand"],
+  "Manufacturer country": ["CountryOfOrigin"],
+  "Product Description PDF": ["ProductDescriptionPDF"],
+  "On Sale": ["OnSale"],
+  "Discount Name": ["DiscountName"],
+  "მყიდველი": ["Buyer"],
+};
+
+const MONEY_COLUMNS = new Set([
+  "საქონლის ფასი", "Stock value (gel)", "Cost (GEL)", "ერთეულის ფასი",
+  "გასაყიდი ფასი", "Discount Price (GEL)",
+]);
+
+function withBalanceValues(product: CatalogProduct, row: Record<string, Cell>): Record<string, Cell> {
+  const item = product.balanceCatalogItem;
+  if (!item) return row;
+  for (const column of Object.keys(row)) {
+    const keys = [column, ...(BALANCE_COLUMN_FIELDS[column] ?? [])];
+    const value = keys.map((key) => item[key]).find((value) =>
+      value !== undefined && value !== null && value !== "" &&
+      ["string", "number", "boolean"].includes(typeof value)
+    );
+    if (value === undefined) continue;
+    row[column] = MONEY_COLUMNS.has(column) ? money(value as Cell)
+      : ["StartDate", "EndDate"].includes(column) ? date(value as Cell)
+        : text(value as Cell);
+  }
+  return row;
+}
 
 function recordValue(product: Product, ...keys: string[]): Cell {
   const row = product as Product & Record<string, unknown>;
@@ -29,13 +79,16 @@ function text(value: Cell): string {
 }
 
 function money(value: Cell): string {
+  if (value === undefined || value === null || value === "") return "—";
   const n = Number(value);
   return Number.isFinite(n) ? `₾${n.toFixed(2)}` : text(value);
 }
 
 function date(value: Cell): string {
   if (!value) return "—";
-  const parsed = new Date(String(value));
+  const raw = String(value);
+  const georgianDate = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(raw);
+  const parsed = new Date(georgianDate ? `${georgianDate[3]}-${georgianDate[2]}-${georgianDate[1]}` : raw);
   return Number.isNaN(parsed.getTime()) ? text(value) : parsed.toLocaleDateString("ka-GE");
 }
 
@@ -43,8 +96,8 @@ function productName(product: Product): string {
   return text(product.productNameBrand || product.name);
 }
 
-function productSku(product: Product): string {
-  return text(product.internalSku || product.sku);
+function productInternalArticle(product: Product): string {
+  return text((product as Product & { InternalArticle?: Cell }).InternalArticle);
 }
 
 function category(product: Product): string {
@@ -81,7 +134,7 @@ const PHARMACIST_STOCK_COLUMNS = [
 ] as const;
 
 const DISCOUNT_COLUMNS = [
-  "SKU", "Barcode", "Name", "Unit", "Discount Name", "IsActive", "StartDate", "EndDate", "DiscountType",
+  "InternalArticle", "Barcode", "Name", "Unit", "Discount Name", "IsActive", "StartDate", "EndDate", "DiscountType",
   "Percentage", "DiscountCondition", "Amount", "Currency", "Items", "Schedule", "Comments", "SpecialPrice",
   "LoyaltyCardType", "PointsAccrualMethod", "PointsValue", "RoundUp", "Rating",
 ] as const;
@@ -97,8 +150,8 @@ function genericRow(product: Product): Record<string, Cell> {
       : Number.isFinite(discountAmount) ? Math.max(0, price - discountAmount) : undefined
     : undefined;
   return {
-    InternalArticle: productSku(product),
-    SKU: productSku(product), Barcode: text(product.barcode), Name: text(product.name), Unit: text(product.unitOfMeasure),
+    InternalArticle: productInternalArticle(product),
+    Barcode: text(product.barcode), Name: text(product.name), Unit: text(product.unitOfMeasure),
     "FullName": productName(product), Group: category(product), ItemsSeriesNumber: text(product.balanceItemSeries?.[0]?.seriesNumber || product.serialNumber),
     ItemsSeriesValidUntil: date(product.balanceItemSeries?.[0]?.expiryDate || product.expiryDate),
     "Active Ingredient": text(product.activeIngredients || product.genericName),
@@ -134,7 +187,7 @@ function genericRow(product: Product): Record<string, Cell> {
 function pharmacistRow(product: Product): Record<string, Cell> {
   const series = product.balanceItemSeries?.[0];
   return {
-    InternalArticle: productSku(product),
+    InternalArticle: productInternalArticle(product),
     Barcode: text(product.barcode),
     Name: text(product.name),
     Unit: text(product.unitOfMeasure),
@@ -166,7 +219,7 @@ function accountantRow(product: Product): Record<string, Cell> {
         : undefined
     : undefined;
   return {
-    InternalArticle: productSku(product),
+    InternalArticle: productInternalArticle(product),
     Barcode: text(product.barcode),
     Name: text(product.name),
     Unit: text(product.unitOfMeasure),
@@ -186,17 +239,34 @@ function accountantRow(product: Product): Record<string, Cell> {
 }
 
 export default function ExcelCatalogTable({ mode, title }: { mode: CatalogMode; title: string }) {
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState<CatalogProduct | null>(null);
+  const [filterFields, setFilterFields] = useState<FilterField[]>([]);
+  const [filterError, setFilterError] = useState<string | null>(null);
+  const canEdit = mode === "pharmacist-source" || mode === "pharmacist-stock";
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setWarning(null);
     try {
-      const response = await productsApi.getAll({ limit: 10000 });
-      setProducts(Array.isArray(response.data) ? response.data : []);
+      const [response] = await Promise.all([
+        productsApi.getAll({ limit: 10000 }),
+        filterFieldsApi.getActive().then((fields) => {
+          setFilterFields(fields.filter((field) => field.isActive).sort((a, b) => a.sortOrder - b.sortOrder));
+          setFilterError(null);
+        }).catch(() => {
+          setFilterFields([]);
+          setFilterError("ფილტრების ჩატვირთვა ვერ მოხერხდა. სცადეთ გვერდის განახლება.");
+        }),
+      ]);
+      const result = await loadBalanceCatalog(Array.isArray(response.data) ? response.data : []);
+      setProducts(result.products);
+      setWarning(result.warnings.length ? `ბალანსის წყაროები ვერ ჩაიტვირთა: ${result.warnings.join(", ")}` : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "კატალოგის ჩატვირთვა ვერ მოხერხდა");
     } finally {
@@ -210,12 +280,24 @@ export default function ExcelCatalogTable({ mode, title }: { mode: CatalogMode; 
   const rows = useMemo(() => {
     const query = search.trim().toLowerCase();
     return products
-      .map((product) => mode === "common" || mode === "pharmacist-stock" || mode === "discounts" ? genericRow(product) : mode === "pharmacist-source" ? pharmacistRow(product) : accountantRow(product))
+      .flatMap((product) => mode === "discounts" && product.balanceDiscountRows?.length
+        ? product.balanceDiscountRows.map((rule) => ({ ...product, balanceCatalogItem: { ...product.balanceCatalogItem, ...rule } }))
+        : [product])
+      .map((product): Record<string, Cell> => {
+        const row = mode === "common" || mode === "pharmacist-stock" || mode === "discounts" ? genericRow(product) : mode === "pharmacist-source" ? pharmacistRow(product) : accountantRow(product);
+        if (mode === "pharmacist-source") row.Filters = filterFields.flatMap((field) => {
+          const value = product.filterValues?.[field.key];
+          if (value === undefined || value === "" || (Array.isArray(value) && !value.length)) return [];
+          return [`${field.label}: ${Array.isArray(value) ? value.join(", ") : typeof value === "boolean" ? value ? "კი" : "არა" : value}`];
+        }).join("; ") || "—";
+        return { ...withBalanceValues(product, row), __productUid: product.balanceNomenclatureItemUid };
+      })
       .filter((row) => !query || columns.some((column) => text(row[column]).toLowerCase().includes(query)));
-  }, [columns, mode, products, search]);
+  }, [columns, mode, products, search, filterFields]);
 
   return (
     <div className="space-y-6">
+      {editing && <PharmacistCatalogEditModal product={editing} columns={columns} filterFields={filterFields} filterError={filterError} displayValues={withBalanceValues(editing, mode === "pharmacist-source" ? pharmacistRow(editing) : genericRow(editing))} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />}
       <PageBreadCrumb pageTitle={title} />
       <div className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -227,13 +309,14 @@ export default function ExcelCatalogTable({ mode, title }: { mode: CatalogMode; 
           <button type="button" onClick={() => void load()} className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600">განახლება</button>
         </div>
       </div>
+      {warning ? <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{warning}</div> : null}
       {error ? <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-900"><tr>{columns.map((column) => <th key={column} className="whitespace-nowrap px-3 py-3 text-xs font-medium text-gray-600 dark:text-gray-300">{column}</th>)}</tr></thead>
+            <thead className="bg-gray-50 dark:bg-gray-900"><tr>{columns.map((column) => <th key={column} className="whitespace-nowrap px-3 py-3 text-xs font-medium text-gray-600 dark:text-gray-300">{column}</th>)}{canEdit && <th className="px-3 py-3 text-xs font-medium">მოქმედება</th>}</tr></thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {loading ? <tr><td colSpan={columns.length} className="px-6 py-8 text-center text-sm text-gray-500">იტვირთება...</td></tr> : rows.length === 0 ? <tr><td colSpan={columns.length} className="px-6 py-8 text-center text-sm text-gray-500">ჩანაწერები არ მოიძებნა</td></tr> : rows.map((row, index) => <tr key={`${text(row.SKU)}-${index}`} className="hover:bg-gray-50 dark:hover:bg-gray-700">{columns.map((column) => <td key={column} className="max-w-[220px] truncate px-3 py-3 text-gray-700 dark:text-gray-300" title={text(row[column])}>{text(row[column])}</td>)}</tr>)}
+              {loading ? <tr><td colSpan={columns.length + (canEdit ? 1 : 0)} className="px-6 py-8 text-center text-sm text-gray-500">იტვირთება...</td></tr> : rows.length === 0 ? <tr><td colSpan={columns.length + (canEdit ? 1 : 0)} className="px-6 py-8 text-center text-sm text-gray-500">ჩანაწერები არ მოიძებნა</td></tr> : rows.map((row, index) => <tr key={`${text(row.InternalArticle)}-${index}`} className="hover:bg-gray-50 dark:hover:bg-gray-700">{columns.map((column) => <td key={column} className="max-w-[220px] truncate px-3 py-3 text-gray-700 dark:text-gray-300" title={text(row[column])}>{text(row[column])}</td>)}{canEdit && <td className="px-3 py-3"><button type="button" className="rounded-lg border border-brand-500 px-3 py-2 text-brand-500" onClick={() => setEditing(products.find((product) => product.balanceNomenclatureItemUid === row.__productUid) ?? null)}>რედაქტირება</button></td>}</tr>)}
             </tbody>
           </table>
         </div>
