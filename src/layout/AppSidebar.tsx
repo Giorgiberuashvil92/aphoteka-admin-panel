@@ -49,15 +49,15 @@ const navItems: NavItem[] = [
   },
   {
     icon: <BoxIcon />,
-    name: "პროდუქტები",
+    name: "ბალანსის დატა",
     subItems: [
       { name: "კატალოგი ბალანსიდან", path: "/products/balance-catalog", pro: false },
       { name: "ნაშთები (Stocks)", path: "/products/balance-stocks", pro: false },
       { name: "Balance raw request-ები", path: "/products/balance-raw-requests", pro: false },
-      { name: "კატალოგი", path: "/products/catalog", pro: false },
-      { name: "კატალოგი ფარმაცევტისთვის", path: "/products/pharmacist-catalog", pro: false },
+      // { name: "კატალოგი", path: "/products/catalog", pro: false },
+      // { name: "კატალოგი ფარმაცევტისთვის", path: "/products/pharmacist-catalog", pro: false },
       { name: "კატალოგი გაყიდვებისთვის", path: "/products/sales-catalog", pro: false },
-      { name: "Excel-იდან იმპორტი", path: "/products/import", pro: false },
+      // { name: "Excel-იდან იმპორტი", path: "/products/import", pro: false },
     ],
   },
   {
